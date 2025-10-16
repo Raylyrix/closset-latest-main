@@ -1803,7 +1803,44 @@ try {
     
     console.log('🎨 Creating text element with layerId:', targetLayerId);
     console.log('🎨 Text element details:', textElement);
+    
+    // Add to old system for backward compatibility
     set(state => ({ textElements: [...state.textElements, textElement] }));
+    
+    // CRITICAL: Also add to V2 system
+    const v2State = useAdvancedLayerStoreV2.getState();
+    const v2Layer = v2State.layers.find(l => l.id === targetLayerId);
+    if (v2Layer) {
+      // Convert UV coordinates to canvas coordinates
+      const canvasX = uv.u * 1536; // Using standard canvas size
+      const canvasY = (1 - uv.v) * 1536; // Flip V coordinate
+      
+      const v2TextElement = {
+        id,
+        text,
+        x: canvasX,
+        y: canvasY,
+        fontSize: state.textSize,
+        fontFamily: state.textFont,
+        color: state.textColor,
+        opacity: 1,
+        rotation: 0,
+        letterSpacing: 0,
+        lineHeight: 1.2,
+        shadow: { blur: 0, offsetX: 0, offsetY: 0, color: '#000000' },
+        textCase: 'none' as const,
+        layerId: targetLayerId,
+        u: uv.u,
+        v: uv.v,
+        timestamp: Date.now()
+      };
+      
+      v2State.addTextElement(targetLayerId, v2TextElement);
+      console.log('🎨 Added text element to V2 system');
+    } else {
+      console.warn('🎨 V2 layer not found for text element:', targetLayerId);
+    }
+    
     console.log('🎨 Text elements after addition:', get().textElements);
     get().composeLayers();
     

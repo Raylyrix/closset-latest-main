@@ -900,11 +900,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       if (!ctx) return null;
       
-      // CRITICAL: Preserve the base model texture first
+      // CRITICAL: Preserve the base model texture first at FULL opacity
       const appState = useApp.getState();
       if (appState.baseTexture) {
+        ctx.save();
+        ctx.globalAlpha = 1.0; // Always draw base texture at full opacity
         ctx.drawImage(appState.baseTexture, 0, 0, composedCanvas.width, composedCanvas.height);
-        console.log('🎨 Preserved base model texture in composition');
+        ctx.restore();
+        console.log('🎨 Preserved base model texture in composition at full opacity');
       } else {
         // Fill with white background if no base texture
         ctx.fillStyle = '#ffffff';
@@ -918,6 +921,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       for (const layer of sortedLayers) {
         if (!layer.visible) continue;
         
+        // Only apply layer opacity to the layer content, not the base texture
         ctx.save();
         ctx.globalAlpha = layer.opacity;
         ctx.globalCompositeOperation = layer.blendMode === 'normal' ? 'source-over' : 'source-over';

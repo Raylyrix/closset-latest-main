@@ -102,29 +102,29 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     layerOrder: advancedLayerOrder,
     selectedLayerIds: advancedSelectedLayerIds,
     activeLayerId: advancedActiveLayerId,
-    createLayer: createAdvancedLayer,
+    createLayer: createLayer,
     deleteLayer: deleteLayer,
     duplicateLayer: duplicateLayer,
-    renameLayer: renameAdvancedLayer,
-    selectLayer: selectAdvancedLayer,
-    selectLayers: selectAdvancedLayers,
-    clearSelection: clearAdvancedSelection,
+    renameLayer: renameLayer,
+    selectLayer: selectLayer,
+    selectLayers: selectLayers,
+    clearSelection: clearLayerSelection,
     setActiveLayer: setActiveLayer,
-    setLayerVisibility: setAdvancedLayerVisibility,
+    setLayerVisibility: setLayerVisibility,
     setLayerOpacity: setLayerOpacity,
     setLayerBlendMode: setLayerBlendMode,
-    setLayerLocked: setAdvancedLayerLocked,
+    setLayerLocked: setLayerLocked,
     moveLayerUp: moveLayerUp,
     moveLayerDown: moveLayerDown,
-    moveLayerToTop: moveAdvancedLayerToTop,
-    moveLayerToBottom: moveAdvancedLayerToBottom,
+    moveLayerToTop: moveLayerToTop,
+    moveLayerToBottom: moveLayerToBottom,
     reorderLayers: reorderLayers,
     createGroup: createGroup,
-    deleteGroup: deleteAdvancedGroup,
+    deleteGroup: deleteGroup,
     addToGroup: addToGroup,
     removeFromGroup: removeFromGroup,
-    toggleGroupCollapse: toggleAdvancedGroupCollapse,
-    autoGroupLayers: autoGroupAdvancedLayers,
+    toggleGroupCollapse: toggleGroupCollapse,
+    autoGroupLayers: autoGroupLayers,
     addEffect,
     removeEffect,
     updateEffect,
@@ -160,7 +160,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     selectedElements,
     activeElement,
     selectionMode,
-    clearSelection,
+    clearSelection: clearElementSelection,
     setSelectionMode,
     moveElement,
     resizeElement,
@@ -4033,7 +4033,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     cursor: 'pointer',
                     fontSize: '9px'
                   }}
-                  onClick={() => createAdvancedLayer('paint', 'New Layer')}
+                  onClick={() => createLayer('paint', 'New Layer')}
                 >
                   ➕ New Layer
                 </button>
@@ -4121,7 +4121,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           checked={layer.visible}
                           onChange={(e) => {
                             e.stopPropagation();
-                            setAdvancedLayerVisibility(layer.id, !layer.visible);
+                            setLayerVisibility(layer.id, !layer.visible);
                           }}
                           style={{ marginRight: '6px', transform: 'scale(0.8)' }}
                         />
@@ -4416,7 +4416,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 </span>
                 {selectedElements.length > 0 && (
                   <button
-                    onClick={clearSelection}
+                    onClick={clearElementSelection}
                     style={{
                       padding: '2px 6px',
                       backgroundColor: '#dc3545',
@@ -4475,7 +4475,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               </div>
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                 <button
-                  onClick={() => createAdvancedLayer('paint', generateAdvancedLayerName('paint'))}
+                  onClick={() => createLayer('paint', generateAdvancedLayerName('paint'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#007acc',
@@ -4489,7 +4489,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   🎨 Paint
                 </button>
                 <button
-                  onClick={() => createAdvancedLayer('text', generateAdvancedLayerName('text'))}
+                  onClick={() => createLayer('text', generateAdvancedLayerName('text'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#6f42c1',
@@ -4503,7 +4503,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   📝 Text
                 </button>
                 <button
-                  onClick={() => createAdvancedLayer('vector', generateAdvancedLayerName('vector'))}
+                  onClick={() => createLayer('vector', generateAdvancedLayerName('vector'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#20c997',
@@ -4517,7 +4517,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   🔷 Vector
                 </button>
                 <button
-                  onClick={() => createAdvancedLayer('puff', generateAdvancedLayerName('puff'))}
+                  onClick={() => createLayer('puff', generateAdvancedLayerName('puff'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#fd7e14',
@@ -4531,7 +4531,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   ☁️ Puff
                 </button>
                 <button
-                  onClick={() => createAdvancedLayer('embroidery', generateAdvancedLayerName('embroidery'))}
+                  onClick={() => createLayer('embroidery', generateAdvancedLayerName('embroidery'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#e83e8c',
@@ -4545,7 +4545,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   🧵 Embroidery
                 </button>
                 <button
-                  onClick={() => createAdvancedLayer('image', generateAdvancedLayerName('image'))}
+                  onClick={() => createLayer('image', generateAdvancedLayerName('image'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#17a2b8',
@@ -4594,7 +4594,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     return (
                       <div
                         key={layer.id}
-                        onClick={() => selectAdvancedLayer(layer.id)}
+                        onClick={() => selectLayer(layer.id)}
                         style={{
                           padding: '6px 8px',
                           borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
@@ -4611,7 +4611,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           checked={layer.visible}
                           onChange={(e) => {
                             e.stopPropagation();
-                            setAdvancedLayerVisibility(layer.id, e.target.checked);
+                            setLayerVisibility(layer.id, e.target.checked);
                           }}
                           style={{ margin: 0 }}
                         />
@@ -4629,7 +4629,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                             e.stopPropagation();
                             const newName = prompt('Rename layer:', layer.name);
                             if (newName && newName.trim() && newName !== layer.name) {
-                              renameAdvancedLayer(layer.id, newName.trim());
+                              renameLayer(layer.id, newName.trim());
                             }
                           }}
                           onMouseEnter={(e) => {
@@ -4713,7 +4713,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <button
-                    onClick={() => moveAdvancedLayerToTop(advancedActiveLayerId)}
+                    onClick={() => moveLayerToTop(advancedActiveLayerId)}
                     style={{
                       padding: '4px 8px',
                       backgroundColor: '#6c757d',
@@ -4755,7 +4755,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     ⬇️ Down
                   </button>
                   <button
-                    onClick={() => moveAdvancedLayerToBottom(advancedActiveLayerId)}
+                    onClick={() => moveLayerToBottom(advancedActiveLayerId)}
                     style={{
                       padding: '4px 8px',
                       backgroundColor: '#6c757d',
@@ -6524,7 +6524,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     onDoubleClick={() => {
                       const newName = prompt('Rename layer:', layer.name);
                       if (newName && newName.trim() !== '' && newName !== layer.name) {
-                        renameAdvancedLayer(layer.id, newName.trim());
+                        renameLayer(layer.id, newName.trim());
                         console.log('🎨 Renamed layer:', layer.name, 'to', newName.trim());
                       }
                     }}
@@ -6631,7 +6631,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setAdvancedLayerVisibility(layer.id, !layer.visible);
+                          setLayerVisibility(layer.id, !layer.visible);
                         }}
                         style={{
                           padding: '2px 4px',
@@ -6654,7 +6654,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
             <button
               onClick={() => {
-                const layerId = createAdvancedLayer('paint', `Layer ${advancedLayers.length + 1}`);
+                const layerId = createLayer('paint', `Layer ${advancedLayers.length + 1}`);
                 setActiveLayer(layerId);
                 console.log('🎨 Created new layer:', layerId);
               }}
