@@ -4,7 +4,7 @@ import { createLayerCanvas, createComposedCanvas, createDisplacementCanvas, CANV
 import { useApp } from '../App';
 
 // Layer Types
-export type LayerType = 'paint' | 'puff' | 'vector' | 'text' | 'image' | 'embroidery' | 'adjustment' | 'group';
+export type LayerType = 'paint' | 'puff' | 'vector' | 'text' | 'image' | 'embroidery' | 'adjustment' | 'group' | 'pixel' | 'smart-object' | 'shape' | 'background' | 'raster' | 'procedural' | 'fill' | 'ai-smart';
 
 // Blend Modes (Photoshop-like)
 export type BlendMode = 
@@ -76,7 +76,7 @@ export interface TextElement {
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
   letterSpacing?: number;
   lineHeight?: number;
-  stroke?: string;
+  stroke?: string | { width: number; color: string };
   strokeWidth?: number;
   textBaseline?: 'top' | 'middle' | 'bottom';
   scaleX?: number;
@@ -148,6 +148,7 @@ export interface LayerGroup {
   locked: boolean;
   collapsed: boolean;
   layerIds: string[];
+  childLayerIds: string[]; // Alias for layerIds for backward compatibility
   createdAt: Date;
   order: number;
 }
@@ -261,11 +262,10 @@ interface AdvancedLayerStoreV2 {
   
   // Layer operations
   toggleLayerVisibility: (layerId: string) => void;
-  setLayerOpacity: (layerId: string, opacity: number) => void;
-  setLayerBlendMode: (layerId: string, blendMode: BlendMode) => void;
-  moveLayerUp: (layerId: string) => void;
-  moveLayerDown: (layerId: string) => void;
   updateLayer: (layerId: string, updates: Partial<AdvancedLayer>) => void;
+  
+  // Layer composition
+  composeLayers: () => HTMLCanvasElement | null;
 }
 
 // Helper functions
@@ -1301,54 +1301,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       get().saveHistorySnapshot(`Toggle Layer Visibility: ${layerId}`);
-    },
-    
-    setLayerOpacity: (layerId: string, opacity: number) => {
-      set(state => ({
-        layers: state.layers.map(layer => 
-          layer.id === layerId 
-            ? { ...layer, opacity: Math.max(0, Math.min(1, opacity)), updatedAt: new Date() }
-            : layer
-        )
-      }));
-      get().saveHistorySnapshot(`Set Layer Opacity: ${layerId}`);
-    },
-    
-    setLayerBlendMode: (layerId: string, blendMode: BlendMode) => {
-      set(state => ({
-        layers: state.layers.map(layer => 
-          layer.id === layerId 
-            ? { ...layer, blendMode, updatedAt: new Date() }
-            : layer
-        )
-      }));
-      get().saveHistorySnapshot(`Set Layer Blend Mode: ${layerId}`);
-    },
-    
-    moveLayerUp: (layerId: string) => {
-      set(state => {
-        const layerIndex = state.layers.findIndex(l => l.id === layerId);
-        if (layerIndex > 0) {
-          const newLayers = [...state.layers];
-          [newLayers[layerIndex], newLayers[layerIndex - 1]] = [newLayers[layerIndex - 1], newLayers[layerIndex]];
-          return { layers: newLayers };
-        }
-        return state;
-      });
-      get().saveHistorySnapshot(`Move Layer Up: ${layerId}`);
-    },
-    
-    moveLayerDown: (layerId: string) => {
-      set(state => {
-        const layerIndex = state.layers.findIndex(l => l.id === layerId);
-        if (layerIndex < state.layers.length - 1) {
-          const newLayers = [...state.layers];
-          [newLayers[layerIndex], newLayers[layerIndex + 1]] = [newLayers[layerIndex + 1], newLayers[layerIndex]];
-          return { layers: newLayers };
-        }
-        return state;
-      });
-      get().saveHistorySnapshot(`Move Layer Down: ${layerId}`);
     },
     
     updateLayer: (layerId: string, updates: Partial<AdvancedLayer>) => {
