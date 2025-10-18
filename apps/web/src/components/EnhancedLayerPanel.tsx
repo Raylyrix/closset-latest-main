@@ -528,7 +528,7 @@ export const EnhancedLayerPanel: React.FC = () => {
     mergeLayers,
     flattenLayers,
     exportLayerAsImage
-  } = useAdvancedLayerStore();
+  } = useAdvancedLayerStoreV2();
 
   const [showLayerMenu, setShowLayerMenu] = useState(false);
   const [showEffectMenu, setShowEffectMenu] = useState<string | null>(null);

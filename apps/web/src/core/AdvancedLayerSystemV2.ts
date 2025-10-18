@@ -167,6 +167,9 @@ interface AdvancedLayerStoreV2 {
   showLayerPanel: boolean;
   autoGrouping: boolean;
   
+  // Canvas state
+  composedCanvas: HTMLCanvasElement | null;
+  
   // History state
   history: LayerHistoryState;
   
@@ -256,8 +259,13 @@ interface AdvancedLayerStoreV2 {
   canRedo: () => boolean;
   clearHistory: () => void;
   
-  // Layer composition
-  composeLayers: () => HTMLCanvasElement | null;
+  // Layer operations
+  toggleLayerVisibility: (layerId: string) => void;
+  setLayerOpacity: (layerId: string, opacity: number) => void;
+  setLayerBlendMode: (layerId: string, blendMode: BlendMode) => void;
+  moveLayerUp: (layerId: string) => void;
+  moveLayerDown: (layerId: string) => void;
+  updateLayer: (layerId: string, updates: Partial<AdvancedLayer>) => void;
 }
 
 // Helper functions
@@ -335,6 +343,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     activeLayerId: null,
     showLayerPanel: true,
     autoGrouping: true,
+    composedCanvas: null,
     history: {
       snapshots: [],
       currentIndex: -1,
@@ -1177,6 +1186,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }
       
       console.log('🎨 Composed layers using V2 system');
+      
+      // Update the composed canvas in state
+      set({ composedCanvas });
+      
       return composedCanvas;
     },
     
@@ -1276,6 +1289,77 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         }
       });
       console.log('🧹 Cleared history');
+    },
+    
+    // Layer operations
+    toggleLayerVisibility: (layerId: string) => {
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === layerId 
+            ? { ...layer, visible: !layer.visible, updatedAt: new Date() }
+            : layer
+        )
+      }));
+      get().saveHistorySnapshot(`Toggle Layer Visibility: ${layerId}`);
+    },
+    
+    setLayerOpacity: (layerId: string, opacity: number) => {
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === layerId 
+            ? { ...layer, opacity: Math.max(0, Math.min(1, opacity)), updatedAt: new Date() }
+            : layer
+        )
+      }));
+      get().saveHistorySnapshot(`Set Layer Opacity: ${layerId}`);
+    },
+    
+    setLayerBlendMode: (layerId: string, blendMode: BlendMode) => {
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === layerId 
+            ? { ...layer, blendMode, updatedAt: new Date() }
+            : layer
+        )
+      }));
+      get().saveHistorySnapshot(`Set Layer Blend Mode: ${layerId}`);
+    },
+    
+    moveLayerUp: (layerId: string) => {
+      set(state => {
+        const layerIndex = state.layers.findIndex(l => l.id === layerId);
+        if (layerIndex > 0) {
+          const newLayers = [...state.layers];
+          [newLayers[layerIndex], newLayers[layerIndex - 1]] = [newLayers[layerIndex - 1], newLayers[layerIndex]];
+          return { layers: newLayers };
+        }
+        return state;
+      });
+      get().saveHistorySnapshot(`Move Layer Up: ${layerId}`);
+    },
+    
+    moveLayerDown: (layerId: string) => {
+      set(state => {
+        const layerIndex = state.layers.findIndex(l => l.id === layerId);
+        if (layerIndex < state.layers.length - 1) {
+          const newLayers = [...state.layers];
+          [newLayers[layerIndex], newLayers[layerIndex + 1]] = [newLayers[layerIndex + 1], newLayers[layerIndex]];
+          return { layers: newLayers };
+        }
+        return state;
+      });
+      get().saveHistorySnapshot(`Move Layer Down: ${layerId}`);
+    },
+    
+    updateLayer: (layerId: string, updates: Partial<AdvancedLayer>) => {
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === layerId 
+            ? { ...layer, ...updates, updatedAt: new Date() }
+            : layer
+        )
+      }));
+      get().saveHistorySnapshot(`Update Layer: ${layerId}`);
     }
   }))
 );

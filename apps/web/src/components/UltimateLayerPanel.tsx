@@ -84,7 +84,7 @@ export function UltimateLayerPanel() {
     setBlendingQuality,
     toggleRealtimeBlending,
     toggleBlendingCache
-  } = useAdvancedLayerStore();
+  } = useAdvancedLayerStoreV2();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<LayerType | 'all'>('all');

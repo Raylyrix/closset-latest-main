@@ -23,7 +23,7 @@ const DualViewPanel: React.FC = () => {
     setSyncQuality,
     toggleAdaptiveQuality,
     resetViews
-  } = useAdvancedLayerStore();
+  } = useAdvancedLayerStoreV2();
 
   const { enabled, viewportSettings } = dualView;
 
