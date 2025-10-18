@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../App';
 import { CustomSelect } from './CustomSelect';
-import { PuffPrintManager } from './PuffPrintManager';
+// import { PuffPrintManager } from './PuffPrintManager'; // File not found
 import { PerformanceSettings } from './PerformanceSettings';
 
 const tools = [

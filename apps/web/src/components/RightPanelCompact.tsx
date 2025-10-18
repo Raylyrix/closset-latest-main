@@ -2075,7 +2075,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                       <input
                         type="checkbox"
-                        checked={!!(activeText.stroke && activeText.stroke.width > 0)}
+                        checked={!!(activeText.stroke && typeof activeText.stroke === 'object' && activeText.stroke.width > 0)}
                         onChange={(e) => {
                           if (e.target.checked) {
                             updateTextElement(activeTextId, { 
@@ -2093,22 +2093,22 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     </div>
                     
                     {/* Stroke Controls (only show if enabled) */}
-                    {activeText.stroke && activeText.stroke.width > 0 && (
+                    {activeText.stroke && typeof activeText.stroke === 'object' && activeText.stroke.width > 0 && (
                       <>
                         {/* Stroke Width */}
                         <div style={{ marginBottom: '6px' }}>
                           <div style={{ fontSize: '8px', color: '#999', marginBottom: '2px' }}>
-                            Width: {activeText.stroke.width}px
+                            Width: {typeof activeText.stroke === 'object' ? activeText.stroke.width : 0}px
                 </div>
                           <input
                             type="range"
                             min="1"
                             max="20"
-                            value={activeText.stroke.width}
+                            value={typeof activeText.stroke === 'object' ? activeText.stroke.width : 0}
                             onChange={(e) => {
                               updateTextElement(activeTextId, { 
                                 stroke: { 
-                                  ...activeText.stroke!, 
+                                  ...(typeof activeText.stroke === 'object' ? activeText.stroke : { width: 0, color: '#000000' }), 
                                   width: parseInt(e.target.value) 
                                 } 
                               });
@@ -2123,11 +2123,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <input
                               type="color"
-                              value={activeText.stroke.color}
+                              value={typeof activeText.stroke === 'object' ? activeText.stroke.color : '#000000'}
                               onChange={(e) => {
                                 updateTextElement(activeTextId, { 
                                   stroke: { 
-                                    ...activeText.stroke!, 
+                                    ...(typeof activeText.stroke === 'object' ? activeText.stroke : { width: 0, color: '#000000' }), 
                                     color: e.target.value 
                                   } 
                                 });
@@ -2143,11 +2143,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                             />
                 <input
                   type="text"
-                              value={activeText.stroke.color}
+                              value={typeof activeText.stroke === 'object' ? activeText.stroke.color : '#000000'}
                   onChange={(e) => {
                                 updateTextElement(activeTextId, { 
                                   stroke: { 
-                                    ...activeText.stroke!, 
+                                    ...(typeof activeText.stroke === 'object' ? activeText.stroke : { width: 0, color: '#000000' }), 
                                     color: e.target.value 
                                   } 
                                 });

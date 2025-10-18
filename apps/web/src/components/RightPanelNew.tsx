@@ -716,7 +716,9 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
                   value={activeText.shadow?.color || '#000000'}
                   onChange={(e) => updateTextElement(activeTextId, { 
                     shadow: { 
-                      ...activeText.shadow, 
+                      blur: activeText.shadow?.blur || 0,
+                      offsetX: activeText.shadow?.offsetX || 0,
+                      offsetY: activeText.shadow?.offsetY || 0,
                       color: e.target.value 
                     } 
                   })}
@@ -729,8 +731,10 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
                   value={activeText.shadow?.blur || 0}
                   onChange={(e) => updateTextElement(activeTextId, { 
                     shadow: { 
-                      ...activeText.shadow, 
-                      blur: parseInt(e.target.value) 
+                      blur: parseInt(e.target.value),
+                      offsetX: activeText.shadow?.offsetX || 0,
+                      offsetY: activeText.shadow?.offsetY || 0,
+                      color: activeText.shadow?.color || '#000000'
                     } 
                   })}
                   style={{ flex: 1 }}
