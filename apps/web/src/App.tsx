@@ -702,11 +702,11 @@ export const useApp = create<AppState>((set, get) => ({
     get().composeLayers();
     
     // Trigger immediate visual update on 3D model
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
         detail: { source: 'undo' }
-      });
-      window.dispatchEvent(textureEvent);
+        });
+        window.dispatchEvent(textureEvent);
       console.log('🔄 Triggered texture update after undo');
     }, 50);
   },
@@ -719,11 +719,11 @@ export const useApp = create<AppState>((set, get) => ({
     get().composeLayers();
     
     // Trigger immediate visual update on 3D model
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
         detail: { source: 'redo' }
-      });
-      window.dispatchEvent(textureEvent);
+        });
+        window.dispatchEvent(textureEvent);
       console.log('🔄 Triggered texture update after redo');
     }, 50);
   },
@@ -1728,12 +1728,12 @@ try {
     get().composeLayers();
     
     // Force texture update
-    setTimeout(() => {
+      setTimeout(() => {
       const textureEvent = new CustomEvent('forceTextureUpdate', {
         detail: { source: 'text-element-updated-v2' }
       });
       window.dispatchEvent(textureEvent);
-    }, 10);
+      }, 10);
   },
 
   deleteTextElement: (id: string) => {
