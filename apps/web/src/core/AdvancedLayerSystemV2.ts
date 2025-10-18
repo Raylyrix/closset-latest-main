@@ -70,6 +70,23 @@ export interface TextElement {
   rotation?: number;
   align?: 'left' | 'center' | 'right';
   zIndex?: number;
+  // Extended properties for full compatibility
+  underline?: boolean;
+  strikethrough?: boolean;
+  textCase?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  letterSpacing?: number;
+  lineHeight?: number;
+  stroke?: string;
+  strokeWidth?: number;
+  textBaseline?: 'top' | 'middle' | 'bottom';
+  scaleX?: number;
+  scaleY?: number;
+  shadow?: {
+    blur: number;
+    offsetX: number;
+    offsetY: number;
+    color: string;
+  };
 }
 
 // History system for undo/redo
@@ -958,7 +975,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       // If the target layer doesn't exist, create a default paint layer
       if (!state.layers.find(l => l.id === targetLayerId)) {
         console.log('🎨 Creating default paint layer for text element');
-        const paintLayerId = createLayer('paint', 'Paint Layer');
+        const paintLayerId = get().createLayer('paint', 'Paint Layer');
         targetLayerId = paintLayerId;
       }
       
@@ -982,11 +999,25 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         bold: appState.textBold,
         italic: appState.textItalic,
         rotation: 0,
-        align: appState.textAlign,
+        align: appState.textAlign as 'left' | 'center' | 'right',
         zIndex: 0
       };
       
-      addTextElement(targetLayerId, textElement);
+      // Add text element to the layer
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === targetLayerId 
+            ? {
+                ...layer,
+                content: {
+                  ...layer.content,
+                  textElements: [...(layer.content.textElements || []), textElement]
+                },
+                updatedAt: new Date()
+              }
+            : layer
+        )
+      }));
       console.log('🎨 Added text element via App interface:', textElement);
       
       return id;
@@ -1250,4 +1281,4 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
 );
 
 // Export types
-export type { AdvancedLayer, LayerGroup, LayerEffect, LayerMask, LayerTransform, LayerContent, BrushStroke, TextElement };
+export type { LayerHistorySnapshot, LayerHistoryState };
