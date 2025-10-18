@@ -7,7 +7,7 @@ import localforage from 'localforage';
 import LZString from 'lz-string';
 import { unifiedPerformanceManager } from './utils/UnifiedPerformanceManager';
 import { canvasPool } from './utils/CanvasPool';
-import { useAdvancedLayerStoreV2 } from './core/AdvancedLayerSystemV2';
+import { useAdvancedLayerStoreV2, TextElement, AdvancedLayer } from './core/AdvancedLayerSystemV2';
 import { useAutomaticLayerManager } from './core/AutomaticLayerManager';
 import { createDisplacementCanvas, CANVAS_CONFIG } from './constants/CanvasSizes';
 import ShirtRefactored from './components/ShirtRefactored'; // Use new refactored component
@@ -77,54 +77,6 @@ type VectorPath = {
 
 type Decal = { id: string; name: string; image: ImageBitmap; width: number; height: number; u: number; v: number; scale: number; rotation: number; opacity: number; blendMode: GlobalCompositeOperation; layerId?: string };
 
-type TextElement = { 
-  id: string; 
-  text: string; 
-  x: number; 
-  y: number; 
-  u: number; 
-  v: number; 
-  fontSize: number; 
-  fontFamily: string; 
-  bold: boolean; 
-  italic: boolean; 
-  underline: boolean;
-  strikethrough: boolean;
-  align: CanvasTextAlign; 
-  color: string; 
-  opacity: number; 
-  rotation: number; 
-  letterSpacing: number;
-  lineHeight: number;
-  shadow: { blur: number; offsetX: number; offsetY: number; color: string };
-  gradient?: { type: 'linear' | 'radial'; colors: string[]; stops: number[] };
-  outline?: { width: number; color: string };
-  glow?: { blur: number; color: string };
-  textCase: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
-  layerId?: string; 
-  scaleX?: number;
-  scaleY?: number;
-  zIndex?: number; // Layer ordering (higher = on top)
-  stroke?: { width: number; color: string }; // Text stroke/outline
-  
-  // Additional text properties
-  textShadow?: boolean;
-  shadowBlur?: number;
-  shadowOffsetX?: number;
-  shadowOffsetY?: number;
-  shadowColor?: string;
-  gradientStartColor?: string;
-  gradientEndColor?: string;
-  gradientDirection?: string;
-  gradientMidColor?: string;
-  outlineWidth?: number;
-  outlineColor?: string;
-  glowIntensity?: number;
-  glowColor?: string;
-  uppercase?: boolean;
-  lowercase?: boolean;
-  capitalize?: boolean;
-};
 
 type SelectionTransform = {
   x: number; y: number; cx: number; cy: number; 
@@ -196,16 +148,6 @@ interface AppState {
   strokeWidth: number;
   strokeEnabled: boolean;
   
-  // Brush stroke tracking for layer management
-  brushStrokes: Array<{
-    id: string;
-    layerId: string;
-    points: Array<{x: number, y: number}>;
-    color: string;
-    size: number;
-    opacity: number;
-    timestamp: number;
-  }>;
   
   // Symmetry settings
   symmetryX: boolean;
@@ -341,8 +283,18 @@ interface AppState {
   moveAnchor: (pathId: string, anchorIndex: number, newU: number, newV: number) => void;
   addCurveHandle: (pathId: string, anchorIndex: number, handleType: 'in' | 'out', u: number, v: number) => void;
   
-  // Layers
+  // Layers (managed by V2 system)
   layers: Layer[];
+  textElements: TextElement[];
+  brushStrokes: Array<{
+    id: string;
+    layerId: string;
+    points: Array<{x: number, y: number}>;
+    color: string;
+    size: number;
+    opacity: number;
+    timestamp: number;
+  }>;
   activeLayerId: string | null;
   composedCanvas: HTMLCanvasElement | null;
   composedVersion: number;
@@ -369,8 +321,6 @@ interface AppState {
   backgroundIntensity: number;
   backgroundRotation: number;
   
-  // Text elements
-  textElements: TextElement[];
   activeTextId: string | null;
   hoveredTextId: string | null;
   
@@ -745,217 +695,23 @@ export const useApp = create<AppState>((set, get) => ({
   },
   
   undo: () => {
-    const state = get();
-    console.log('🔄 Undo called - History length:', state.history.length, 'Current index:', state.historyIndex);
-    
-    if (state.historyIndex <= 0) {
-      console.log('❌ Cannot undo - no history available');
-      return;
-    }
-    
-    const targetIndex = state.historyIndex - 1;
-    const snapshot = state.history[targetIndex];
-    console.log('🔄 Undo target snapshot:', snapshot ? snapshot.action : 'none');
-    
-    if (snapshot) {
-      // Restore state
-      set({
-        ...state,
-        ...snapshot.state,
-        historyIndex: targetIndex
-      });
-      
-      // Restore layer canvases
-      if (snapshot.layerData) {
-        const restoredLayers = state.layers.map(layer => {
-          const layerSnapshot = snapshot.layerData!.find(l => l.id === layer.id);
-          if (layerSnapshot && layerSnapshot.canvasData) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const img = new Image();
-            img.onload = () => {
-              canvas.width = img.width;
-              canvas.height = img.height;
-              ctx?.drawImage(img, 0, 0);
-            };
-            img.src = layerSnapshot.canvasData;
-            return { ...layer, canvas };
-          }
-          return layer;
-        });
-        
-        set({ layers: restoredLayers });
-      }
-      
-      // Restore puff canvas
-      if (snapshot.puffCanvasData && state.puffCanvas) {
-        const img = new Image();
-        img.onload = () => {
-          const ctx = state.puffCanvas!.getContext('2d');
-          ctx?.clearRect(0, 0, state.puffCanvas!.width, state.puffCanvas!.height);
-          ctx?.drawImage(img, 0, 0);
-        };
-        img.src = snapshot.puffCanvasData;
-      }
-      
-      // Restore composed canvas
-      if (snapshot.composedCanvasData && state.composedCanvas) {
-        const img = new Image();
-        img.onload = () => {
-          const ctx = state.composedCanvas!.getContext('2d');
-          ctx?.clearRect(0, 0, state.composedCanvas!.width, state.composedCanvas!.height);
-          ctx?.drawImage(img, 0, 0);
-        };
-        img.src = snapshot.composedCanvasData;
-      }
-      
-      console.log(`↩️ Undo: ${snapshot.action}`);
-      
-      // Force comprehensive restoration after undo
-      setTimeout(() => {
-        const currentState = get();
-        
-        // Force composition update
-        currentState.composeLayers();
-        console.log('🔄 Forced composition update after undo');
-        
-        // Force displacement map updates for puff print effects
-        if (currentState.puffCanvas) {
-          // Trigger displacement map recreation
-          const event = new CustomEvent('updateDisplacementMaps', {
-            detail: { source: 'undo-restoration' }
-          });
-          window.dispatchEvent(event);
-          console.log('🔄 Triggered displacement map update after undo');
-        }
-        
-        // Force embroidery path updates if needed
-        if (currentState.currentEmbroideryPath && currentState.currentEmbroideryPath.length > 0) {
-          const embroideryEvent = new CustomEvent('updateEmbroideryPaths', {
-            detail: { source: 'undo-restoration' }
-          });
-          window.dispatchEvent(embroideryEvent);
-          console.log('🔄 Triggered embroidery path update after undo');
-        }
-        
-        // Force texture updates on the 3D model
-        const textureEvent = new CustomEvent('forceTextureUpdate', {
-          detail: { source: 'undo-restoration' }
-        });
-        window.dispatchEvent(textureEvent);
-        console.log('🔄 Triggered forced texture update after undo');
-        
-      }, 100);
-    }
+    // TODO: Implement undo functionality with AdvancedLayerSystemV2
+    console.log('🔄 Undo called - Currently disabled during V2 migration');
   },
   
   redo: () => {
-    const state = get();
-    if (state.historyIndex >= state.history.length - 1) return;
-    
-    const targetIndex = state.historyIndex + 1;
-    const snapshot = state.history[targetIndex];
-    
-    if (snapshot) {
-      // Restore state
-      set({
-        ...state,
-        ...snapshot.state,
-        historyIndex: targetIndex
-      });
-      
-      // Restore layer canvases
-      if (snapshot.layerData) {
-        const restoredLayers = state.layers.map(layer => {
-          const layerSnapshot = snapshot.layerData!.find(l => l.id === layer.id);
-          if (layerSnapshot && layerSnapshot.canvasData) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const img = new Image();
-            img.onload = () => {
-              canvas.width = img.width;
-              canvas.height = img.height;
-              ctx?.drawImage(img, 0, 0);
-            };
-            img.src = layerSnapshot.canvasData;
-            return { ...layer, canvas };
-          }
-          return layer;
-        });
-        
-        set({ layers: restoredLayers });
-      }
-      
-      // Restore puff canvas
-      if (snapshot.puffCanvasData && state.puffCanvas) {
-        const img = new Image();
-        img.onload = () => {
-          const ctx = state.puffCanvas!.getContext('2d');
-          ctx?.clearRect(0, 0, state.puffCanvas!.width, state.puffCanvas!.height);
-          ctx?.drawImage(img, 0, 0);
-        };
-        img.src = snapshot.puffCanvasData;
-      }
-      
-      // Restore composed canvas
-      if (snapshot.composedCanvasData && state.composedCanvas) {
-        const img = new Image();
-        img.onload = () => {
-          const ctx = state.composedCanvas!.getContext('2d');
-          ctx?.clearRect(0, 0, state.composedCanvas!.width, state.composedCanvas!.height);
-          ctx?.drawImage(img, 0, 0);
-        };
-        img.src = snapshot.composedCanvasData;
-      }
-      
-      console.log(`↪️ Redo: ${snapshot.action}`);
-      
-      // Force comprehensive restoration after redo
-      setTimeout(() => {
-        const currentState = get();
-        
-        // Force composition update
-        currentState.composeLayers();
-        console.log('🔄 Forced composition update after redo');
-        
-        // Force displacement map updates for puff print effects
-        if (currentState.puffCanvas) {
-          // Trigger displacement map recreation
-          const event = new CustomEvent('updateDisplacementMaps', {
-            detail: { source: 'redo-restoration' }
-          });
-          window.dispatchEvent(event);
-          console.log('🔄 Triggered displacement map update after redo');
-        }
-        
-        // Force embroidery path updates if needed
-        if (currentState.currentEmbroideryPath && currentState.currentEmbroideryPath.length > 0) {
-          const embroideryEvent = new CustomEvent('updateEmbroideryPaths', {
-            detail: { source: 'redo-restoration' }
-          });
-          window.dispatchEvent(embroideryEvent);
-          console.log('🔄 Triggered embroidery path update after redo');
-        }
-        
-        // Force texture updates on the 3D model
-        const textureEvent = new CustomEvent('forceTextureUpdate', {
-          detail: { source: 'redo-restoration' }
-        });
-        window.dispatchEvent(textureEvent);
-        console.log('🔄 Triggered forced texture update after redo');
-        
-      }, 100);
-    }
+    // TODO: Implement redo functionality with AdvancedLayerSystemV2
+    console.log('🔄 Redo called - Currently disabled during V2 migration');
   },
   
   canUndo: () => {
-    const state = get();
-    return state.historyIndex > 0;
+    // TODO: Implement with AdvancedLayerSystemV2
+    return false;
   },
   
   canRedo: () => {
-    const state = get();
-    return state.historyIndex < state.history.length - 1;
+    // TODO: Implement with AdvancedLayerSystemV2
+    return false;
   },
   
   clearHistory: () => {
@@ -1014,7 +770,7 @@ export const useApp = create<AppState>((set, get) => ({
   strokeEnabled: false,
   
   // Brush stroke tracking
-  brushStrokes: [],
+  // Brush strokes are now managed by V2 system
   symmetryX: false,
   symmetryY: false,
   symmetryZ: false,
@@ -1088,7 +844,7 @@ export const useApp = create<AppState>((set, get) => ({
   vectorFillColor: '#ffffff',
   vectorFill: false,
   
-  layers: [],
+  // Layers are now managed by V2 system
   activeLayerId: null,
   composedCanvas: null,
   composedVersion: 0,
@@ -1106,7 +862,6 @@ export const useApp = create<AppState>((set, get) => ({
   backgroundScene: 'studio',
   backgroundIntensity: 1,
   backgroundRotation: 0,
-  textElements: [],
   activeTextId: null,
   hoveredTextId: null,
   shapeElements: [],
@@ -1148,6 +903,31 @@ export const useApp = create<AppState>((set, get) => ({
   vectorEditMode: 'pen',
   puffVectorHistory: [puffVectorEngine.getStateSnapshot()],
   puffVectorFuture: [],
+
+  // Brush strokes getter (uses V2 system)
+  get brushStrokes() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    const allBrushStrokes: any[] = [];
+    v2State.layers.forEach(layer => {
+      if (layer.content.brushStrokes) {
+        allBrushStrokes.push(...layer.content.brushStrokes);
+      }
+    });
+    return allBrushStrokes;
+  },
+
+  // Layers getter (uses V2 system)
+    get layers() {
+      const v2State = useAdvancedLayerStoreV2.getState();
+      // Convert AdvancedLayers to legacy Layer format for backward compatibility
+      return v2State.layers.map(layer => v2State.convertToLegacyLayer(layer));
+    },
+
+  // Text elements getter (uses V2 system)
+  get textElements() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.getAllTextElements();
+  },
 
 
   // Methods
@@ -1753,101 +1533,19 @@ try {
   },
 
   addTextElement: (text: string, uv: { u: number; v: number }, layerId?: string) => {
-    const id = Math.random().toString(36).slice(2);
-    const state = get();
+    console.log('🎨 addTextElement called - delegating to V2 system');
     
-    // Ensure we have a valid layer ID
-    let targetLayerId = layerId || state.activeLayerId || 'paint';
-    
-    // If the target layer doesn't exist, create a default paint layer
-    if (!state.layers.find(l => l.id === targetLayerId)) {
-      console.log('🎨 Creating default paint layer for text element');
-      const paint = document.createElement('canvas');
-      paint.width = 2048;
-      paint.height = 2048;
-      const paintCtx = paint.getContext('2d', { willReadFrequently: true });
-      if (paintCtx) {
-        paintCtx.imageSmoothingEnabled = true;
-        paintCtx.imageSmoothingQuality = 'high';
-      }
-      // Create displacement canvas for the paint layer
-      const paintDisplacementCanvas = document.createElement('canvas');
-      paintDisplacementCanvas.width = paint.width;
-      paintDisplacementCanvas.height = paint.height;
-      const paintDispCtx = paintDisplacementCanvas.getContext('2d', { willReadFrequently: true })!;
-      paintDispCtx.imageSmoothingEnabled = true;
-      paintDispCtx.imageSmoothingQuality = 'high';
-      // CRITICAL FIX: Fill with black (0) for no displacement
-      paintDispCtx.fillStyle = 'rgb(0, 0, 0)';
-      paintDispCtx.fillRect(0, 0, paint.width, paint.height);
-      
-      const newLayer = { id: 'paint', name: 'Paint', visible: true, canvas: paint, history: [], future: [], order: 0, displacementCanvas: paintDisplacementCanvas };
-      set(state => ({ 
-        layers: [...state.layers, newLayer], 
-        activeLayerId: 'paint' 
-      }));
-      targetLayerId = 'paint';
-    }
-    
-    const textElement: TextElement = {
-      id, text, x: 0, y: 0, u: uv.u, v: uv.v,
-      fontSize: state.textSize, fontFamily: state.textFont,
-      bold: state.textBold, italic: state.textItalic,
-      underline: false, strikethrough: false,
-      align: state.textAlign, color: state.textColor,
-      opacity: 1, rotation: 0, letterSpacing: 0, lineHeight: 1.2,
-      shadow: { blur: 0, offsetX: 0, offsetY: 0, color: '#000000' },
-      textCase: 'none',
-      layerId: targetLayerId
-    };
-    
-    console.log('🎨 Creating text element with layerId:', targetLayerId);
-    console.log('🎨 Text element details:', textElement);
-    
-    // Add to old system for backward compatibility
-    set(state => ({ textElements: [...state.textElements, textElement] }));
-    
-    // CRITICAL: Also add to V2 system
+    // Delegate to V2 system
     const v2State = useAdvancedLayerStoreV2.getState();
-    const v2Layer = v2State.layers.find(l => l.id === targetLayerId);
-    if (v2Layer) {
-      // Convert UV coordinates to canvas coordinates
-      const canvasX = uv.u * 1536; // Using standard canvas size
-      const canvasY = (1 - uv.v) * 1536; // Flip V coordinate
-      
-      const v2TextElement = {
-        id,
-        text,
-        x: canvasX,
-        y: canvasY,
-        fontSize: state.textSize,
-        fontFamily: state.textFont,
-        color: state.textColor,
-        opacity: 1,
-        rotation: 0,
-        letterSpacing: 0,
-        lineHeight: 1.2,
-        shadow: { blur: 0, offsetX: 0, offsetY: 0, color: '#000000' },
-        textCase: 'none' as const,
-        layerId: targetLayerId,
-        u: uv.u,
-        v: uv.v,
-        timestamp: Date.now()
-      };
-      
-      v2State.addTextElement(targetLayerId, v2TextElement);
-      console.log('🎨 Added text element to V2 system');
-    } else {
-      console.warn('🎨 V2 layer not found for text element:', targetLayerId);
-    }
+    const id = v2State.addTextElementFromApp(text, uv, layerId);
     
-    console.log('🎨 Text elements after addition:', get().textElements);
+    // Trigger composition
     get().composeLayers();
     
     // Force texture update to show the new text immediately
     setTimeout(() => {
       const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'text-addition', textId: id }
+        detail: { source: 'text-element-added-v2' }
       });
       window.dispatchEvent(textureEvent);
     }, 50);
@@ -1996,50 +1694,32 @@ try {
   },
 
   updateTextElement: (id: string, patch: Partial<TextElement>) => {
-    console.log('🎨 updateTextElement called with:', { id, patch });
-    set(state => ({ textElements: state.textElements.map(t => t.id === id ? { ...t, ...patch } : t) }));
-    console.log('🎨 Text element updated in store');
+    console.log('🎨 updateTextElement called - delegating to V2 system');
     
-    // CRITICAL: Trigger live update with throttling (same as updateImportedImage)
-    if (!(window as any).__textUpdateThrottle) {
-      (window as any).__textUpdateThrottle = {
-        lastUpdate: 0,
-        pendingUpdate: null
-      };
-    }
+    // Delegate to V2 system
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.updateTextElementFromApp(id, patch);
     
-    const throttle = (window as any).__textUpdateThrottle;
-    const now = Date.now();
-    const throttleDelay = 16; // 60fps for smooth updates
+    // Trigger composition
+    get().composeLayers();
     
-    if (now - throttle.lastUpdate >= throttleDelay) {
-      throttle.lastUpdate = now;
-      setTimeout(() => {
-        const { composeLayers } = get();
-        composeLayers(true); // Force redraw with updated text
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false);
-        }
-      }, 10);
-    } else {
-      // Queue update
-      if (throttle.pendingUpdate) {
-        clearTimeout(throttle.pendingUpdate);
-      }
-      throttle.pendingUpdate = setTimeout(() => {
-        throttle.lastUpdate = Date.now();
-        const { composeLayers } = get();
-        composeLayers(true);
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false);
-        }
-        throttle.pendingUpdate = null;
-      }, throttleDelay);
-    }
+    // Force texture update
+    setTimeout(() => {
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'text-element-updated-v2' }
+      });
+      window.dispatchEvent(textureEvent);
+    }, 10);
   },
 
   deleteTextElement: (id: string) => {
-    set(state => ({ textElements: state.textElements.filter(t => t.id !== id) }));
+    console.log('🎨 deleteTextElement called - delegating to V2 system');
+    
+    // Delegate to V2 system
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.deleteTextElementFromApp(id);
+    
+    // Trigger composition
     get().composeLayers();
   },
 
@@ -2097,35 +1777,12 @@ try {
 
   // Layer management
   addLayer: (name) => {
-    const composed = get().composedCanvas;
-    const width = composed?.width || 2048;
-    const height = composed?.height || 2048;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    // Optimize canvas for frequent readback operations
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    // CRITICAL FIX: Initialize with solid background instead of transparent
-    // This prevents texture composition issues with transparent pixels
-    ctx.fillStyle = 'rgba(0, 0, 0, 0)'; // Transparent black (alpha = 0)
-    ctx.fillRect(0, 0, width, height);
-    const id = Math.random().toString(36).slice(2);
-    const layerName = name || `Layer ${id.slice(0, 4)}`;
-    // Create displacement canvas for puff effects
-    const displacementCanvas = document.createElement('canvas');
-    displacementCanvas.width = width;
-    displacementCanvas.height = height;
-    const dispCtx = displacementCanvas.getContext('2d', { willReadFrequently: true })!;
-    dispCtx.imageSmoothingEnabled = true;
-    dispCtx.imageSmoothingQuality = 'high';
-    // CRITICAL FIX: Fill with black (0) for no displacement
-    dispCtx.fillStyle = 'rgb(0, 0, 0)';
-    dispCtx.fillRect(0, 0, width, height);
+    // Delegate to AdvancedLayerSystemV2
+    const v2State = useAdvancedLayerStoreV2.getState();
+    const layerId = v2State.createLayer('paint', name || 'New Layer');
     
-    const layer: Layer = { id, name: layerName, visible: true, canvas, history: [], future: [], order: get().layers.length, displacementCanvas };
-    set(state => ({ layers: [...state.layers, layer], activeLayerId: id }));
+    // Update active layer
+    set({ activeLayerId: layerId });
     
     // Force composition and visual update
     get().composeLayers();
@@ -2133,102 +1790,24 @@ try {
     // Trigger immediate visual update on 3D model
     setTimeout(() => {
       const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'layer-creation', layerId: id }
+        detail: { source: 'layer-creation', layerId }
       });
       window.dispatchEvent(textureEvent);
       console.log('🔄 Triggered texture update after layer creation');
     }, 50);
     
-    // Save state for undo/redo
-    get().saveState(`Add Layer: ${layerName}`);
-    
-    return id;
+    return layerId;
   },
 
   deleteLayer: (id: string) => {
-    const state = get();
-    const layerToDelete = state.layers.find(l => l.id === id);
-    if (!layerToDelete) return;
+    // Delegate to AdvancedLayerSystemV2
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.deleteLayer(id);
     
-    const layerName = layerToDelete.name;
-    const layerToolType = (layerToDelete as any).toolType || 'general';
-    const remainingLayers = state.layers.filter(l => l.id !== id);
+    // Update active layer if needed
+    const remainingLayers = v2State.layers;
     const newActiveLayerId = remainingLayers.length > 0 ? remainingLayers[0].id : null;
-    
-    // Clean up tool-specific data based on layer type
-    console.log(`🧹 Cleaning up tool-specific data for ${layerToolType} layer:`, id);
-    
-    if (layerToolType === 'puffPrint') {
-      // Clear puff print displacement and normal maps
-      const puffCanvas = get().puffCanvas;
-      if (puffCanvas) {
-        const ctx = puffCanvas.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, puffCanvas.width, puffCanvas.height);
-          console.log('🧹 Cleared puff canvas for deleted layer');
-        }
-      }
-      
-      // Trigger displacement map recreation
-      setTimeout(() => {
-        const event = new CustomEvent('updateDisplacementMaps', {
-          detail: { source: 'layer-deletion', layerId: id }
-        });
-        window.dispatchEvent(event);
-        console.log('🧹 Triggered displacement map update after layer deletion');
-      }, 100);
-    }
-    
-    if (layerToolType === 'embroidery') {
-      // Clear embroidery stitches that belong to this layer
-      const currentEmbroideryStitches = get().embroideryStitches || [];
-      const remainingStitches = currentEmbroideryStitches.filter((stitch: any) => 
-        stitch.layerId !== id
-      );
-      
-      if (remainingStitches.length !== currentEmbroideryStitches.length) {
-        set({ embroideryStitches: remainingStitches });
-        console.log(`🧹 Removed ${currentEmbroideryStitches.length - remainingStitches.length} embroidery stitches from deleted layer`);
-        
-        // Trigger embroidery update
-        setTimeout(() => {
-          const event = new CustomEvent('updateEmbroideryPaths', {
-            detail: { source: 'layer-deletion', layerId: id }
-          });
-          window.dispatchEvent(event);
-          console.log('🧹 Triggered embroidery update after layer deletion');
-        }, 100);
-      }
-    }
-    
-    // Clear any decals that belong to this layer
-    const decals = get().decals || [];
-    const remainingDecals = decals.filter(d => d.layerId !== id);
-    if (remainingDecals.length !== decals.length) {
-      set({ decals: remainingDecals });
-      console.log(`🧹 Removed ${decals.length - remainingDecals.length} decals from deleted layer`);
-    }
-    
-    // Clear any text elements that belong to this layer
-    const textElements = get().textElements || [];
-    const remainingTextElements = textElements.filter(te => te.layerId !== id);
-    if (remainingTextElements.length !== textElements.length) {
-      set({ textElements: remainingTextElements });
-      console.log(`🧹 Removed ${textElements.length - remainingTextElements.length} text elements from deleted layer`);
-    }
-    
-    // Clear any brush strokes that belong to this layer
-    const brushStrokes = get().brushStrokes || [];
-    const remainingBrushStrokes = brushStrokes.filter(stroke => stroke.layerId !== id);
-    if (remainingBrushStrokes.length !== brushStrokes.length) {
-      set({ brushStrokes: remainingBrushStrokes });
-      console.log(`🧹 Removed ${brushStrokes.length - remainingBrushStrokes.length} brush strokes from deleted layer`);
-    }
-    
-    set({
-      layers: remainingLayers,
-      activeLayerId: newActiveLayerId
-    });
+    set({ activeLayerId: newActiveLayerId });
     
     // Force composition and visual update
     get().composeLayers();
@@ -2242,17 +1821,7 @@ try {
       console.log('🔄 Triggered texture update after layer deletion');
     }, 50);
     
-    // Save state for undo/redo
-    get().saveState(`Delete Layer: ${layerName} (${layerToolType})`);
-    
-    // UNIFIED BRIDGE: Notify the unified layer bridge
-    const bridge = (window as any).unifiedLayerBridge;
-    if (bridge && bridge.isInitialized) {
-      console.log('🔄 Notifying unified bridge of layer deletion');
-      bridge.handleLayerDelete(id);
-    }
-    
-    console.log(`🎨 Successfully deleted ${layerToolType} layer: ${layerName}`);
+    console.log(`🎨 Successfully deleted layer: ${id}`);
   },
 
   initCanvases: (w = 4096, h = 4096) => {
@@ -3021,12 +2590,8 @@ try {
   },
 
   commit: () => {
-    const layer = get().getActiveLayer();
-    if (!layer) return;
-    const current = layer.canvas.getContext('2d')!.getImageData(0, 0, layer.canvas.width, layer.canvas.height);
-    layer.history.push(current);
-    layer.future = [];
-    if (layer.history.length > 50) layer.history.shift();
+    // TODO: Implement commit functionality with AdvancedLayerSystemV2
+    console.log('🔄 Commit called - Currently disabled during V2 migration');
   },
 
   forceRerender: () => {
@@ -3204,10 +2769,7 @@ try {
       modelRotation: state.modelRotation,
       modelScale: state.modelScale,
       backgroundScene: state.backgroundScene,
-      backgroundIntensity: state.backgroundIntensity,
-      backgroundRotation: state.backgroundRotation,
-      textElements: state.textElements,
-      decals: []
+      // Text elements are now managed by V2 system
     };
     
     const layerEntries: { id: string; name: string; visible: boolean; width: number; height: number; key: string }[] = [];
@@ -3278,7 +2840,7 @@ try {
       backgroundScene: data.backgroundScene || 'studio',
       backgroundIntensity: data.backgroundIntensity || 1,
       backgroundRotation: data.backgroundRotation || 0,
-      textElements: data.textElements || [],
+      // Text elements are now managed by V2 system
       layers,
       activeLayerId: layers[0]?.id || null,
       composedCanvas,
@@ -3417,9 +2979,7 @@ try {
         textBold: state.textBold,
         textItalic: state.textItalic,
         textAlign: state.textAlign,
-        lastText: state.lastText,
-        activeTextId: state.activeTextId,
-        textElements: state.textElements,
+        // Text elements are now managed by V2 system
         
         // Background settings
         backgroundScene: state.backgroundScene,
@@ -3654,7 +3214,7 @@ try {
         textAlign: projectState.textAlign || 'left',
         lastText: projectState.lastText || '',
         activeTextId: projectState.activeTextId || null,
-        textElements: projectState.textElements || [],
+        // Text elements are now managed by V2 system
         
         // Background settings
         backgroundScene: projectState.backgroundScene || 'studio',
@@ -3769,7 +3329,9 @@ try {
   // Additional missing methods
   selectTextElement: (id: string | null) => set({ activeTextId: id }),
   removeTextElement: (id: string) => {
-    set(state => ({ textElements: state.textElements.filter(t => t.id !== id) }));
+    // Text elements are now managed by V2 system
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.deleteTextElementFromApp(id);
     get().composeLayers();
   },
   setModelChoice: (choice: 'tshirt' | 'sphere' | 'custom') => set({ modelChoice: choice }),

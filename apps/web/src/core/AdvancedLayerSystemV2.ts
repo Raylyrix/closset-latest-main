@@ -64,6 +64,12 @@ export interface TextElement {
   color: string;
   opacity: number;
   timestamp: number;
+  // Additional properties for backward compatibility
+  bold?: boolean;
+  italic?: boolean;
+  rotation?: number;
+  align?: 'left' | 'center' | 'right';
+  zIndex?: number;
 }
 
 // Layer content (varies by type)
@@ -194,6 +200,17 @@ interface AdvancedLayerStoreV2 {
   addTextElement: (layerId: string, textElement: TextElement) => void;
   removeTextElement: (layerId: string, textElementId: string) => void;
   getTextElements: (layerId: string) => TextElement[];
+  
+  // Enhanced text element management (compatible with App.tsx interface)
+  addTextElementFromApp: (text: string, uv: { u: number; v: number }, layerId?: string) => string;
+  updateTextElementFromApp: (id: string, patch: Partial<TextElement>) => void;
+  deleteTextElementFromApp: (id: string) => void;
+  getAllTextElements: () => TextElement[];
+  
+  // Backward compatibility helpers
+  getLayerCanvas: (layerId: string) => HTMLCanvasElement | null;
+  getLayerDisplacementCanvas: (layerId: string) => HTMLCanvasElement | null;
+  convertToLegacyLayer: (advancedLayer: AdvancedLayer) => any;
   
   // Layer composition
   composeLayers: () => HTMLCanvasElement | null;
@@ -890,6 +907,126 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const state = get();
       const layer = state.layers.find(layer => layer.id === layerId);
       return layer?.content.textElements || [];
+    },
+    
+    // Enhanced text element management (compatible with App.tsx interface)
+    addTextElementFromApp: (text: string, uv: { u: number; v: number }, layerId?: string) => {
+      const id = Math.random().toString(36).slice(2);
+      const state = get();
+      
+      // Ensure we have a valid layer ID
+      let targetLayerId = layerId || state.activeLayerId || 'paint';
+      
+      // If the target layer doesn't exist, create a default paint layer
+      if (!state.layers.find(l => l.id === targetLayerId)) {
+        console.log('🎨 Creating default paint layer for text element');
+        const paintLayerId = createLayer('paint', 'Paint Layer');
+        targetLayerId = paintLayerId;
+      }
+      
+      // Get current text settings from App state
+      const appState = useApp.getState();
+      
+      const textElement: TextElement = {
+        id,
+        text,
+        x: 0,
+        y: 0,
+        u: uv.u,
+        v: uv.v,
+        fontSize: appState.textSize,
+        fontFamily: appState.textFont,
+        color: appState.textColor,
+        opacity: 1,
+        layerId: targetLayerId,
+        timestamp: Date.now(),
+        // Additional properties for backward compatibility
+        bold: appState.textBold,
+        italic: appState.textItalic,
+        rotation: 0,
+        align: appState.textAlign,
+        zIndex: 0
+      };
+      
+      addTextElement(targetLayerId, textElement);
+      console.log('🎨 Added text element via App interface:', textElement);
+      
+      return id;
+    },
+    
+    updateTextElementFromApp: (id: string, patch: Partial<TextElement>) => {
+      set(state => ({
+        layers: state.layers.map(layer => ({
+          ...layer,
+          content: {
+            ...layer.content,
+            textElements: (layer.content.textElements || []).map(text => 
+              text.id === id ? { ...text, ...patch } : text
+            )
+          },
+          updatedAt: new Date()
+        }))
+      }));
+      
+      console.log('🎨 Updated text element via App interface:', id, patch);
+    },
+    
+    deleteTextElementFromApp: (id: string) => {
+      set(state => ({
+        layers: state.layers.map(layer => ({
+          ...layer,
+          content: {
+            ...layer.content,
+            textElements: (layer.content.textElements || []).filter(text => text.id !== id)
+          },
+          updatedAt: new Date()
+        }))
+      }));
+      
+      console.log('🎨 Deleted text element via App interface:', id);
+    },
+    
+    // Get all text elements across all layers (for App.tsx compatibility)
+    getAllTextElements: () => {
+      const state = get();
+      const allTextElements: TextElement[] = [];
+      
+      state.layers.forEach(layer => {
+        if (layer.content.textElements) {
+          allTextElements.push(...layer.content.textElements);
+        }
+      });
+      
+      return allTextElements;
+    },
+    
+    // Backward compatibility helpers for App.tsx
+    getLayerCanvas: (layerId: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === layerId);
+      return layer?.content.canvas || null;
+    },
+    
+    getLayerDisplacementCanvas: (layerId: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === layerId);
+      return layer?.content.displacementCanvas || null;
+    },
+    
+    // Convert AdvancedLayer to legacy Layer format for compatibility
+    convertToLegacyLayer: (advancedLayer: AdvancedLayer) => {
+      return {
+        id: advancedLayer.id,
+        name: advancedLayer.name,
+        visible: advancedLayer.visible,
+        canvas: advancedLayer.content.canvas || document.createElement('canvas'),
+        history: [], // Legacy history not used in V2
+        future: [], // Legacy future not used in V2
+        lockTransparent: false, // Legacy property
+        mask: advancedLayer.mask?.canvas || null,
+        order: advancedLayer.order,
+        displacementCanvas: advancedLayer.content.displacementCanvas || null
+      };
     },
     
     // Layer composition

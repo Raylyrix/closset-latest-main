@@ -1263,7 +1263,9 @@ export function ShirtRefactored({
    // KEYBOARD SHORTCUTS for text tool
    useEffect(() => {
      const handleKeyDown = (e: KeyboardEvent) => {
-       const { activeTool, activeTextId, textElements, updateTextElement, setActiveTextId } = useApp.getState();
+       const { activeTool, activeTextId, updateTextElement, setActiveTextId } = useApp.getState();
+       const { getAllTextElements } = useAdvancedLayerStoreV2.getState();
+       const textElements = getAllTextElements();
        
        // Only handle shortcuts when text tool is active or text is selected
        if (activeTool !== 'text' && !activeTextId) return;
@@ -1319,8 +1321,8 @@ export function ShirtRefactored({
        // DELETE: Remove selected text
        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedText) {
          e.preventDefault();
-         const newTextElements = textElements.filter(t => t.id !== selectedText.id);
-         useApp.setState({ textElements: newTextElements });
+         const { deleteTextElementFromApp } = useAdvancedLayerStoreV2.getState();
+         deleteTextElementFromApp(selectedText.id);
          setActiveTextId(null);
          console.log(`⌨️ Deleted text: "${selectedText.text}"`);
          
@@ -1344,14 +1346,9 @@ export function ShirtRefactored({
        // CTRL+D: Duplicate text
        if (e.ctrlKey && e.key === 'd' && selectedText) {
          e.preventDefault();
-         const newText = {
-           ...selectedText,
-           id: `text-${Date.now()}`,
-           u: (selectedText.u || 0.5) + 0.02, // Offset by ~82px
-           v: (selectedText.v || 0.5) + 0.02
-         };
-         useApp.setState({ textElements: [...textElements, newText] });
-         setActiveTextId(newText.id);
+         const { addTextElementFromApp } = useAdvancedLayerStoreV2.getState();
+         const newTextId = addTextElementFromApp(selectedText.text, { u: (selectedText.u || 0.5) + 0.02, v: (selectedText.v || 0.5) + 0.02 });
+         setActiveTextId(newTextId);
          console.log(`⌨️ Duplicated text: "${selectedText.text}"`);
          
          // Trigger texture update
@@ -1375,14 +1372,9 @@ export function ShirtRefactored({
        if (e.ctrlKey && e.key === 'v' && (window as any).__copiedText) {
          e.preventDefault();
          const copiedText = (window as any).__copiedText;
-         const newText = {
-           ...copiedText,
-           id: `text-${Date.now()}`,
-           u: (copiedText.u || 0.5) + 0.02,
-           v: (copiedText.v || 0.5) + 0.02
-         };
-         useApp.setState({ textElements: [...textElements, newText] });
-         setActiveTextId(newText.id);
+         const { addTextElementFromApp } = useAdvancedLayerStoreV2.getState();
+         const newTextId = addTextElementFromApp(copiedText.text, { u: (copiedText.u || 0.5) + 0.02, v: (copiedText.v || 0.5) + 0.02 });
+         setActiveTextId(newTextId);
          console.log(`⌨️ Pasted text: "${copiedText.text}"`);
          
          // Trigger texture update
@@ -5983,7 +5975,8 @@ export function ShirtRefactored({
                     u: (text.u || 0.5) + 0.02,
                     v: (text.v || 0.5) + 0.02
                   };
-                  useApp.setState({ textElements: [...textElements, newText] });
+                  const { addTextElementFromApp } = useAdvancedLayerStoreV2.getState();
+                  addTextElementFromApp(newText.text, { u: newText.u || 0.5, v: newText.v || 0.5 });
                   const { composeLayers } = useApp.getState();
                   setTimeout(() => {
                     composeLayers(true);
@@ -6013,9 +6006,11 @@ export function ShirtRefactored({
                 setContextMenu({ visible: false, x: 0, y: 0, textId: null });
               }},
               { label: '🗑️ Delete', action: () => {
-                const { textElements, setActiveTextId } = useApp.getState();
-                const newTextElements = textElements.filter(t => t.id !== contextMenu.textId);
-                useApp.setState({ textElements: newTextElements });
+                const { deleteTextElementFromApp } = useAdvancedLayerStoreV2.getState();
+                const { setActiveTextId } = useApp.getState();
+                if (contextMenu.textId) {
+                  deleteTextElementFromApp(contextMenu.textId);
+                }
                 setActiveTextId(null);
                 const { composeLayers } = useApp.getState();
                 setTimeout(() => {
