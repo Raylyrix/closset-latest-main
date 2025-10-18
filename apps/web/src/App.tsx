@@ -695,23 +695,47 @@ export const useApp = create<AppState>((set, get) => ({
   },
   
   undo: () => {
-    // TODO: Implement undo functionality with AdvancedLayerSystemV2
-    console.log('🔄 Undo called - Currently disabled during V2 migration');
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.undo();
+    
+    // Force composition and visual update
+    get().composeLayers();
+    
+    // Trigger immediate visual update on 3D model
+    setTimeout(() => {
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'undo' }
+      });
+      window.dispatchEvent(textureEvent);
+      console.log('🔄 Triggered texture update after undo');
+    }, 50);
   },
   
   redo: () => {
-    // TODO: Implement redo functionality with AdvancedLayerSystemV2
-    console.log('🔄 Redo called - Currently disabled during V2 migration');
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.redo();
+    
+    // Force composition and visual update
+    get().composeLayers();
+    
+    // Trigger immediate visual update on 3D model
+    setTimeout(() => {
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'redo' }
+      });
+      window.dispatchEvent(textureEvent);
+      console.log('🔄 Triggered texture update after redo');
+    }, 50);
   },
   
   canUndo: () => {
-    // TODO: Implement with AdvancedLayerSystemV2
-    return false;
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.canUndo();
   },
   
   canRedo: () => {
-    // TODO: Implement with AdvancedLayerSystemV2
-    return false;
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.canRedo();
   },
   
   clearHistory: () => {
@@ -2336,12 +2360,7 @@ try {
         console.log('🔄 Triggered texture update after layer reorder');
       }, 50);
       
-      // UNIFIED BRIDGE: Notify the unified layer bridge
-      const bridge = (window as any).unifiedLayerBridge;
-      if (bridge && bridge.isInitialized) {
-        console.log('🔄 Notifying unified bridge of layer reorder');
-        bridge.handleLayerReorder(layerId, 'up');
-      }
+      // V2 system handles layer reordering automatically
       
       console.log(`🎨 Moved layer ${layerId} up`);
     } else {
@@ -2383,12 +2402,7 @@ try {
         console.log('🔄 Triggered texture update after layer reorder');
       }, 50);
       
-      // UNIFIED BRIDGE: Notify the unified layer bridge
-      const bridge = (window as any).unifiedLayerBridge;
-      if (bridge && bridge.isInitialized) {
-        console.log('🔄 Notifying unified bridge of layer reorder');
-        bridge.handleLayerReorder(layerId, 'down');
-      }
+      // V2 system handles layer reordering automatically
       
       console.log(`🎨 Moved layer ${layerId} down`);
     }
@@ -2461,21 +2475,7 @@ try {
       console.log('🔄 Triggered texture update after layer duplication');
     }, 50);
     
-    // UNIFIED BRIDGE: Notify the unified layer bridge
-    const bridge = (window as any).unifiedLayerBridge;
-    if (bridge && bridge.isInitialized) {
-      console.log('🔄 Notifying unified bridge of layer duplication');
-      bridge.handleLayerCreate('raster', newLayerName, {
-        id: newLayerId,
-        visible: true,
-        opacity: 1.0,
-        blendMode: 'normal',
-        order: layers.length,
-        toolType: (layerToDuplicate as any).toolType || 'general',
-        canvas: newLayer?.canvas,
-        displacementCanvas: newLayer?.displacementCanvas
-      });
-    }
+    // V2 system handles layer duplication automatically
     
     console.log(`🎨 Duplicated layer: ${layerId} -> ${newLayerId}`);
     return newLayerId;
@@ -3484,9 +3484,7 @@ export function App() {
     console.log('🔄 Layer synchronization systems DISABLED to preserve original model texture');
     console.log('🔄 Using new layered texture system instead');
     
-    // Make bridge available globally for debugging but don't initialize
-    (window as any).unifiedLayerBridge = null;
-    (window as any).toolLayerManager = null;
+    // V2 system is now the primary layer management system
     
     console.log('🔄 Texture preservation system active - original model texture will be preserved');
   }, []);

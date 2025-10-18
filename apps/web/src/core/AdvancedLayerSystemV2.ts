@@ -72,6 +72,21 @@ export interface TextElement {
   zIndex?: number;
 }
 
+// History system for undo/redo
+export interface LayerHistorySnapshot {
+  id: string;
+  timestamp: number;
+  action: string;
+  layers: AdvancedLayer[];
+  activeLayerId: string | null;
+}
+
+export interface LayerHistoryState {
+  snapshots: LayerHistorySnapshot[];
+  currentIndex: number;
+  maxSnapshots: number;
+}
+
 // Layer content (varies by type)
 export interface LayerContent {
   canvas?: HTMLCanvasElement; // For paint layers
@@ -82,6 +97,7 @@ export interface LayerContent {
   embroideryData?: any; // For embroidery layers
   brushStrokes?: BrushStroke[]; // For paint layers
   textElements?: TextElement[]; // For text layers
+  displacementCanvas?: HTMLCanvasElement; // For displacement mapping
 }
 
 // Main Layer interface
@@ -133,6 +149,9 @@ interface AdvancedLayerStoreV2 {
   // UI state
   showLayerPanel: boolean;
   autoGrouping: boolean;
+  
+  // History state
+  history: LayerHistoryState;
   
   // Actions
   createLayer: (type: LayerType, name?: string) => string;
@@ -211,6 +230,14 @@ interface AdvancedLayerStoreV2 {
   getLayerCanvas: (layerId: string) => HTMLCanvasElement | null;
   getLayerDisplacementCanvas: (layerId: string) => HTMLCanvasElement | null;
   convertToLegacyLayer: (advancedLayer: AdvancedLayer) => any;
+  
+  // History management
+  saveHistorySnapshot: (action: string) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  clearHistory: () => void;
   
   // Layer composition
   composeLayers: () => HTMLCanvasElement | null;
@@ -291,6 +318,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     activeLayerId: null,
     showLayerPanel: true,
     autoGrouping: true,
+    history: {
+      snapshots: [],
+      currentIndex: -1,
+      maxSnapshots: 50
+    },
     
     // Layer creation
     createLayer: (type: LayerType, name?: string) => {
@@ -322,6 +354,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         selectedLayerIds: [newLayer.id]
       }));
       
+      // Save history snapshot
+      get().saveHistorySnapshot(`Create Layer: ${layerName}`);
+      
       console.log(`🎨 Created new ${type} layer: ${layerName}`, newLayer);
       return newLayer.id;
     },
@@ -334,6 +369,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         selectedLayerIds: state.selectedLayerIds.filter(layerId => layerId !== id),
         activeLayerId: state.activeLayerId === id ? null : state.activeLayerId
       }));
+      
+      // Save history snapshot
+      get().saveHistorySnapshot(`Delete Layer: ${id}`);
       
       console.log(`🗑️ Deleted layer: ${id}`);
     },
@@ -1109,6 +1147,104 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       console.log('🎨 Composed layers using V2 system');
       return composedCanvas;
+    },
+    
+    // History management
+    saveHistorySnapshot: (action: string) => {
+      const state = get();
+      const snapshot: LayerHistorySnapshot = {
+        id: `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        action,
+        layers: JSON.parse(JSON.stringify(state.layers)), // Deep clone
+        activeLayerId: state.activeLayerId
+      };
+      
+      // Remove any snapshots after current index
+      const newSnapshots = state.history.snapshots.slice(0, state.history.currentIndex + 1);
+      newSnapshots.push(snapshot);
+      
+      // Limit snapshots to maxSnapshots
+      const trimmedSnapshots = newSnapshots.slice(-state.history.maxSnapshots);
+      
+      set({
+        history: {
+          snapshots: trimmedSnapshots,
+          currentIndex: trimmedSnapshots.length - 1,
+          maxSnapshots: state.history.maxSnapshots
+        }
+      });
+      
+      console.log(`💾 Saved history snapshot: ${action} (${trimmedSnapshots.length}/${state.history.maxSnapshots})`);
+    },
+    
+    undo: () => {
+      const state = get();
+      if (state.history.currentIndex <= 0) {
+        console.log('❌ Cannot undo - no history available');
+        return;
+      }
+      
+      const targetIndex = state.history.currentIndex - 1;
+      const snapshot = state.history.snapshots[targetIndex];
+      
+      if (snapshot) {
+        set({
+          layers: JSON.parse(JSON.stringify(snapshot.layers)), // Deep clone
+          activeLayerId: snapshot.activeLayerId,
+          history: {
+            ...state.history,
+            currentIndex: targetIndex
+          }
+        });
+        
+        console.log(`↩️ Undo: ${snapshot.action}`);
+      }
+    },
+    
+    redo: () => {
+      const state = get();
+      if (state.history.currentIndex >= state.history.snapshots.length - 1) {
+        console.log('❌ Cannot redo - no future history available');
+        return;
+      }
+      
+      const targetIndex = state.history.currentIndex + 1;
+      const snapshot = state.history.snapshots[targetIndex];
+      
+      if (snapshot) {
+        set({
+          layers: JSON.parse(JSON.stringify(snapshot.layers)), // Deep clone
+          activeLayerId: snapshot.activeLayerId,
+          history: {
+            ...state.history,
+            currentIndex: targetIndex
+          }
+        });
+        
+        console.log(`↪️ Redo: ${snapshot.action}`);
+      }
+    },
+    
+    canUndo: () => {
+      const state = get();
+      return state.history.currentIndex > 0;
+    },
+    
+    canRedo: () => {
+      const state = get();
+      return state.history.currentIndex < state.history.snapshots.length - 1;
+    },
+    
+    clearHistory: () => {
+      set({
+        history: {
+          snapshots: [],
+          currentIndex: -1,
+          maxSnapshots: 50
+        }
+      });
+      console.log('🧹 Cleared history');
     }
   }))
 );
