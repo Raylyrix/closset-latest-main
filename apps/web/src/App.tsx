@@ -904,6 +904,13 @@ export const useApp = create<AppState>((set, get) => ({
   
   get textElements() {
     const v2State = useAdvancedLayerStoreV2.getState();
+    
+    // CRITICAL FIX: Check if V2 system is properly initialized
+    if (!v2State || !v2State.layers || v2State.layers.length === 0) {
+      console.log('🔍 DEBUG: App.tsx textElements getter - V2 system not initialized yet, returning empty array');
+      return [];
+    }
+    
     const result = v2State.getAllTextElements();
     console.log('🔍 DEBUG: App.tsx textElements getter called - returning', result.length, 'elements');
     return result;
@@ -911,6 +918,13 @@ export const useApp = create<AppState>((set, get) => ({
   
   get brushStrokes() {
     const v2State = useAdvancedLayerStoreV2.getState();
+    
+    // CRITICAL FIX: Check if V2 system is properly initialized
+    if (!v2State || !v2State.layers || v2State.layers.length === 0) {
+      console.log('🔍 DEBUG: App.tsx brushStrokes getter - V2 system not initialized yet, returning empty array');
+      return [];
+    }
+    
     const allBrushStrokes: any[] = [];
     v2State.layers.forEach(layer => {
       if (layer.content.brushStrokes) {
