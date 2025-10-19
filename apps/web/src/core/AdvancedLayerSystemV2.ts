@@ -1260,8 +1260,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       console.log('🎨 Added text element via App interface:', {
         text: textElement.text,
         uv: { u: uv.u, v: uv.v },
-        pixel: { x: pixelX, y: pixelY },
-        canvasSize: { width: canvasWidth, height: canvasHeight },
+        pixel: { x: pixelCoords.x, y: pixelCoords.y },
+        canvasSize: { width: canvasDimensions.width, height: canvasDimensions.height },
         layerId: targetLayerId
       });
       
