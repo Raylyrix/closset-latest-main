@@ -590,10 +590,10 @@ export function EnhancedTextSettings({ activeTextId, onTextUpdate }: EnhancedTex
                       type="range"
                       min="1"
                       max="10"
-                      value={activeText.effects.stroke.width}
+                      value={activeText.effects?.stroke?.width || 1}
                       onChange={(e) => {
                         handleEffectChange('stroke', {
-                          ...activeText.effects.stroke,
+                          ...activeText.effects?.stroke,
                           width: parseInt(e.target.value)
                         });
                       }}
@@ -604,10 +604,10 @@ export function EnhancedTextSettings({ activeTextId, onTextUpdate }: EnhancedTex
                     <label style={{ fontSize: '9px', color: '#999' }}>Color</label>
                     <input
                       type="color"
-                      value={activeText.effects.stroke.color}
+                      value={activeText.effects?.stroke?.color || '#000000'}
                       onChange={(e) => {
                         handleEffectChange('stroke', {
-                          ...activeText.effects.stroke,
+                          ...activeText.effects?.stroke,
                           color: e.target.value
                         });
                       }}

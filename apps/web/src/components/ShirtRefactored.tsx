@@ -3799,11 +3799,13 @@ export function ShirtRefactored({
                 const txtV = txt.v || 0.5;
                 
                 const composedCanvas = useApp.getState().composedCanvas;
-                const canvasWidth = composedCanvas?.width || 4096;
-                const canvasHeight = composedCanvas?.height || 4096;
+                const canvasDimensions = {
+                  width: composedCanvas?.width || 4096,
+                  height: composedCanvas?.height || 4096
+                };
                 
-                const textWidth = textPixelWidth / canvasWidth;
-                const textHeight = textPixelHeight / canvasHeight;
+                const textWidth = textPixelWidth / canvasDimensions.width;
+                const textHeight = textPixelHeight / canvasDimensions.height;
                 
                 // Simple hitbox check (can be refined)
                 const hitboxMultiplier = 1.5;
@@ -3875,8 +3877,8 @@ export function ShirtRefactored({
               
               if (rotation !== 0) {
                 // Convert click UV to pixels
-                const clickPixelX = clickU * canvasWidth;
-                const clickPixelY = (1 - clickV) * canvasHeight;
+                const clickPixelX = clickU * canvasDimensions.width;
+                const clickPixelY = (1 - clickV) * canvasDimensions.height;
                 
                 // Translate to text origin
                 const relX = clickPixelX - x;
@@ -3889,8 +3891,8 @@ export function ShirtRefactored({
                 const localY = relX * sinR + relY * cosR;
                 
                 // Convert back to UV coordinates
-                localClickU = (x + localX) / canvasWidth;
-                localClickV = 1 - ((y + localY) / canvasHeight);
+                localClickU = (x + localX) / canvasDimensions.width;
+                localClickV = 1 - ((y + localY) / canvasDimensions.height);
               }
               
               // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
@@ -3911,10 +3913,10 @@ export function ShirtRefactored({
               // In App.tsx, anchors are drawn AFTER ctx.translate(x, y), so:
               // Anchor absolute pixel = x + (borderX ± textWidth/2), y + (borderY ± textHeight/2)
               // Then convert to UV
-              const textWidth = textPixelWidth / canvasWidth;
-              const textHeight = textPixelHeight / canvasHeight;
-              const borderX = borderXPixels / canvasWidth;
-              const borderY = borderYPixels / canvasHeight;
+              const textWidth = textPixelWidth / canvasDimensions.width;
+              const textHeight = textPixelHeight / canvasDimensions.height;
+              const borderX = borderXPixels / canvasDimensions.width;
+              const borderY = borderYPixels / canvasDimensions.height;
               
               console.log('🎨 Checking text:', txt.text, 'at UV:', txtU, txtV, 'ACTUAL bounds:', textWidth, 'x', textHeight, 'Border offset:', borderX, borderY);
               
@@ -3924,8 +3926,8 @@ export function ShirtRefactored({
               // CRITICAL: Calculate border center in PIXEL space, then convert to UV
               const borderCenterPixelX = x + borderXPixels;
               const borderCenterPixelY = y + borderYPixels;
-              const centerU = borderCenterPixelX / canvasWidth;
-              const centerV = 1 - (borderCenterPixelY / canvasHeight); // Flip Y when converting to UV
+              const centerU = borderCenterPixelX / canvasDimensions.width;
+              const centerV = 1 - (borderCenterPixelY / canvasDimensions.height); // Flip Y when converting to UV
               
               const hitboxWidthUV = textWidth * hitboxMultiplier;
               const hitboxHeightUV = textHeight * hitboxMultiplier;
@@ -4012,12 +4014,14 @@ export function ShirtRefactored({
               
               // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
               const composedCanvas = useApp.getState().composedCanvas;
-              const canvasWidth = composedCanvas?.width || 4096;
-              const canvasHeight = composedCanvas?.height || 4096;
+const canvasDimensions = {
+                  width: composedCanvas?.width || 4096,
+                  height: composedCanvas?.height || 4096
+                };
               
               // CRITICAL: Calculate canvas pixel position (same as App.tsx line 3035-3037)
-              const x = Math.round(txtU * canvasWidth);
-              const y = Math.round((1 - txtV) * canvasHeight); // V is flipped in canvas space
+              const x = Math.round(txtU * canvasDimensions.width);
+              const y = Math.round((1 - txtV) * canvasDimensions.height); // V is flipped in canvas space
               
               // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
               let borderXPixels = 0;
@@ -4033,10 +4037,10 @@ export function ShirtRefactored({
               const borderYPixels = textPixelHeight / 2; // Center border vertically
               
               // Convert to UV for hitbox calculations
-              const textWidth = textPixelWidth / canvasWidth;
-              const textHeight = textPixelHeight / canvasHeight;
-              const borderX = borderXPixels / canvasWidth;
-              const borderY = borderYPixels / canvasHeight;
+              const textWidth = textPixelWidth / canvasDimensions.width;
+              const textHeight = textPixelHeight / canvasDimensions.height;
+              const borderX = borderXPixels / canvasDimensions.width;
+              const borderY = borderYPixels / canvasDimensions.height;
               
               console.log('🎨 Text anchor check - ACTUAL bounds:', textWidth, 'x', textHeight, 'Border offset:', borderX, borderY);
               
@@ -4070,15 +4074,15 @@ export function ShirtRefactored({
               
               const anchors = [
                 // Corner anchors (check these first for priority) with hitbox radius in pixels
-                { name: 'topLeft', u: topLeftPixelX / canvasWidth, v: 1 - (topLeftPixelY / canvasHeight), hitboxPx: cornerHitboxRadius },
-                { name: 'topRight', u: topRightPixelX / canvasWidth, v: 1 - (topRightPixelY / canvasHeight), hitboxPx: cornerHitboxRadius },
-                { name: 'bottomLeft', u: bottomLeftPixelX / canvasWidth, v: 1 - (bottomLeftPixelY / canvasHeight), hitboxPx: cornerHitboxRadius },
-                { name: 'bottomRight', u: bottomRightPixelX / canvasWidth, v: 1 - (bottomRightPixelY / canvasHeight), hitboxPx: cornerHitboxRadius },
+                { name: 'topLeft', u: topLeftPixelX / canvasDimensions.width, v: 1 - (topLeftPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
+                { name: 'topRight', u: topRightPixelX / canvasDimensions.width, v: 1 - (topRightPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
+                { name: 'bottomLeft', u: bottomLeftPixelX / canvasDimensions.width, v: 1 - (bottomLeftPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
+                { name: 'bottomRight', u: bottomRightPixelX / canvasDimensions.width, v: 1 - (bottomRightPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
                 // Edge anchors (check these after corners) with hitbox radius in pixels
-                { name: 'top', u: topEdgePixelX / canvasWidth, v: 1 - (topEdgePixelY / canvasHeight), hitboxPx: edgeHitboxRadius },
-                { name: 'bottom', u: bottomEdgePixelX / canvasWidth, v: 1 - (bottomEdgePixelY / canvasHeight), hitboxPx: edgeHitboxRadius },
-                { name: 'left', u: leftEdgePixelX / canvasWidth, v: 1 - (leftEdgePixelY / canvasHeight), hitboxPx: edgeHitboxRadius },
-                { name: 'right', u: rightEdgePixelX / canvasWidth, v: 1 - (rightEdgePixelY / canvasHeight), hitboxPx: edgeHitboxRadius }
+                { name: 'top', u: topEdgePixelX / canvasDimensions.width, v: 1 - (topEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius },
+                { name: 'bottom', u: bottomEdgePixelX / canvasDimensions.width, v: 1 - (bottomEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius },
+                { name: 'left', u: leftEdgePixelX / canvasDimensions.width, v: 1 - (leftEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius },
+                { name: 'right', u: rightEdgePixelX / canvasDimensions.width, v: 1 - (rightEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius }
               ];
               
               console.log('🎨 DEBUG ANCHOR POSITIONS:');
@@ -4100,8 +4104,8 @@ export function ShirtRefactored({
               
               if (rotation !== 0) {
                 // Convert click UV to pixels
-                const clickPixelX = clickU * canvasWidth;
-                const clickPixelY = (1 - clickV) * canvasHeight;
+                const clickPixelX = clickU * canvasDimensions.width;
+                const clickPixelY = (1 - clickV) * canvasDimensions.height;
                 
                 // Translate to text origin
                 const relX = clickPixelX - x;
@@ -4114,8 +4118,8 @@ export function ShirtRefactored({
                 const localY = relX * sinR + relY * cosR;
                 
                 // Convert back to UV coordinates
-                localClickU = (x + localX) / canvasWidth;
-                localClickV = 1 - ((y + localY) / canvasHeight);
+                localClickU = (x + localX) / canvasDimensions.width;
+                localClickV = 1 - ((y + localY) / canvasDimensions.height);
               }
               
               // ROTATION HANDLE: Check if clicking on rotation handle (PRIORITY - check before anchors)
@@ -4123,11 +4127,11 @@ export function ShirtRefactored({
               const rotationHandleSize = 12; // Same as in App.tsx
               const rotationHandlePixelX = x + borderXPixels;
               const rotationHandlePixelY = y + borderYPixels - textPixelHeight / 2 - rotationHandleDistance;
-              const rotationHandleU = rotationHandlePixelX / canvasWidth;
-              const rotationHandleV = 1 - (rotationHandlePixelY / canvasHeight);
+              const rotationHandleU = rotationHandlePixelX / canvasDimensions.width;
+              const rotationHandleV = 1 - (rotationHandlePixelY / canvasDimensions.height);
               
               const rotationHandleDist = Math.sqrt(Math.pow(localClickU - rotationHandleU, 2) + Math.pow(localClickV - rotationHandleV, 2));
-              const rotationHandleHitbox = (rotationHandleSize / canvasWidth) * 1.5; // Slightly larger hitbox for easier clicking
+              const rotationHandleHitbox = (rotationHandleSize / canvasDimensions.width) * 1.5; // Slightly larger hitbox for easier clicking
               
               console.log('🔄 Rotation handle check:');
               console.log('  Handle position (pixels):', rotationHandlePixelX, rotationHandlePixelY);
@@ -4166,10 +4170,10 @@ export function ShirtRefactored({
               
               for (const anchor of anchors) {
                 const dist = Math.sqrt(Math.pow(localClickU - anchor.u, 2) + Math.pow(localClickV - anchor.v, 2));
-                const distPixels = dist * canvasWidth;
+                const distPixels = dist * canvasDimensions.width;
                 
                 // Use the anchor's specific hitbox size (in UV space)
-                const hitboxUV = anchor.hitboxPx / canvasWidth;
+                const hitboxUV = anchor.hitboxPx / canvasDimensions.width;
                 const willHit = dist < hitboxUV;
                 
                 console.log(`🎨 Anchor ${anchor.name}:`, 
@@ -4720,12 +4724,14 @@ export function ShirtRefactored({
               
               // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
               const composedCanvas = useApp.getState().composedCanvas;
-              const canvasWidth = composedCanvas?.width || 4096;
-              const canvasHeight = composedCanvas?.height || 4096;
+const canvasDimensions = {
+                  width: composedCanvas?.width || 4096,
+                  height: composedCanvas?.height || 4096
+                };
               
               // CRITICAL: Calculate canvas pixel position
-              const textX = Math.round(txtU * canvasWidth);
-              const textY = Math.round((1 - txtV) * canvasHeight);
+              const textX = Math.round(txtU * canvasDimensions.width);
+              const textY = Math.round((1 - txtV) * canvasDimensions.height);
               
               // CRITICAL: Account for rotation - transform hover point to text's local coordinate system
               const rotation = txt.rotation || 0;
@@ -4734,8 +4740,8 @@ export function ShirtRefactored({
               
               if (rotation !== 0) {
                 // Convert hover UV to pixels
-                const hoverPixelX = hoverU * canvasWidth;
-                const hoverPixelY = (1 - hoverV) * canvasHeight;
+                const hoverPixelX = hoverU * canvasDimensions.width;
+                const hoverPixelY = (1 - hoverV) * canvasDimensions.height;
                 
                 // Translate to text origin
                 const relX = hoverPixelX - textX;
@@ -4748,8 +4754,8 @@ export function ShirtRefactored({
                 const localY = relX * sinR + relY * cosR;
                 
                 // Convert back to UV coordinates
-                localHoverU = (textX + localX) / canvasWidth;
-                localHoverV = 1 - ((textY + localY) / canvasHeight);
+                localHoverU = (textX + localX) / canvasDimensions.width;
+                localHoverV = 1 - ((textY + localY) / canvasDimensions.height);
               }
               
               // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
@@ -4766,14 +4772,14 @@ export function ShirtRefactored({
               const borderYPixels = textPixelHeight / 2; // Center border vertically
               
               // Convert to UV for hitbox calculations
-              const textWidth = textPixelWidth / canvasWidth;
-              const textHeight = textPixelHeight / canvasHeight;
+              const textWidth = textPixelWidth / canvasDimensions.width;
+              const textHeight = textPixelHeight / canvasDimensions.height;
               
               // CRITICAL: Calculate border center in PIXEL space, then convert to UV (using textX, textY already calculated above)
               const borderCenterPixelX = textX + borderXPixels;
               const borderCenterPixelY = textY + borderYPixels;
-              const centerU = borderCenterPixelX / canvasWidth;
-              const centerV = 1 - (borderCenterPixelY / canvasHeight); // Flip Y when converting to UV
+              const centerU = borderCenterPixelX / canvasDimensions.width;
+              const centerV = 1 - (borderCenterPixelY / canvasDimensions.height); // Flip Y when converting to UV
               
               const isOverText = 
                 localHoverU >= centerU - textWidth / 2 &&
@@ -4803,8 +4809,10 @@ export function ShirtRefactored({
             
             // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
             const composedCanvas = useApp.getState().composedCanvas;
-            const canvasWidth = composedCanvas?.width || 4096;
-            const canvasHeight = composedCanvas?.height || 4096;
+const canvasDimensions = {
+                  width: composedCanvas?.width || 4096,
+                  height: composedCanvas?.height || 4096
+                };
             
             // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
             let borderXPixels = 0;
@@ -4820,10 +4828,10 @@ export function ShirtRefactored({
             const borderYPixels = textPixelHeight / 2; // Center border vertically
             
             // Convert to UV for hitbox calculations
-            const textWidth = textPixelWidth / canvasWidth;
-            const textHeight = textPixelHeight / canvasHeight;
-            const borderX = borderXPixels / canvasWidth;
-            const borderY = borderYPixels / canvasHeight;
+            const textWidth = textPixelWidth / canvasDimensions.width;
+            const textHeight = textPixelHeight / canvasDimensions.height;
+            const borderX = borderXPixels / canvasDimensions.width;
+            const borderY = borderYPixels / canvasDimensions.height;
             
             // Match visual anchor sizes from App.tsx (line 3259-3260)
             const cornerAnchorSize = 12; // 12px square
@@ -4834,8 +4842,8 @@ export function ShirtRefactored({
             const edgeHitboxRadius = 12;   // 12px (visual is 10px)
             
             // CRITICAL: Anchors are positioned at BORDER CORNERS in PIXEL space, then converted to UV
-            const x = Math.round(txtU * canvasWidth);
-            const y = Math.round((1 - txtV) * canvasHeight);
+            const x = Math.round(txtU * canvasDimensions.width);
+            const y = Math.round((1 - txtV) * canvasDimensions.height);
             
             const topLeftPixelX = x + borderXPixels - textPixelWidth / 2;
             const topLeftPixelY = y + borderYPixels - textPixelHeight / 2;
@@ -4901,15 +4909,15 @@ export function ShirtRefactored({
             
             const anchors = {
               // Corner anchors with rotation-adjusted cursors and hitbox radius in pixels
-              topLeft: { u: topLeftPixelX / canvasWidth, v: 1 - (topLeftPixelY / canvasHeight), cursor: getRotatedCursor('nw-resize', 'topLeft'), hitboxPx: cornerHitboxRadius },
-              topRight: { u: topRightPixelX / canvasWidth, v: 1 - (topRightPixelY / canvasHeight), cursor: getRotatedCursor('ne-resize', 'topRight'), hitboxPx: cornerHitboxRadius },
-              bottomLeft: { u: bottomLeftPixelX / canvasWidth, v: 1 - (bottomLeftPixelY / canvasHeight), cursor: getRotatedCursor('sw-resize', 'bottomLeft'), hitboxPx: cornerHitboxRadius },
-              bottomRight: { u: bottomRightPixelX / canvasWidth, v: 1 - (bottomRightPixelY / canvasHeight), cursor: getRotatedCursor('se-resize', 'bottomRight'), hitboxPx: cornerHitboxRadius },
+              topLeft: { u: topLeftPixelX / canvasDimensions.width, v: 1 - (topLeftPixelY / canvasDimensions.height), cursor: getRotatedCursor('nw-resize', 'topLeft'), hitboxPx: cornerHitboxRadius },
+              topRight: { u: topRightPixelX / canvasDimensions.width, v: 1 - (topRightPixelY / canvasDimensions.height), cursor: getRotatedCursor('ne-resize', 'topRight'), hitboxPx: cornerHitboxRadius },
+              bottomLeft: { u: bottomLeftPixelX / canvasDimensions.width, v: 1 - (bottomLeftPixelY / canvasDimensions.height), cursor: getRotatedCursor('sw-resize', 'bottomLeft'), hitboxPx: cornerHitboxRadius },
+              bottomRight: { u: bottomRightPixelX / canvasDimensions.width, v: 1 - (bottomRightPixelY / canvasDimensions.height), cursor: getRotatedCursor('se-resize', 'bottomRight'), hitboxPx: cornerHitboxRadius },
               // Edge anchors with rotation-adjusted cursors and hitbox radius in pixels
-              top: { u: topEdgePixelX / canvasWidth, v: 1 - (topEdgePixelY / canvasHeight), cursor: getRotatedCursor('n-resize', 'top'), hitboxPx: edgeHitboxRadius },
-              bottom: { u: bottomEdgePixelX / canvasWidth, v: 1 - (bottomEdgePixelY / canvasHeight), cursor: getRotatedCursor('s-resize', 'bottom'), hitboxPx: edgeHitboxRadius },
-              left: { u: leftEdgePixelX / canvasWidth, v: 1 - (leftEdgePixelY / canvasHeight), cursor: getRotatedCursor('w-resize', 'left'), hitboxPx: edgeHitboxRadius },
-              right: { u: rightEdgePixelX / canvasWidth, v: 1 - (rightEdgePixelY / canvasHeight), cursor: getRotatedCursor('e-resize', 'right'), hitboxPx: edgeHitboxRadius }
+              top: { u: topEdgePixelX / canvasDimensions.width, v: 1 - (topEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('n-resize', 'top'), hitboxPx: edgeHitboxRadius },
+              bottom: { u: bottomEdgePixelX / canvasDimensions.width, v: 1 - (bottomEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('s-resize', 'bottom'), hitboxPx: edgeHitboxRadius },
+              left: { u: leftEdgePixelX / canvasDimensions.width, v: 1 - (leftEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('w-resize', 'left'), hitboxPx: edgeHitboxRadius },
+              right: { u: rightEdgePixelX / canvasDimensions.width, v: 1 - (rightEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('e-resize', 'right'), hitboxPx: edgeHitboxRadius }
             };
             
             // CRITICAL: Transform hover point to text's local coordinate system (accounting for rotation)
@@ -4919,8 +4927,8 @@ export function ShirtRefactored({
             
             if (rotation !== 0) {
               // Convert hover UV to pixels
-              const hoverPixelX = hoverU * canvasWidth;
-              const hoverPixelY = (1 - hoverV) * canvasHeight;
+              const hoverPixelX = hoverU * canvasDimensions.width;
+              const hoverPixelY = (1 - hoverV) * canvasDimensions.height;
               
               // Translate to text origin
               const relX = hoverPixelX - x;
@@ -4933,8 +4941,8 @@ export function ShirtRefactored({
               const localY = relX * sinR + relY * cosR;
               
               // Convert back to UV coordinates
-              localHoverU = (x + localX) / canvasWidth;
-              localHoverV = 1 - ((y + localY) / canvasHeight);
+              localHoverU = (x + localX) / canvasDimensions.width;
+              localHoverV = 1 - ((y + localY) / canvasDimensions.height);
             }
             
             // PRIORITY 1: Check rotation handle FIRST (before anchors)
@@ -4942,10 +4950,10 @@ export function ShirtRefactored({
             const rotationHandleSize = 12; // Same as in App.tsx
             const rotationHandlePixelX = x + borderXPixels;
             const rotationHandlePixelY = y + borderYPixels - textPixelHeight / 2 - rotationHandleDistance;
-            const rotationHandleU = rotationHandlePixelX / canvasWidth;
-            const rotationHandleV = 1 - (rotationHandlePixelY / canvasHeight);
+            const rotationHandleU = rotationHandlePixelX / canvasDimensions.width;
+            const rotationHandleV = 1 - (rotationHandlePixelY / canvasDimensions.height);
             const rotationHandleDist = Math.sqrt(Math.pow(localHoverU - rotationHandleU, 2) + Math.pow(localHoverV - rotationHandleV, 2));
-            const rotationHandleHitbox = (rotationHandleSize / canvasWidth) * 1.5;
+            const rotationHandleHitbox = (rotationHandleSize / canvasDimensions.width) * 1.5;
             
             let overAnchor = false;
             if (rotationHandleDist < rotationHandleHitbox) {
@@ -4964,10 +4972,10 @@ export function ShirtRefactored({
               
               for (const [anchorName, anchorData] of Object.entries(anchors)) {
                 const dist = Math.sqrt(Math.pow(localHoverU - anchorData.u, 2) + Math.pow(localHoverV - anchorData.v, 2));
-                const distPx = dist * canvasWidth;
+                const distPx = dist * canvasDimensions.width;
                 
                 // Use the anchor's specific hitbox size (in UV space)
-                const hitboxUV = anchorData.hitboxPx / canvasWidth;
+                const hitboxUV = anchorData.hitboxPx / canvasDimensions.width;
                 const willHit = dist < hitboxUV;
                 
                 console.log(`🖱️ ${anchorName}:`, 

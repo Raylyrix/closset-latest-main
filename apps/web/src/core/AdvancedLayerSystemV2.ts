@@ -393,6 +393,19 @@ interface AdvancedLayerStoreV2 {
   
   // Helper methods
   wrapText: (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => string[];
+  
+  // Text Path Management
+  createTextPath: (path: { id: string; name: string; type: 'line' | 'curve' | 'circle' | 'arc' | 'bezier' | 'polygon'; points: { x: number; y: number }[]; closed?: boolean; controlPoints?: { x: number; y: number }[]; radius?: number; startAngle?: number; endAngle?: number }) => Promise<string>;
+  getTextPath: (pathId: string) => Promise<any>;
+  getAllTextPaths: () => Promise<any[]>;
+  updateTextPath: (pathId: string, updates: any) => Promise<boolean>;
+  deleteTextPath: (pathId: string) => Promise<boolean>;
+  createLinePath: (id: string, startX: number, startY: number, endX: number, endY: number, name?: string) => Promise<string>;
+  createCirclePath: (id: string, centerX: number, centerY: number, radius: number, name?: string) => Promise<string>;
+  createCurvePath: (id: string, startX: number, startY: number, controlX: number, controlY: number, endX: number, endY: number, name?: string) => Promise<string>;
+  createArcPath: (id: string, centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number, name?: string) => Promise<string>;
+  renderTextPath: (ctx: CanvasRenderingContext2D, pathId: string, options?: any) => Promise<void>;
+  getTextPositionOnPath: (pathId: string, offset: number) => Promise<{ x: number; y: number; angle: number } | null>;
 }
 
 // Helper functions
@@ -1716,89 +1729,123 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.letterSpacing = `${textEl.letterSpacing}px`;
           }
           
-          // Apply rotation if needed
-          if (textEl.rotation && textEl.rotation !== 0) {
-            ctx.translate(textEl.x, textEl.y);
-            ctx.rotate((textEl.rotation * Math.PI) / 180);
-            ctx.translate(-textEl.x, -textEl.y);
-          }
-          
-        // Apply advanced typography features
-        if (textEl.wordSpacing && textEl.wordSpacing !== 0) {
-          ctx.wordSpacing = `${textEl.wordSpacing}px`;
-        }
-
-        // Apply text transform
-        let displayText = textEl.text;
-        if (textEl.textTransform && textEl.textTransform !== 'none') {
-          switch (textEl.textTransform) {
-            case 'uppercase':
-              displayText = textEl.text.toUpperCase();
-              break;
-            case 'lowercase':
-              displayText = textEl.text.toLowerCase();
-              break;
-            case 'capitalize':
-              displayText = textEl.text.replace(/\b\w/g, l => l.toUpperCase());
-              break;
-          }
-        }
-
-        // Handle multi-line text rendering
-        if (textEl.maxWidth && textEl.lineBreak) {
-          const lines = get().wrapText(ctx, displayText, textEl.maxWidth);
-          const lineHeight = (textEl.lineHeight || 1.2) * textEl.fontSize;
-          
-          lines.forEach((line, index) => {
-            const y = textEl.y + (index * lineHeight);
-            
-            // Apply text effects for each line
-            if (textEl.effects) {
-              import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
-                TextEffectsRenderer.applyEffects(ctx, line, textEl.x, y, textEl.effects!);
-              }).catch(() => {
-                ctx.fillText(line, textEl.x, y);
-              });
-            } else {
-              ctx.fillText(line, textEl.x, y);
+          // Apply text transform
+          let displayText = textEl.text;
+          if (textEl.textTransform && textEl.textTransform !== 'none') {
+            switch (textEl.textTransform) {
+              case 'uppercase':
+                displayText = textEl.text.toUpperCase();
+                break;
+              case 'lowercase':
+                displayText = textEl.text.toLowerCase();
+                break;
+              case 'capitalize':
+                displayText = textEl.text.replace(/\b\w/g, l => l.toUpperCase());
+                break;
             }
-          });
-        } else {
-          // Single line text rendering
-          if (textEl.effects) {
-            import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
-              TextEffectsRenderer.applyEffects(ctx, displayText, textEl.x, textEl.y, textEl.effects!);
+          }
+
+          // Check if text should be rendered on a path
+          if (textEl.pathId) {
+            // Render text along a path
+            import('../utils/TextPathManager').then(({ TextPathManager }) => {
+              const pathPosition = TextPathManager.getTextPositionOnPath(textEl.pathId!, textEl.pathOffset || 0);
+              if (pathPosition) {
+                ctx.save();
+                ctx.translate(pathPosition.x, pathPosition.y);
+                ctx.rotate(pathPosition.angle);
+                
+                // Apply text effects for path text
+                if (textEl.effects) {
+                  import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
+                    TextEffectsRenderer.applyEffects(ctx, displayText, 0, 0, textEl.effects!);
+                  }).catch(() => {
+                    ctx.fillText(displayText, 0, 0);
+                  });
+                } else {
+                  ctx.fillText(displayText, 0, 0);
+                }
+                
+                ctx.restore();
+              } else {
+                // Fallback to regular text rendering if path not found
+                ctx.fillText(displayText, textEl.x, textEl.y);
+              }
             }).catch(() => {
+              // Fallback to regular text rendering if TextPathManager fails
               ctx.fillText(displayText, textEl.x, textEl.y);
             });
           } else {
-            ctx.fillText(displayText, textEl.x, textEl.y);
-          }
-        }
-          
-          // Apply text decoration
-          if (textEl.textDecoration && textEl.textDecoration !== 'none') {
-            const metrics = ctx.measureText(textEl.text);
-            const decorationY = textEl.y + textEl.fontSize * 0.8; // Position decoration line
+            // Regular text rendering (not on path)
             
-            ctx.strokeStyle = textEl.color;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            
-            if (textEl.textDecoration === 'underline') {
-              ctx.moveTo(textEl.x, decorationY);
-              ctx.lineTo(textEl.x + metrics.width, decorationY);
-            } else if (textEl.textDecoration === 'line-through') {
-              const strikeY = textEl.y + textEl.fontSize * 0.5;
-              ctx.moveTo(textEl.x, strikeY);
-              ctx.lineTo(textEl.x + metrics.width, strikeY);
-            } else if (textEl.textDecoration === 'overline') {
-              const overlineY = textEl.y + textEl.fontSize * 0.2;
-              ctx.moveTo(textEl.x, overlineY);
-              ctx.lineTo(textEl.x + metrics.width, overlineY);
+            // Apply rotation if needed
+            if (textEl.rotation && textEl.rotation !== 0) {
+              ctx.translate(textEl.x, textEl.y);
+              ctx.rotate((textEl.rotation * Math.PI) / 180);
+              ctx.translate(-textEl.x, -textEl.y);
             }
             
-            ctx.stroke();
+            // Apply advanced typography features
+            if (textEl.wordSpacing && textEl.wordSpacing !== 0) {
+              ctx.wordSpacing = `${textEl.wordSpacing}px`;
+            }
+
+            // Handle multi-line text rendering
+            if (textEl.maxWidth && textEl.lineBreak) {
+              const lines = get().wrapText(ctx, displayText, textEl.maxWidth);
+              const lineHeight = (textEl.lineHeight || 1.2) * textEl.fontSize;
+              
+              lines.forEach((line, index) => {
+                const y = textEl.y + (index * lineHeight);
+                
+                // Apply text effects for each line
+                if (textEl.effects) {
+                  import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
+                    TextEffectsRenderer.applyEffects(ctx, line, textEl.x, y, textEl.effects!);
+                  }).catch(() => {
+                    ctx.fillText(line, textEl.x, y);
+                  });
+                } else {
+                  ctx.fillText(line, textEl.x, y);
+                }
+              });
+            } else {
+              // Single line text rendering
+              if (textEl.effects) {
+                import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
+                  TextEffectsRenderer.applyEffects(ctx, displayText, textEl.x, textEl.y, textEl.effects!);
+                }).catch(() => {
+                  ctx.fillText(displayText, textEl.x, textEl.y);
+                });
+              } else {
+                ctx.fillText(displayText, textEl.x, textEl.y);
+              }
+            }
+            
+            // Apply text decoration
+            if (textEl.textDecoration && textEl.textDecoration !== 'none') {
+              const metrics = ctx.measureText(textEl.text);
+              const decorationY = textEl.y + textEl.fontSize * 0.8; // Position decoration line
+              
+              ctx.strokeStyle = textEl.color;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              
+              if (textEl.textDecoration === 'underline') {
+                ctx.moveTo(textEl.x, decorationY);
+                ctx.lineTo(textEl.x + metrics.width, decorationY);
+              } else if (textEl.textDecoration === 'line-through') {
+                const strikeY = textEl.y + textEl.fontSize * 0.5;
+                ctx.moveTo(textEl.x, strikeY);
+                ctx.lineTo(textEl.x + metrics.width, strikeY);
+              } else if (textEl.textDecoration === 'overline') {
+                const overlineY = textEl.y + textEl.fontSize * 0.2;
+                ctx.moveTo(textEl.x, overlineY);
+                ctx.lineTo(textEl.x + metrics.width, overlineY);
+              }
+              
+              ctx.stroke();
+            }
           }
           
           ctx.restore();
@@ -2261,6 +2308,105 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }
       
       return lines;
+    },
+
+    // Text Path Management Methods
+    createTextPath: (path: { id: string; name: string; type: 'line' | 'curve' | 'circle' | 'arc' | 'bezier' | 'polygon'; points: { x: number; y: number }[]; closed?: boolean; controlPoints?: { x: number; y: number }[]; radius?: number; startAngle?: number; endAngle?: number }) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.createPath(path);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return path.id;
+      });
+    },
+
+    getTextPath: (pathId: string) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.getPath(pathId);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return null;
+      });
+    },
+
+    getAllTextPaths: () => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.getAllPaths();
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return [];
+      });
+    },
+
+    updateTextPath: (pathId: string, updates: any) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.updatePath(pathId, updates);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return false;
+      });
+    },
+
+    deleteTextPath: (pathId: string) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.deletePath(pathId);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return false;
+      });
+    },
+
+    createLinePath: (id: string, startX: number, startY: number, endX: number, endY: number, name?: string) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.createLinePath(id, startX, startY, endX, endY, name);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return id;
+      });
+    },
+
+    createCirclePath: (id: string, centerX: number, centerY: number, radius: number, name?: string) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.createCirclePath(id, centerX, centerY, radius, name);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return id;
+      });
+    },
+
+    createCurvePath: (id: string, startX: number, startY: number, controlX: number, controlY: number, endX: number, endY: number, name?: string) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.createCurvePath(id, startX, startY, controlX, controlY, endX, endY, name);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return id;
+      });
+    },
+
+    createArcPath: (id: string, centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number, name?: string) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.createArcPath(id, centerX, centerY, radius, startAngle, endAngle, name);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return id;
+      });
+    },
+
+    renderTextPath: (ctx: CanvasRenderingContext2D, pathId: string, options?: any) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        TextPathManager.renderPath(ctx, pathId, options);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+      });
+    },
+
+    getTextPositionOnPath: (pathId: string, offset: number) => {
+      return import('../utils/TextPathManager').then(({ TextPathManager }) => {
+        return TextPathManager.getTextPositionOnPath(pathId, offset);
+      }).catch(() => {
+        console.error('Failed to import TextPathManager');
+        return null;
+      });
     }
   }))
 );

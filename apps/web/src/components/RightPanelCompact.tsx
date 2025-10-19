@@ -3358,6 +3358,190 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           );
         })()}
 
+        {/* Text Path Features */}
+        {activeTool === 'text' && activeTextId && (() => {
+          const activeText = textElements.find(t => t.id === activeTextId);
+          if (!activeText) return null;
+
+          return (
+            <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(255,165,0,0.1)', borderRadius: '4px', border: '1px solid rgba(255,165,0,0.3)' }}>
+              <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#FFA500' }}>
+                📐 Text on Path
+              </div>
+              
+              {/* Path Selection */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '2px' }}>Text Path</div>
+                <select
+                  value={activeText.pathId || ''}
+                  onChange={(e) => {
+                    const pathId = e.target.value;
+                    updateTextElement(activeTextId, { pathId: pathId || undefined });
+                    setTimeout(() => {
+                      const { composeLayers } = useApp.getState();
+                      composeLayers();
+                      if ((window as any).updateModelTexture) {
+                        (window as any).updateModelTexture(true, true);
+                      }
+                    }, 10);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '4px',
+                    background: '#000000',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(255,165,0,0.3)',
+                    borderRadius: '3px',
+                    fontSize: '8px'
+                  }}
+                >
+                  <option value="">No Path (Regular Text)</option>
+                  {/* Dynamic path options will be loaded here */}
+                </select>
+              </div>
+
+              {/* Path Offset */}
+              {activeText.pathId && (
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '2px' }}>
+                    Path Offset: {activeText.pathOffset || 0}px
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1000"
+                    step="1"
+                    value={activeText.pathOffset || 0}
+                    onChange={(e) => {
+                      updateTextElement(activeTextId, { pathOffset: parseInt(e.target.value) });
+                      setTimeout(() => {
+                        const { composeLayers } = useApp.getState();
+                        composeLayers();
+                        if ((window as any).updateModelTexture) {
+                          (window as any).updateModelTexture(true, true);
+                        }
+                      }, 10);
+                    }}
+                    style={{ width: '100%', accentColor: '#FFA500' }}
+                  />
+                </div>
+              )}
+
+              {/* Quick Path Creation */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Quick Create Path</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => {
+                      const pathId = `line-${Date.now()}`;
+                      useAdvancedLayerStoreV2.getState().createLinePath(pathId, 100, 100, 300, 100, 'Line Path');
+                      updateTextElement(activeTextId, { pathId });
+                      setTimeout(() => {
+                        const { composeLayers } = useApp.getState();
+                        composeLayers();
+                        if ((window as any).updateModelTexture) {
+                          (window as any).updateModelTexture(true, true);
+                        }
+                      }, 100);
+                    }}
+                    style={{
+                      background: '#007bff',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '3px 6px',
+                      borderRadius: '3px',
+                      fontSize: '7px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Line
+                  </button>
+                  <button
+                    onClick={() => {
+                      const pathId = `circle-${Date.now()}`;
+                      useAdvancedLayerStoreV2.getState().createCirclePath(pathId, 200, 200, 80, 'Circle Path');
+                      updateTextElement(activeTextId, { pathId });
+                      setTimeout(() => {
+                        const { composeLayers } = useApp.getState();
+                        composeLayers();
+                        if ((window as any).updateModelTexture) {
+                          (window as any).updateModelTexture(true, true);
+                        }
+                      }, 100);
+                    }}
+                    style={{
+                      background: '#28a745',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '3px 6px',
+                      borderRadius: '3px',
+                      fontSize: '7px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Circle
+                  </button>
+                  <button
+                    onClick={() => {
+                      const pathId = `curve-${Date.now()}`;
+                      useAdvancedLayerStoreV2.getState().createCurvePath(pathId, 100, 200, 200, 100, 300, 200, 'Curve Path');
+                      updateTextElement(activeTextId, { pathId });
+                      setTimeout(() => {
+                        const { composeLayers } = useApp.getState();
+                        composeLayers();
+                        if ((window as any).updateModelTexture) {
+                          (window as any).updateModelTexture(true, true);
+                        }
+                      }, 100);
+                    }}
+                    style={{
+                      background: '#dc3545',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '3px 6px',
+                      borderRadius: '3px',
+                      fontSize: '7px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Curve
+                  </button>
+                </div>
+              </div>
+
+              {/* Remove Path */}
+              {activeText.pathId && (
+                <div style={{ marginBottom: '6px' }}>
+                  <button
+                    onClick={() => {
+                      updateTextElement(activeTextId, { pathId: undefined, pathOffset: undefined });
+                      setTimeout(() => {
+                        const { composeLayers } = useApp.getState();
+                        composeLayers();
+                        if ((window as any).updateModelTexture) {
+                          (window as any).updateModelTexture(true, true);
+                        }
+                      }, 10);
+                    }}
+                    style={{
+                      background: '#6c757d',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '4px 8px',
+                      borderRadius: '3px',
+                      fontSize: '8px',
+                      cursor: 'pointer',
+                      width: '100%'
+                    }}
+                  >
+                    Remove from Path
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Image Settings */}
         {(activeTool === 'image' || activeTool === 'importImage') && (
           <div onClick={(e) => e.stopPropagation()}>
