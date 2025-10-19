@@ -3479,6 +3479,10 @@ export function App() {
     (window as any).useApp = useApp;
     (window as any).useAdvancedLayerStoreV2 = useAdvancedLayerStoreV2;
     
+    // Initialize accessibility features
+    console.log('♿ Initializing accessibility features...');
+    useAdvancedLayerStoreV2.getState().initializeAccessibility();
+    
     // Log initial performance settings
     const preset = unifiedPerformanceManager.getCurrentPreset();
     const capabilities = unifiedPerformanceManager.getDeviceCapabilities();

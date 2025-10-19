@@ -54,6 +54,9 @@ export interface BrushStroke {
 // Import text effects types
 import { TextEffects, TextShadow, TextStroke, TextGradient, TextGlow, Text3DEffect } from '../utils/TextEffects';
 
+// Import AccessibilityManager statically to avoid dynamic import issues
+import { AccessibilityManager } from '../utils/AccessibilityManager';
+
 // Text element interface
 export interface TextElement {
   id: string;
@@ -110,6 +113,19 @@ export interface TextElement {
   // Accessibility
   ariaLabel?: string;
   role?: string;
+  tabIndex?: number;
+  ariaDescribedBy?: string;
+  ariaExpanded?: boolean;
+  ariaHidden?: boolean;
+  ariaLive?: 'off' | 'polite' | 'assertive';
+  ariaAtomic?: boolean;
+  ariaRelevant?: 'additions' | 'removals' | 'text' | 'all';
+  // Keyboard navigation
+  keyboardShortcut?: string;
+  focusable?: boolean;
+  // Screen reader support
+  screenReaderText?: string;
+  description?: string;
 }
 
 // Image element interface (for imported images)
@@ -404,8 +420,12 @@ interface AdvancedLayerStoreV2 {
   createCirclePath: (id: string, centerX: number, centerY: number, radius: number, name?: string) => Promise<string>;
   createCurvePath: (id: string, startX: number, startY: number, controlX: number, controlY: number, endX: number, endY: number, name?: string) => Promise<string>;
   createArcPath: (id: string, centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number, name?: string) => Promise<string>;
-  renderTextPath: (ctx: CanvasRenderingContext2D, pathId: string, options?: any) => Promise<void>;
-  getTextPositionOnPath: (pathId: string, offset: number) => Promise<{ x: number; y: number; angle: number } | null>;
+  // Accessibility Management
+  initializeAccessibility: () => void;
+  registerTextElementForAccessibility: (textElement: TextElement) => void;
+  unregisterTextElementForAccessibility: (textId: string) => void;
+  updateAccessibilitySettings: (settings: any) => void;
+  getAccessibilityReport: () => any;
 }
 
 // Helper functions
@@ -1303,6 +1323,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         layerId: targetLayerId
       });
       
+      // Register with accessibility manager
+      get().registerTextElementForAccessibility(textElement);
+      
       // CRITICAL FIX: Dispatch event to force UI refresh
       window.dispatchEvent(new CustomEvent('textElementsChanged', { 
         detail: { action: 'added', textId: textElement.id, layerId: targetLayerId } 
@@ -1586,6 +1609,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     deleteTextElementFromApp: (id: string) => {
+      // Unregister from accessibility manager before deletion
+      get().unregisterTextElementForAccessibility(id);
+      
       set(state => ({
         layers: state.layers.map(layer => ({
           ...layer,
@@ -2407,6 +2433,49 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         console.error('Failed to import TextPathManager');
         return null;
       });
+    },
+
+    // Accessibility Management Methods
+    initializeAccessibility: () => {
+      try {
+        AccessibilityManager.initialize();
+        console.log('♿ Accessibility initialized in V2 system');
+      } catch (error) {
+        console.error('Failed to initialize AccessibilityManager:', error);
+      }
+    },
+
+    registerTextElementForAccessibility: (textElement: TextElement) => {
+      try {
+        AccessibilityManager.registerTextElement(textElement);
+      } catch (error) {
+        console.error('Failed to register text element for accessibility:', error);
+      }
+    },
+
+    unregisterTextElementForAccessibility: (textId: string) => {
+      try {
+        AccessibilityManager.unregisterTextElement(textId);
+      } catch (error) {
+        console.error('Failed to unregister text element for accessibility:', error);
+      }
+    },
+
+    updateAccessibilitySettings: (settings: any) => {
+      try {
+        AccessibilityManager.updateSettings(settings);
+      } catch (error) {
+        console.error('Failed to update accessibility settings:', error);
+      }
+    },
+
+    getAccessibilityReport: () => {
+      try {
+        return AccessibilityManager.generateAccessibilityReport();
+      } catch (error) {
+        console.error('Failed to generate accessibility report:', error);
+        return null;
+      }
     }
   }))
 );

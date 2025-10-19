@@ -532,7 +532,11 @@ export function ShirtRefactored({
   const checkIfCanvasHasContent = useCallback((canvas: HTMLCanvasElement): boolean => {
     if (!canvas) return false;
     
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { 
+      willReadFrequently: true,
+      alpha: false, // Disable alpha for better performance
+      desynchronized: true // Allow async operations
+    });
     if (!ctx) return false;
     
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -793,11 +797,19 @@ export function ShirtRefactored({
   }, [modelScene, checkIfCanvasHasContent, createPuffDisplacementMap, createPuffNormalMap]);
 
   // PERFORMANCE: Smart texture update system - only update what's needed
+  const TEXTURE_UPDATE_THROTTLE = 16; // ~60fps max
+  
   const updateModelTexture = useCallback((forceUpdate = false, updateDisplacement = false) => {
+    const now = Date.now();
+    if (!forceUpdate && now - lastTextureUpdateRef.current < TEXTURE_UPDATE_THROTTLE) {
+      console.log('🎨 updateModelTexture throttled - skipping update');
+      return;
+    }
+    lastTextureUpdateRef.current = now;
+    
     console.log('🎨 updateModelTexture called with:', { forceUpdate, updateDisplacement });
     
-    // PERFORMANCE: Throttle texture updates to prevent excessive calls
-    const now = Date.now();
+    // PERFORMANCE: Additional throttling for low-end devices
     const textureUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 200 : 100; // ms between texture updates
     if (!forceUpdate && (window as any).lastTextureUpdateTime && (now - (window as any).lastTextureUpdateTime) < textureUpdateThrottle) {
       console.log('🎨 Texture update throttled');
@@ -978,7 +990,11 @@ export function ShirtRefactored({
     }
 
     // Check if puff canvas has any actual content (non-transparent pixels)
-    const puffCtx = puffCanvas.getContext('2d', { willReadFrequently: true });
+    const puffCtx = puffCanvas.getContext('2d', { 
+      willReadFrequently: true,
+      alpha: false,
+      desynchronized: true
+    });
     if (!puffCtx) return;
     
     const puffImageData = puffCtx.getImageData(0, 0, puffCanvas.width, puffCanvas.height);
@@ -1000,7 +1016,11 @@ export function ShirtRefactored({
     }
     
     // Check if displacement canvas has any non-neutral pixels
-    const dispCtx = appDisplacementCanvas.getContext('2d', { willReadFrequently: true });
+    const dispCtx = appDisplacementCanvas.getContext('2d', { 
+      willReadFrequently: true,
+      alpha: false,
+      desynchronized: true
+    });
     if (!dispCtx) return;
     
     const dispImageData = dispCtx.getImageData(0, 0, appDisplacementCanvas.width, appDisplacementCanvas.height);
@@ -4166,20 +4186,25 @@ const canvasDimensions = {
               console.log('🎨 Click UV (original):', clickU, clickV);
               console.log('🎨 Click UV (local/rotated):', localClickU, localClickV);
               console.log('🎨 Text rotation:', rotation, 'radians =', (rotation * 180 / Math.PI).toFixed(1), '°');
-              console.log('🎨 Corner hitbox:', cornerHitboxRadius, 'px, Edge hitbox:', edgeHitboxRadius, 'px');
+              
+              // Calculate consistent hitbox sizes in UV space
+              const cornerHitboxUV = cornerHitboxRadius / canvasDimensions.width;
+              const edgeHitboxUV = edgeHitboxRadius / canvasDimensions.width;
+              console.log('🎨 Corner hitbox UV:', cornerHitboxUV.toFixed(6), 'Edge hitbox UV:', edgeHitboxUV.toFixed(6));
               
               for (const anchor of anchors) {
                 const dist = Math.sqrt(Math.pow(localClickU - anchor.u, 2) + Math.pow(localClickV - anchor.v, 2));
                 const distPixels = dist * canvasDimensions.width;
                 
-                // Use the anchor's specific hitbox size (in UV space)
-                const hitboxUV = anchor.hitboxPx / canvasDimensions.width;
+                // Use consistent hitbox size based on anchor type
+                const isCornerAnchor = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].includes(anchor.name);
+                const hitboxUV = isCornerAnchor ? cornerHitboxUV : edgeHitboxUV;
                 const willHit = dist < hitboxUV;
                 
                 console.log(`🎨 Anchor ${anchor.name}:`, 
                   'UV:', anchor.u.toFixed(4), anchor.v.toFixed(4),
                   'Distance:', dist.toFixed(6), '(' + distPixels.toFixed(1) + 'px)',
-                  'Hitbox:', anchor.hitboxPx + 'px',
+                  'Hitbox UV:', hitboxUV.toFixed(6), '(' + (hitboxUV * canvasDimensions.width).toFixed(1) + 'px)',
                   willHit ? '✅ HIT!' : '❌ miss'
                 );
                 if (willHit) {
@@ -4684,14 +4709,7 @@ const canvasDimensions = {
         }
         
         if (!shouldUpdateCursor) {
-          console.log('🖱️ Cursor update throttled - skipping');
           return; // Skip cursor update completely
-        } else {
-          console.log('🖱️ Text tool cursor check - activeTool:', activeTool);
-          // TEST: Force a cursor change to see if cursor changes work at all
-          console.log('🖱️ TEST: Setting cursor to crosshair for testing');
-          document.body.style.cursor = 'crosshair';
-          document.body.style.setProperty('cursor', 'crosshair', 'important');
         }
         
         const uv = e.uv as THREE.Vector2 | undefined;
@@ -4701,7 +4719,6 @@ const canvasDimensions = {
           const hoverV = 1 - uv.y; // Flip V to match how text.v is stored
           
           const { textElements, activeTextId } = useApp.getState();
-          console.log('🖱️ Text cursor - activeTextId:', activeTextId, 'textElements:', textElements.length);
           
           // Check if hovering over ANY text (not just selected) - use ACTUAL bounds
           let hoveredText: any = null;
@@ -4963,39 +4980,42 @@ const canvasDimensions = {
               overAnchor = true; // Prevent checking other anchors
             }
             
-            // PRIORITY 2: Check resize anchors (with individual hitbox sizes)
-            if (!overAnchor) {
-              console.log('🖱️ ANCHOR DEBUG - Hover position (local):', localHoverU.toFixed(4), localHoverV.toFixed(4));
-              console.log('🖱️ ANCHOR DEBUG - Corner hitbox:', cornerHitboxRadius, 'px, Edge hitbox:', edgeHitboxRadius, 'px');
-              console.log('🖱️ CURSOR DEBUG - Current body cursor:', document.body.style.cursor);
-              console.log('🖱️ CURSOR DEBUG - Computed cursor:', getComputedStyle(document.body).cursor);
-              
-              for (const [anchorName, anchorData] of Object.entries(anchors)) {
-                const dist = Math.sqrt(Math.pow(localHoverU - anchorData.u, 2) + Math.pow(localHoverV - anchorData.v, 2));
-                const distPx = dist * canvasDimensions.width;
+              // PRIORITY 2: Check resize anchors (with improved hitbox calculations)
+              if (!overAnchor) {
+                // Calculate consistent hitbox sizes in UV space
+                const cornerHitboxUV = cornerHitboxRadius / canvasDimensions.width;
+                const edgeHitboxUV = edgeHitboxRadius / canvasDimensions.width;
                 
-                // Use the anchor's specific hitbox size (in UV space)
-                const hitboxUV = anchorData.hitboxPx / canvasDimensions.width;
-                const willHit = dist < hitboxUV;
+                console.log('🖱️ ANCHOR DEBUG - Hover position (local):', localHoverU.toFixed(4), localHoverV.toFixed(4));
+                console.log('🖱️ ANCHOR DEBUG - Corner hitbox UV:', cornerHitboxUV.toFixed(6), 'Edge hitbox UV:', edgeHitboxUV.toFixed(6));
                 
-                console.log(`🖱️ ${anchorName}:`, 
-                  'UV:', anchorData.u.toFixed(4), anchorData.v.toFixed(4),
-                  'Dist:', dist.toFixed(6), '(' + distPx.toFixed(1) + 'px)',
-                  'Hitbox:', anchorData.hitboxPx + 'px',
-                  'Cursor:', anchorData.cursor,
-                  willHit ? '✅ HIT!' : '❌'
-                );
-                
-                if (willHit) {
-                  console.log('🖱️ ✅ CURSOR SET TO:', anchorData.cursor, 'for', anchorName);
-                  // Set cursor with MAXIMUM priority
-                  document.body.style.cursor = anchorData.cursor;
-                  document.body.style.setProperty('cursor', anchorData.cursor, 'important');
-                  overAnchor = true;
-                  break;
+                for (const [anchorName, anchorData] of Object.entries(anchors)) {
+                  const dist = Math.sqrt(Math.pow(localHoverU - anchorData.u, 2) + Math.pow(localHoverV - anchorData.v, 2));
+                  const distPx = dist * canvasDimensions.width;
+                  
+                  // Use consistent hitbox size based on anchor type
+                  const isCornerAnchor = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].includes(anchorName);
+                  const hitboxUV = isCornerAnchor ? cornerHitboxUV : edgeHitboxUV;
+                  const willHit = dist < hitboxUV;
+                  
+                  console.log(`🖱️ ${anchorName}:`, 
+                    'UV:', anchorData.u.toFixed(4), anchorData.v.toFixed(4),
+                    'Dist:', dist.toFixed(6), '(' + distPx.toFixed(1) + 'px)',
+                    'Hitbox UV:', hitboxUV.toFixed(6), '(' + (hitboxUV * canvasDimensions.width).toFixed(1) + 'px)',
+                    'Cursor:', anchorData.cursor,
+                    willHit ? '✅ HIT!' : '❌'
+                  );
+                  
+                  if (willHit) {
+                    console.log('🖱️ ✅ CURSOR SET TO:', anchorData.cursor, 'for', anchorName);
+                    // Set cursor with MAXIMUM priority
+                    document.body.style.cursor = anchorData.cursor;
+                    document.body.style.setProperty('cursor', anchorData.cursor, 'important');
+                    overAnchor = true;
+                    break;
+                  }
                 }
               }
-            }
             
             // PRIORITY 3: If not over anchor or rotation handle but over selected text, show move cursor
             if (!overAnchor) {
@@ -5366,6 +5386,10 @@ const canvasDimensions = {
               u: Math.max(0, Math.min(1, newU)),
               v: Math.max(0, Math.min(1, newV))
             });
+            
+            // CRITICAL FIX: Trigger texture update to reflect visual changes
+            console.log('🎨 Text dragging - Triggering texture update for visual feedback');
+            updateModelTexture(true, false); // Force update for real-time feedback
           } else {
             console.error('🎨 Text dragging - NO textId in dragStart!');
           }

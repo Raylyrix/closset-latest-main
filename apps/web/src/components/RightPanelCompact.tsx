@@ -3542,6 +3542,80 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           );
         })()}
 
+        {/* Accessibility Features */}
+        {activeTool === 'text' && (() => {
+          return (
+            <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(0,123,255,0.1)', borderRadius: '4px', border: '1px solid rgba(0,123,255,0.3)' }}>
+              <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#007bff' }}>
+                ♿ Accessibility Features
+              </div>
+              
+              {/* Accessibility Settings Button */}
+              <div style={{ marginBottom: '6px' }}>
+                <button
+                  onClick={() => {
+                    // Import and show accessibility settings panel
+                    import('../components/AccessibilitySettingsPanel').then(({ AccessibilitySettingsPanel }) => {
+                      // Create a modal container
+                      const modal = document.createElement('div');
+                      modal.id = 'accessibility-modal';
+                      modal.style.position = 'fixed';
+                      modal.style.top = '0';
+                      modal.style.left = '0';
+                      modal.style.width = '100%';
+                      modal.style.height = '100%';
+                      modal.style.background = 'rgba(0, 0, 0, 0.5)';
+                      modal.style.zIndex = '9999';
+                      modal.style.display = 'flex';
+                      modal.style.alignItems = 'center';
+                      modal.style.justifyContent = 'center';
+                      
+                      // Create React root and render
+                      const root = document.createElement('div');
+                      modal.appendChild(root);
+                      document.body.appendChild(modal);
+                      
+                      // Import React and render
+                      import('react').then(({ createElement }) => {
+                        import('react-dom/client').then(({ createRoot }) => {
+                          const reactRoot = createRoot(root);
+                          reactRoot.render(createElement(AccessibilitySettingsPanel, {
+                            onClose: () => {
+                              document.body.removeChild(modal);
+                            }
+                          }));
+                        });
+                      });
+                    }).catch(() => {
+                      console.error('Failed to load accessibility settings panel');
+                    });
+                  }}
+                  style={{
+                    background: '#007bff',
+                    color: '#FFF',
+                    border: 'none',
+                    padding: '4px 8px',
+                    borderRadius: '3px',
+                    fontSize: '8px',
+                    cursor: 'pointer',
+                    width: '100%'
+                  }}
+                >
+                  Open Accessibility Settings
+                </button>
+              </div>
+
+              {/* Quick Accessibility Info */}
+              <div style={{ fontSize: '8px', color: '#CCC', lineHeight: '1.3' }}>
+                <div>• Use Tab to navigate text elements</div>
+                <div>• Press Enter to edit focused text</div>
+                <div>• Arrow keys to move text</div>
+                <div>• Delete key to remove text</div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Image Settings */}
         {(activeTool === 'image' || activeTool === 'importImage') && (
           <div onClick={(e) => e.stopPropagation()}>

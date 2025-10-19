@@ -13,7 +13,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoadingOverlay } from './components/LoadingStates';
 import { performanceMonitor } from './utils/PerformanceMonitor';
-import { accessibilityManager } from './utils/AccessibilityManager';
+import { AccessibilityManager } from './utils/AccessibilityManager';
 import { validationSystem } from './utils/ValidationSystem';
 import { VectorMemoryManager } from './vector/VectorMemoryManager';
 
@@ -39,15 +39,15 @@ export const AppWithErrorBoundary: React.FC = () => {
         // Initialize accessibility features
         setLoadingMessage('Configuring accessibility features...');
         setLoadingProgress(40);
-        accessibilityManager.configure({
+        AccessibilityManager.updateSettings({
           enableKeyboardNavigation: true,
-          enableScreenReaderSupport: true,
-          enableFocusManagement: true,
-          enableHighContrast: false,
-          enableReducedMotion: false,
+          enableScreenReader: true,
           announceChanges: true,
-          focusRingVisible: true,
-          skipLinks: true
+          highContrast: false,
+          reducedMotion: false,
+          fontSize: 'medium',
+          focusOutline: true,
+          keyboardShortcuts: true
         });
 
         // Initialize validation system
