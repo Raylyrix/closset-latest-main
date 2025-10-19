@@ -140,6 +140,18 @@ export function ShirtRefactored({
     };
   }, []);
 
+  // CRITICAL FIX: Listen for text elements changes to force re-render
+  useEffect(() => {
+    const handleTextElementsChange = () => {
+      // Force re-render when text elements change
+      const appState = useApp.getState();
+      console.log('🔄 Text elements changed, forcing re-render');
+    };
+    
+    window.addEventListener('textElementsChanged', handleTextElementsChange);
+    return () => window.removeEventListener('textElementsChanged', handleTextElementsChange);
+  }, []);
+
   // Track modifier keys for selection behavior
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

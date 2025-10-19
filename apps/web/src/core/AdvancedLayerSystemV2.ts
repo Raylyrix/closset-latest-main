@@ -456,16 +456,9 @@ const createDefaultContent = (type: LayerType): LayerContent => {
   }
 };
 
-// CRITICAL: Global store instance tracker
-let globalStoreInstance: any = null;
-
 // Create the store
 export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
-  subscribeWithSelector((set, get) => {
-    // CRITICAL: Track the global store instance
-    globalStoreInstance = { set, get };
-    
-    return {
+  subscribeWithSelector((set, get) => ({
     // Initial state
     layers: [],
     groups: [],
@@ -1275,6 +1268,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         layerId: targetLayerId
       });
       
+      // CRITICAL FIX: Dispatch event to force UI refresh
+      window.dispatchEvent(new CustomEvent('textElementsChanged', { 
+        detail: { action: 'added', textId: textElement.id, layerId: targetLayerId } 
+      }));
+      
       return id;
     },
     
@@ -1569,35 +1567,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     // Get all text elements across all layers (for App.tsx compatibility)
     getAllTextElements: () => {
-      // CRITICAL FIX: Use global store instance to ensure consistency
-      const state = globalStoreInstance ? globalStoreInstance.get() : get();
-      const allTextElements: TextElement[] = [];
-      
-      console.log('🔍 DEBUG: getAllTextElements called - checking', state.layers.length, 'layers');
-      console.log('🔍 DEBUG: Store instance ID:', state.id || 'no-id', 'Timestamp:', Date.now());
-      console.log('🔍 DEBUG: Store layers:', state.layers.map((l: AdvancedLayer) => ({ id: l.id, name: l.name, type: l.type })));
-      console.log('🔍 DEBUG: Using global instance:', !!globalStoreInstance);
-      
-      state.layers.forEach((layer: AdvancedLayer, index: number) => {
-        console.log(`🔍 DEBUG: Layer ${index}:`, {
-          id: layer.id,
-          name: layer.name,
-          type: layer.type,
-          hasTextElements: !!layer.content.textElements,
-          textElementsCount: layer.content.textElements?.length || 0,
-          contentKeys: Object.keys(layer.content)
-        });
-        
-        if (layer.content.textElements && layer.content.textElements.length > 0) {
-          allTextElements.push(...layer.content.textElements);
-          console.log(`🔍 DEBUG: Added ${layer.content.textElements.length} text elements from layer ${layer.name}`);
-          console.log(`🔍 DEBUG: Text elements:`, layer.content.textElements.map((t: TextElement) => ({ id: t.id, text: t.text })));
-        }
-      });
-      
-      console.log('🔍 DEBUG: getAllTextElements returning', allTextElements.length, 'total text elements');
-      console.log('🔍 DEBUG: All text elements:', allTextElements.map((t: TextElement) => ({ id: t.id, text: t.text, layerId: t.layerId })));
-      return allTextElements;
+      // CRITICAL FIX: Always use the same store instance
+      const store = useAdvancedLayerStoreV2.getState();
+      return store.layers.flatMap(layer => layer.content.textElements || []);
     },
     
     // Backward compatibility helpers for App.tsx
