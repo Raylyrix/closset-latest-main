@@ -11,6 +11,7 @@ import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
+import { convertUVToPixel, convertPixelToUV, getCanvasDimensions } from '../utils/CoordinateUtils';
 
 // Import new modular components
 import { ShirtRenderer } from './Shirt/ShirtRenderer';
@@ -104,6 +105,7 @@ export function ShirtRefactored({
   const [modelData, setModelData] = useState<ModelData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(0); // Force re-render when text elements change
   
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -144,7 +146,7 @@ export function ShirtRefactored({
   useEffect(() => {
     const handleTextElementsChange = () => {
       // Force re-render when text elements change
-      const appState = useApp.getState();
+      setForceUpdate(prev => prev + 1);
       console.log('🔄 Text elements changed, forcing re-render');
     };
     
@@ -3860,14 +3862,11 @@ export function ShirtRefactored({
               const txtU = txt.u || 0.5;
               const txtV = txt.v || 0.5;
               
-              // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
-              const composedCanvas = useApp.getState().composedCanvas;
-              const canvasWidth = composedCanvas?.width || 4096;
-              const canvasHeight = composedCanvas?.height || 4096;
-              
-              // CRITICAL: Calculate canvas pixel position (same as App.tsx line 3035-3037)
-              const x = Math.round(txtU * canvasWidth);
-              const y = Math.round((1 - txtV) * canvasHeight); // V is flipped in canvas space
+              // CRITICAL: Use standardized coordinate conversion
+              const canvasDimensions = getCanvasDimensions();
+              const textPixelCoords = convertUVToPixel({ u: txtU, v: txtV }, canvasDimensions);
+              const x = textPixelCoords.x;
+              const y = textPixelCoords.y;
               
               // CRITICAL: Account for rotation - transform click point to text's local coordinate system
               const rotation = txt.rotation || 0;
@@ -4282,7 +4281,9 @@ export function ShirtRefactored({
                 
                 const appState = useApp.getState();
                 if (appState.addTextElement) {
-                    const textId = appState.addTextElement(userText, { u: uv.x, v: 1 - uv.y });
+                    // Use standardized UV coordinate conversion
+                    const textUV = { u: uv.x, v: 1 - uv.y };
+                    const textId = appState.addTextElement(userText, textUV);
                   console.log('🎨 Text element added successfully with ID:', textId);
                   
                   // ✅ CRITICAL FIX: Automatically select the newly created text

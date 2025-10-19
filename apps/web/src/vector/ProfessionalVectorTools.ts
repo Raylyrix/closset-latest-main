@@ -947,44 +947,10 @@ export class ProfessionalVectorTools {
     }
 
     private handleTextTool(event: MouseEvent, point: Point, currentPath?: VectorPath): ToolResult {
-        // Professional text tool
-        if (!currentPath) {
-            const newPath: VectorPath = {
-                id: `text_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                points: [pointToVectorPoint(point)],
-                type: 'text',
-                closed: false,
-                fill: false,
-                stroke: false,
-                fillColor: '#000000',
-                strokeColor: '#000000',
-                strokeWidth: 0,
-                fillOpacity: 1,
-                strokeOpacity: 1,
-                strokeJoin: 'round',
-                strokeCap: 'round',
-                bounds: { x: point.x, y: point.y, width: 0, height: 0 },
-                style: {
-                    stroke: 'none',
-                    strokeWidth: 0,
-                    fill: '#000000',
-                    opacity: 1,
-                    fontSize: 16,
-                    fontFamily: 'Arial'
-                },
-                text: 'Text'
-            };
-            
-            return {
-                success: true,
-                message: 'Started text',
-                data: { action: 'startPath', path: newPath }
-            };
-        }
-        
+        // Text tool handled by ShirtRefactored.tsx - removed duplicate implementation
         return {
             success: false,
-            error: 'Text tool already active'
+            error: 'Text tool handled by main text system'
         };
     }
 

@@ -1219,31 +1219,7 @@ export function Shirt() {
       console.log('Shape tool coordinates:', { x, y, uv: uv.toArray() });
       
       snapshot();
-              if (activeTool === 'text') {
-          const defaultTxt = (useApp.getState() as any).lastText || '';
-          const txt = window.prompt('Text', defaultTxt);
-          if (!txt) return;
-          (useApp.setState as any)({ lastText: txt });
-          
-          try {
-            console.log('Adding text element:', txt);
-            // Use the new text element system instead of drawing directly
-            const textUV = { u: uv.x, v: 1 - uv.y }; // Fix UV coordinate conversion - flip Y axis
-            useApp.getState().addTextElement(txt, textUV, getActiveLayer()?.id);
-            
-            // Force a recomposition to update the model
-            setTimeout(() => {
-              console.log('Forcing recomposition after text placement');
-              useApp.getState().composeLayers();
-              manageControls('text', false);
-              console.log('Controls re-enabled after text placement');
-            }, 50);
-          } catch (error) {
-            console.error('Error adding text element:', error);
-            manageControls('text', false);
-          }
-          return;
-        }
+              // Text tool handled by ShirtRefactored.tsx - removed duplicate implementation
       // shapes with drag preview
       console.log('Starting shape drag for:', activeTool);
       shapeStartRef.current = { x, y };

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { createLayerCanvas, createComposedCanvas, createDisplacementCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { useApp } from '../App';
+import { convertUVToPixel, getCanvasDimensions } from '../utils/CoordinateUtils';
 
 // Layer Types
 export type LayerType = 'paint' | 'puff' | 'vector' | 'text' | 'image' | 'embroidery' | 'adjustment' | 'group' | 'pixel' | 'smart-object' | 'shape' | 'background' | 'raster' | 'procedural' | 'fill' | 'ai-smart';
@@ -1188,19 +1189,15 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       // Get current text settings from App state
       const appState = useApp.getState();
       
-      // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
-      // Use actual composed canvas size from App state, not config
-      const composedCanvas = useApp.getState().composedCanvas;
-      const canvasWidth = composedCanvas?.width || 4096;
-      const canvasHeight = composedCanvas?.height || 4096;
-      const pixelX = Math.floor(uv.u * canvasWidth);
-      const pixelY = Math.floor((1 - uv.v) * canvasHeight); // V is flipped in canvas space
+      // CRITICAL FIX: Convert UV coordinates to pixel coordinates using standardized utility
+      const canvasDimensions = getCanvasDimensions();
+      const pixelCoords = convertUVToPixel(uv, canvasDimensions);
       
       const textElement: TextElement = {
         id,
         text,
-        x: pixelX,  // ✅ FIXED: Convert UV to pixel X coordinate
-        y: pixelY,  // ✅ FIXED: Convert UV to pixel Y coordinate
+        x: pixelCoords.x,  // ✅ FIXED: Convert UV to pixel X coordinate
+        y: pixelCoords.y,  // ✅ FIXED: Convert UV to pixel Y coordinate
         u: uv.u,
         v: uv.v,
         fontSize: appState.textSize,
@@ -1567,9 +1564,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     // Get all text elements across all layers (for App.tsx compatibility)
     getAllTextElements: (): TextElement[] => {
-      // CRITICAL FIX: Always use the same store instance
-      const store = useAdvancedLayerStoreV2.getState();
-      return store.layers.flatMap((layer: AdvancedLayer) => layer.content.textElements || []);
+      // CRITICAL FIX: Use the get function from Zustand to access current state
+      const state = get();
+      return state.layers.flatMap((layer: AdvancedLayer) => layer.content.textElements || []);
     },
     
     // Backward compatibility helpers for App.tsx
