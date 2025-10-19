@@ -1613,9 +1613,9 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     const id = v2State.addTextElementFromApp(text, uv, layerId);
     
-    // CRITICAL FIX: Update reactive textElements state
+    // CRITICAL FIX: Update reactive textElements state using proper Zustand pattern
     const updatedTextElements = v2State.getAllTextElements();
-    set({ textElements: updatedTextElements });
+    useApp.setState({ textElements: updatedTextElements });
     
     // Trigger composition
     get().composeLayers();
@@ -1778,9 +1778,9 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     v2State.updateTextElementFromApp(id, patch);
     
-    // CRITICAL FIX: Update reactive textElements state
+    // CRITICAL FIX: Update reactive textElements state using proper Zustand pattern
     const updatedTextElements = v2State.getAllTextElements();
-    set({ textElements: updatedTextElements });
+    useApp.setState({ textElements: updatedTextElements });
     
     // Trigger composition
     get().composeLayers();
@@ -1801,9 +1801,9 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     v2State.deleteTextElementFromApp(id);
     
-    // CRITICAL FIX: Update reactive textElements state
+    // CRITICAL FIX: Update reactive textElements state using proper Zustand pattern
     const updatedTextElements = v2State.getAllTextElements();
-    set({ textElements: updatedTextElements });
+    useApp.setState({ textElements: updatedTextElements });
     
     // Trigger composition
     get().composeLayers();
