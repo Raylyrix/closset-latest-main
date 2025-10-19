@@ -89,6 +89,37 @@ export interface TextElement {
   };
 }
 
+// Image element interface (for imported images)
+export interface ImageElement {
+  id: string;
+  name: string;
+  dataUrl: string;
+  src?: string;
+  // UV coordinates (0-1 range) - PRIMARY for texture mapping
+  u: number;          // UV X center (0-1)
+  v: number;          // UV Y center (0-1)
+  uWidth: number;     // Width in UV space (0-1)
+  uHeight: number;    // Height in UV space (0-1)
+  // Pixel coordinates for rendering
+  x: number;          // Pixel X position
+  y: number;          // Pixel Y position
+  width: number;      // Pixel width
+  height: number;     // Pixel height
+  // Common properties
+  visible: boolean;
+  opacity: number;
+  rotation: number;   // degrees
+  locked: boolean;    // prevent accidental edits
+  // Size linking and flip properties
+  sizeLinked: boolean;    // link width/height scaling
+  horizontalFlip: boolean; // flip horizontally
+  verticalFlip: boolean;   // flip vertically
+  // Blending properties
+  blendMode: GlobalCompositeOperation; // canvas blend mode
+  layerId: string;
+  timestamp: number;
+}
+
 // History system for undo/redo
 export interface LayerHistorySnapshot {
   id: string;
@@ -109,6 +140,7 @@ export interface LayerContent {
   canvas?: HTMLCanvasElement; // For paint layers
   text?: string; // For text layers
   imageData?: ImageData; // For image layers
+  imageElements?: ImageElement[]; // ✅ NEW: For imported images
   vectorData?: any; // For vector layers
   puffData?: any; // For puff layers
   embroideryData?: any; // For embroidery layers
@@ -246,6 +278,12 @@ interface AdvancedLayerStoreV2 {
   updateTextElementFromApp: (id: string, patch: Partial<TextElement>) => void;
   deleteTextElementFromApp: (id: string) => void;
   getAllTextElements: () => TextElement[];
+  
+  // Enhanced image element management (compatible with App.tsx interface)
+  addImageElementFromApp: (imageData: any, layerId?: string) => string;
+  updateImageElementFromApp: (id: string, patch: Partial<ImageElement>) => void;
+  deleteImageElementFromApp: (id: string) => void;
+  getAllImageElements: () => ImageElement[];
   
   // Backward compatibility helpers
   getLayerCanvas: (layerId: string) => HTMLCanvasElement | null;
@@ -1160,6 +1198,124 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       return id;
     },
     
+    // Enhanced image element management (compatible with App.tsx interface)
+    addImageElementFromApp: (imageData: any, layerId?: string) => {
+      const id = Math.random().toString(36).slice(2);
+      const state = get();
+      
+      // Ensure we have a valid layer ID
+      let targetLayerId = layerId || state.activeLayerId || 'image';
+      
+      // If the target layer doesn't exist, create a default image layer
+      if (!state.layers.find(l => l.id === targetLayerId)) {
+        console.log('🎨 Creating default image layer for image element');
+        const imageLayerId = get().createLayer('image', 'Image Layer');
+        targetLayerId = imageLayerId;
+      }
+      
+      // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
+      const canvasSize = CANVAS_CONFIG.COMPOSED.width; // Use composed canvas size
+      const pixelX = Math.floor(imageData.u * canvasSize);
+      const pixelY = Math.floor(imageData.v * canvasSize);
+      const pixelWidth = Math.floor(imageData.uWidth * canvasSize);
+      const pixelHeight = Math.floor(imageData.uHeight * canvasSize);
+      
+      const imageElement: ImageElement = {
+        id,
+        name: imageData.name || 'Imported Image',
+        dataUrl: imageData.dataUrl,
+        src: imageData.src,
+        // UV coordinates (preserved)
+        u: imageData.u,
+        v: imageData.v,
+        uWidth: imageData.uWidth,
+        uHeight: imageData.uHeight,
+        // Pixel coordinates for rendering
+        x: pixelX,  // ✅ FIXED: Convert UV to pixel X coordinate
+        y: pixelY,  // ✅ FIXED: Convert UV to pixel Y coordinate
+        width: pixelWidth,  // ✅ FIXED: Convert UV width to pixel width
+        height: pixelHeight,  // ✅ FIXED: Convert UV height to pixel height
+        // Common properties
+        visible: imageData.visible !== false,
+        opacity: imageData.opacity || 1,
+        rotation: imageData.rotation || 0,
+        locked: imageData.locked || false,
+        // Size linking and flip properties
+        sizeLinked: imageData.sizeLinked !== false,
+        horizontalFlip: imageData.horizontalFlip || false,
+        verticalFlip: imageData.verticalFlip || false,
+        // Blending properties
+        blendMode: imageData.blendMode || 'source-over',
+        layerId: targetLayerId,
+        timestamp: Date.now()
+      };
+      
+      // Add image element to the layer
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === targetLayerId 
+            ? {
+                ...layer,
+                content: {
+                  ...layer.content,
+                  imageElements: [...(layer.content.imageElements || []), imageElement]
+                },
+                updatedAt: new Date()
+              }
+            : layer
+        )
+      }));
+      
+      console.log('🎨 Added image element via App interface:', {
+        name: imageElement.name,
+        uv: { u: imageData.u, v: imageData.v, uWidth: imageData.uWidth, uHeight: imageData.uHeight },
+        pixel: { x: pixelX, y: pixelY, width: pixelWidth, height: pixelHeight },
+        canvasSize: canvasSize,
+        layerId: targetLayerId
+      });
+      
+      return id;
+    },
+    
+    updateImageElementFromApp: (id: string, patch: Partial<ImageElement>) => {
+      set(state => ({
+        layers: state.layers.map(layer => ({
+          ...layer,
+          content: {
+            ...layer.content,
+            imageElements: layer.content.imageElements?.map(img => 
+              img.id === id ? { ...img, ...patch } : img
+            ) || []
+          }
+        }))
+      }));
+    },
+    
+    deleteImageElementFromApp: (id: string) => {
+      set(state => ({
+        layers: state.layers.map(layer => ({
+          ...layer,
+          content: {
+            ...layer.content,
+            imageElements: layer.content.imageElements?.filter(img => img.id !== id) || []
+          }
+        }))
+      }));
+    },
+    
+    getAllImageElements: () => {
+      const state = get();
+      const allImageElements: ImageElement[] = [];
+      
+      state.layers.forEach(layer => {
+        if (layer.content.imageElements) {
+          allImageElements.push(...layer.content.imageElements);
+        }
+      });
+      
+      return allImageElements;
+    },
+    
     updateTextElementFromApp: (id: string, patch: Partial<TextElement>) => {
       set(state => ({
         layers: state.layers.map(layer => ({
@@ -1316,6 +1472,46 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           ctx.fillStyle = textEl.color;
           ctx.globalAlpha = textEl.opacity;
           ctx.fillText(textEl.text, textEl.x, textEl.y);
+          ctx.restore();
+        }
+        
+        // Draw image elements
+        const imageElements = layer.content.imageElements || [];
+        for (const imageEl of imageElements) {
+          if (!imageEl.visible) continue;
+          
+          ctx.save();
+          ctx.globalAlpha = imageEl.opacity;
+          ctx.globalCompositeOperation = imageEl.blendMode;
+          
+          // Apply rotation if needed
+          if (imageEl.rotation !== 0) {
+            const centerX = imageEl.x + imageEl.width / 2;
+            const centerY = imageEl.y + imageEl.height / 2;
+            ctx.translate(centerX, centerY);
+            ctx.rotate((imageEl.rotation * Math.PI) / 180);
+            ctx.translate(-centerX, -centerY);
+          }
+          
+          // Apply horizontal flip if needed
+          if (imageEl.horizontalFlip) {
+            ctx.scale(-1, 1);
+            ctx.translate(-imageEl.x * 2 - imageEl.width, 0);
+          }
+          
+          // Apply vertical flip if needed
+          if (imageEl.verticalFlip) {
+            ctx.scale(1, -1);
+            ctx.translate(0, -imageEl.y * 2 - imageEl.height);
+          }
+          
+          // Create image element and draw it
+          const img = new Image();
+          img.onload = () => {
+            ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+          };
+          img.src = imageEl.dataUrl || imageEl.src || '';
+          
           ctx.restore();
         }
         

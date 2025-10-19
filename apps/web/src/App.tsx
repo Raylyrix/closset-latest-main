@@ -2048,6 +2048,10 @@ try {
       
       console.log('📷 Image added to state, triggering render');
       
+      // CRITICAL FIX: Also add image to V2 layer system
+      const v2State = useAdvancedLayerStoreV2.getState();
+      v2State.addImageElementFromApp(imageWithDefaults); // ✅ Image integration with V2
+      
       // CRITICAL: Trigger composeLayers first (to draw image), then updateModelTexture (same as text)
       setTimeout(() => {
         const { composeLayers } = get();
