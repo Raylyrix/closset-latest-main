@@ -5,7 +5,7 @@
  * Integrates with existing tools and provides a unified selection experience
  */
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { useApp } from '../App';
 import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { TransformGizmo } from './TransformGizmo';
@@ -24,7 +24,7 @@ interface SelectionState {
   selectionMode: 'replace' | 'add' | 'subtract' | 'intersect';
 }
 
-export function UniversalSelectTool({ active }: UniversalSelectToolProps) {
+export const UniversalSelectTool = memo(function UniversalSelectTool({ active }: UniversalSelectToolProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selectionRef = useRef<HTMLDivElement>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -802,7 +802,7 @@ export function UniversalSelectTool({ active }: UniversalSelectToolProps) {
       {renderToolSettings()}
     </div>
   );
-}
+});
 
 // Export for use in toolbar
 export default UniversalSelectTool;

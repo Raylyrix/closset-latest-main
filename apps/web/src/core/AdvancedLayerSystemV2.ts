@@ -1224,11 +1224,20 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       };
     },
     
-    // Layer composition
-    composeLayers: () => {
-      const state = get();
-      const composedCanvas = createComposedCanvas();
-      const ctx = composedCanvas.getContext('2d');
+  // Layer composition
+  composeLayers: () => {
+    const state = get();
+    
+    // PERFORMANCE: Throttle composition to prevent excessive calls
+    const now = Date.now();
+    const composeThrottle = 16; // 60fps max
+    if ((state as any).lastComposeTime && (now - (state as any).lastComposeTime) < composeThrottle) {
+      return state.composedCanvas;
+    }
+    (state as any).lastComposeTime = now;
+    
+    const composedCanvas = createComposedCanvas();
+    const ctx = composedCanvas.getContext('2d');
       
       if (!ctx) return null;
       
