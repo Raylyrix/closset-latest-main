@@ -456,9 +456,16 @@ const createDefaultContent = (type: LayerType): LayerContent => {
   }
 };
 
+// CRITICAL: Global store instance tracker
+let globalStoreInstance: any = null;
+
 // Create the store
 export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set, get) => {
+    // CRITICAL: Track the global store instance
+    globalStoreInstance = { set, get };
+    
+    return {
     // Initial state
     layers: [],
     groups: [],
@@ -1562,17 +1569,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     // Get all text elements across all layers (for App.tsx compatibility)
     getAllTextElements: () => {
-      const state = get();
+      // CRITICAL FIX: Use global store instance to ensure consistency
+      const state = globalStoreInstance ? globalStoreInstance.get() : get();
       const allTextElements: TextElement[] = [];
       
       console.log('🔍 DEBUG: getAllTextElements called - checking', state.layers.length, 'layers');
       console.log('🔍 DEBUG: Store instance ID:', state.id || 'no-id', 'Timestamp:', Date.now());
+      console.log('🔍 DEBUG: Store layers:', state.layers.map(l => ({ id: l.id, name: l.name, type: l.type })));
+      console.log('🔍 DEBUG: Using global instance:', !!globalStoreInstance);
       
-      // CRITICAL FIX: Force state refresh to ensure we get the latest data
-      const freshState = get();
-      console.log('🔍 DEBUG: Fresh state layers count:', freshState.layers.length);
-      
-      freshState.layers.forEach((layer, index) => {
+      state.layers.forEach((layer, index) => {
         console.log(`🔍 DEBUG: Layer ${index}:`, {
           id: layer.id,
           name: layer.name,
