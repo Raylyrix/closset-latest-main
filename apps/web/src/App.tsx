@@ -902,11 +902,7 @@ export const useApp = create<AppState>((set, get) => ({
     return v2State.composedCanvas;
   },
   
-  get textElements() {
-    // CRITICAL FIX: Always use fresh state
-    const v2State = useAdvancedLayerStoreV2.getState();
-    return v2State.getAllTextElements();
-  },
+  // CRITICAL FIX: Remove textElements getter - now using reactive state property
   
   get brushStrokes() {
     const v2State = useAdvancedLayerStoreV2.getState();
@@ -943,6 +939,7 @@ export const useApp = create<AppState>((set, get) => ({
   backgroundRotation: 0,
   activeTextId: null,
   hoveredTextId: null,
+  textElements: [], // CRITICAL FIX: Make textElements a reactive state property
   shapeElements: [],
   activeShapeId: null,
   hoveredShapeId: null,
@@ -1616,6 +1613,10 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     const id = v2State.addTextElementFromApp(text, uv, layerId);
     
+    // CRITICAL FIX: Update reactive textElements state
+    const updatedTextElements = v2State.getAllTextElements();
+    set({ textElements: updatedTextElements });
+    
     // Trigger composition
     get().composeLayers();
     
@@ -1777,6 +1778,10 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     v2State.updateTextElementFromApp(id, patch);
     
+    // CRITICAL FIX: Update reactive textElements state
+    const updatedTextElements = v2State.getAllTextElements();
+    set({ textElements: updatedTextElements });
+    
     // Trigger composition
     get().composeLayers();
     
@@ -1795,6 +1800,10 @@ try {
     // Delegate to V2 system
     const v2State = useAdvancedLayerStoreV2.getState();
     v2State.deleteTextElementFromApp(id);
+    
+    // CRITICAL FIX: Update reactive textElements state
+    const updatedTextElements = v2State.getAllTextElements();
+    set({ textElements: updatedTextElements });
     
     // Trigger composition
     get().composeLayers();
@@ -3429,6 +3438,11 @@ export function App() {
       advancedLayerStore.setActiveLayer(defaultLayerId);
       console.log('✅ Default layer created in Advanced Layers V2:', defaultLayerId);
     }
+    
+    // CRITICAL FIX: Initialize textElements state from V2 system
+    const initialTextElements = advancedLayerStore.getAllTextElements();
+    useApp.setState({ textElements: initialTextElements });
+    console.log('🔄 Initialized textElements from V2 system:', initialTextElements.length, 'elements');
   }, []);
 
   // Initialize Unified Performance Manager
