@@ -3431,7 +3431,11 @@ export function ShirtRefactored({
       
       // Check if this is a layer operation that affects both texture and displacement
       const source = event.detail?.source;
-      const layerOperations = ['layer-reorder', 'layer-visibility', 'layer-opacity', 'layer-blendmode'];
+      const layerOperations = [
+        'layer-reorder', 'layer-visibility', 'layer-opacity', 'layer-blendmode',
+        'layer-opacity-v2', 'layer-visibility-v2', 'layer-blendmode-v2',
+        'layer-reorder-up-v2', 'layer-reorder-down-v2'
+      ];
       const needsDisplacementUpdate = layerOperations.includes(source);
       
       if (needsDisplacementUpdate) {
