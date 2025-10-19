@@ -76,7 +76,7 @@ export function ShirtRefactored({
   const brushEngine = useBrushEngine();
   
   // Initialize automatic layer manager
-  const { triggerBrushStart, triggerBrushEnd } = useAutomaticLayerManager();
+  const { triggerBrushStart, triggerBrushEnd, triggerTextCreated } = useAutomaticLayerManager();
   
   // Initialize selection system
   const {
@@ -4274,7 +4274,6 @@ export function ShirtRefactored({
                   console.log('🎨 Text element added successfully');
                   
                   // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation for text
-                  const { triggerTextCreated } = useAutomaticLayerManager();
                   const newLayerId = triggerTextCreated({
                     text: userText,
                     position: { u: uv.x, v: 1 - uv.y },
