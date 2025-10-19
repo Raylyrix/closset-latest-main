@@ -3964,7 +3964,14 @@ export function ShirtRefactored({
               console.log('🎨 Text tool: Clicked on existing text:', clickedText.id);
               
               // CRITICAL: Select the text FIRST
+              console.log('🔍 DEBUG: Setting activeTextId to:', clickedText.id);
               setActiveTextId(clickedText.id);
+              
+              // Verify the selection was set
+              setTimeout(() => {
+                const { activeTextId: verifyId } = useApp.getState();
+                console.log('🔍 DEBUG: Verified activeTextId after set:', verifyId);
+              }, 100);
               
               // CRITICAL: Stop event propagation to prevent double triggers
               if (e.stopPropagation) e.stopPropagation();

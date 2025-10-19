@@ -1608,6 +1608,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
             {/* Instructions (when no text exists) */}
             {(() => {
               const { textElements } = useApp.getState();
+              console.log('🔍 DEBUG: Instructions section - textElements.length:', textElements.length);
               
               // Show instructions ONLY if no text exists at all
               if (textElements.length === 0) {
@@ -1776,10 +1777,19 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
 
             {/* Active Text Editing */}
             {(() => {
-              if (!activeTextId) return null;
+              console.log('🔍 DEBUG: Text editing section - activeTextId:', activeTextId, 'textElements.length:', textElements.length);
+              if (!activeTextId) {
+                console.log('🔍 DEBUG: No activeTextId, returning null');
+                return null;
+              }
               
               const activeText = textElements.find(t => t.id === activeTextId);
-              if (!activeText) return null;
+              if (!activeText) {
+                console.log('🔍 DEBUG: activeTextId exists but text not found:', activeTextId);
+                return null;
+              }
+              
+              console.log('🔍 DEBUG: Found activeText, rendering controls:', activeText.text);
 
               return (
                 <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(0,150,255,0.1)', borderRadius: '4px', border: '1px solid rgba(0,150,255,0.3)' }}>
