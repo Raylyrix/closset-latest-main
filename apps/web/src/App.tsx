@@ -283,20 +283,8 @@ interface AppState {
   moveAnchor: (pathId: string, anchorIndex: number, newU: number, newV: number) => void;
   addCurveHandle: (pathId: string, anchorIndex: number, handleType: 'in' | 'out', u: number, v: number) => void;
   
-  // Layers (managed by V2 system)
-  layers: Layer[];
-  textElements: TextElement[];
-  brushStrokes: Array<{
-    id: string;
-    layerId: string;
-    points: Array<{x: number, y: number}>;
-    color: string;
-    size: number;
-    opacity: number;
-    timestamp: number;
-  }>;
-  activeLayerId: string | null;
-  composedCanvas: HTMLCanvasElement | null;
+  // Layers are now managed entirely by AdvancedLayerSystemV2
+  // Legacy layer properties removed to prevent conflicts
   composedVersion: number;
   baseTexture: HTMLImageElement | HTMLCanvasElement | null;
   
@@ -570,9 +558,8 @@ interface AppState {
   updateImportedImage: (id: string, updates: any) => void;
   removeImportedImage: (id: string) => void;
   
-  // Layer management methods
-  setLayers: (layers: Layer[]) => void;
-  setComposedCanvas: (canvas: HTMLCanvasElement | null) => void;
+  // Layer management methods - delegated to AdvancedLayerSystemV2
+  // Legacy methods removed to prevent conflicts
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -638,8 +625,8 @@ export const useApp = create<AppState>((set, get) => ({
         embroideryThreadColor: state.embroideryThreadColor,
         embroideryThreadThickness: state.embroideryThreadThickness,
         
-        // Layer settings
-        activeLayerId: state.activeLayerId,
+        // Layer settings - delegated to AdvancedLayerSystemV2
+        // Legacy activeLayerId removed to prevent conflicts
         
         // Text settings
         textSize: state.textSize,
@@ -671,15 +658,11 @@ export const useApp = create<AppState>((set, get) => ({
         metalness: state.metalness,
         fabric: state.fabric,
       },
-      layerData: state.layers.map(layer => ({
-        id: layer.id,
-        name: layer.name,
-        visible: layer.visible,
-        opacity: 1, // Default opacity since Layer type doesn't have opacity property
-        canvasData: layer.canvas ? layer.canvas.toDataURL() : undefined
-      })),
+        // Layer data - delegated to AdvancedLayerSystemV2
+        // Legacy layerData removed to prevent conflicts
       puffCanvasData: state.puffCanvas ? state.puffCanvas.toDataURL() : undefined,
-      composedCanvasData: state.composedCanvas ? state.composedCanvas.toDataURL() : undefined
+      // Composed canvas - delegated to AdvancedLayerSystemV2
+      // Legacy composedCanvasData removed to prevent conflicts
     };
     
     // Add to history
@@ -868,9 +851,8 @@ export const useApp = create<AppState>((set, get) => ({
   vectorFillColor: '#ffffff',
   vectorFill: false,
   
-  // Layers are now managed by V2 system
-  activeLayerId: null,
-  composedCanvas: null,
+  // Layers are now managed entirely by AdvancedLayerSystemV2
+  // Legacy layer properties removed to prevent conflicts
   composedVersion: 0,
   baseTexture: null,
   decals: [],
@@ -928,7 +910,7 @@ export const useApp = create<AppState>((set, get) => ({
   puffVectorHistory: [puffVectorEngine.getStateSnapshot()],
   puffVectorFuture: [],
 
-  // Brush strokes getter (uses V2 system)
+  // Brush strokes getter - delegated to AdvancedLayerSystemV2
   get brushStrokes() {
     const v2State = useAdvancedLayerStoreV2.getState();
     const allBrushStrokes: any[] = [];
@@ -940,14 +922,14 @@ export const useApp = create<AppState>((set, get) => ({
     return allBrushStrokes;
   },
 
-  // Layers getter (uses V2 system)
-    get layers() {
-      const v2State = useAdvancedLayerStoreV2.getState();
-      // Convert AdvancedLayers to legacy Layer format for backward compatibility
-      return v2State.layers.map(layer => v2State.convertToLegacyLayer(layer));
-    },
+  // Layers getter - delegated to AdvancedLayerSystemV2
+  get layers() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    // Convert AdvancedLayers to legacy Layer format for backward compatibility
+    return v2State.layers.map(layer => v2State.convertToLegacyLayer(layer));
+  },
 
-  // Text elements getter (uses V2 system)
+  // Text elements getter - delegated to AdvancedLayerSystemV2
   get textElements() {
     const v2State = useAdvancedLayerStoreV2.getState();
     return v2State.getAllTextElements();
@@ -985,7 +967,8 @@ export const useApp = create<AppState>((set, get) => ({
   setModelPosition: (position) => set({ modelPosition: position }),
   setModelRotation: (rotation) => set({ modelRotation: rotation }),
   setModelScale: (scale) => set({ modelScale: scale }),
-  setActiveLayerId: (id) => set({ activeLayerId: id }),
+  // Layer management - delegated to AdvancedLayerSystemV2
+  // Legacy setActiveLayerId removed to prevent conflicts
   setActiveDecalId: (id) => set({ activeDecalId: id }),
   setTextSize: (size) => set({ textSize: size }),
   setTextFont: (font) => set({ textFont: font }),
@@ -1805,8 +1788,8 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     const layerId = v2State.createLayer('paint', name || 'New Layer');
     
-    // Update active layer
-    set({ activeLayerId: layerId });
+    // Update active layer - delegated to AdvancedLayerSystemV2
+    // Legacy set({ activeLayerId: layerId }) removed to prevent conflicts
     
     // Force composition and visual update
     get().composeLayers();
@@ -1828,10 +1811,8 @@ try {
     const v2State = useAdvancedLayerStoreV2.getState();
     v2State.deleteLayer(id);
     
-    // Update active layer if needed
-    const remainingLayers = v2State.layers;
-    const newActiveLayerId = remainingLayers.length > 0 ? remainingLayers[0].id : null;
-    set({ activeLayerId: newActiveLayerId });
+    // Update active layer - delegated to AdvancedLayerSystemV2
+    // Legacy activeLayerId management removed to prevent conflicts
     
     // Force composition and visual update
     get().composeLayers();
@@ -2251,76 +2232,25 @@ try {
     return layerId;
   },
 
-  // Layer management functions
+  // Layer management functions - delegated to AdvancedLayerSystemV2
   toggleLayerVisibility: (layerId: string) => {
-    const updatedLayers = get().layers.map(layer => 
-      layer.id === layerId ? { ...layer, visible: !layer.visible } : layer
-    );
-    set({ layers: updatedLayers });
-    
-    // Force composition and visual update
-    get().composeLayers();
-    
-    // Also update displacement maps for puff effects
-    get().composeDisplacementMaps();
-    
-    // Trigger immediate visual update on 3D model
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'layer-visibility', layerId }
-      });
-      window.dispatchEvent(textureEvent);
-      console.log('🔄 Triggered texture update after layer visibility change');
-    }, 50);
-    
+    const v2State = useAdvancedLayerStoreV2.getState();
+    const layer = v2State.layers.find(l => l.id === layerId);
+    if (layer) {
+      v2State.setLayerVisibility(layerId, !layer.visible);
+    }
     console.log(`🎨 Toggled visibility for layer: ${layerId}`);
   },
 
   setLayerOpacity: (layerId: string, opacity: number) => {
-    const updatedLayers = get().layers.map(layer => 
-      layer.id === layerId ? { ...layer, opacity: Math.max(0, Math.min(1, opacity)) } : layer
-    );
-    set({ layers: updatedLayers });
-    
-    // Force composition and visual update
-    get().composeLayers();
-    
-    // Also update displacement maps for puff effects
-    get().composeDisplacementMaps();
-    
-    // Trigger immediate visual update on 3D model
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'layer-opacity', layerId }
-      });
-      window.dispatchEvent(textureEvent);
-      console.log('🔄 Triggered texture update after layer opacity change');
-    }, 50);
-    
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.setLayerOpacity(layerId, Math.max(0, Math.min(1, opacity)));
     console.log(`🎨 Set opacity for layer ${layerId}: ${opacity}`);
   },
 
   setLayerBlendMode: (layerId: string, blendMode: string) => {
-    const updatedLayers = get().layers.map(layer => 
-      layer.id === layerId ? { ...layer, blendMode } : layer
-    );
-    set({ layers: updatedLayers });
-    
-    // Force composition and visual update
-    get().composeLayers();
-    
-    // Also update displacement maps for puff effects
-    get().composeDisplacementMaps();
-    
-    // Trigger immediate visual update on 3D model
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'layer-blendmode', layerId }
-      });
-      window.dispatchEvent(textureEvent);
-      console.log('🔄 Triggered texture update after layer blend mode change');
-    }, 50);
-    
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.setLayerBlendMode(layerId, blendMode as any);
     console.log(`🎨 Set blend mode for layer ${layerId}: ${blendMode}`);
   },
 
