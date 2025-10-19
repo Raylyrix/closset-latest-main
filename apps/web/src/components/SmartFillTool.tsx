@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useApp } from '../App';
+import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 
 interface SmartFillToolProps {
   active: boolean;
@@ -84,10 +85,8 @@ export function SmartFillTool({ active }: SmartFillToolProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
 
-  // Get canvas and layer data from store
-  const composedCanvas = useApp(state => state.composedCanvas);
-  const layers = useApp(state => state.layers);
-  const activeLayerId = useApp(state => state.activeLayerId);
+  // Get canvas and layer data from V2 system
+  const { composedCanvas, layers, activeLayerId } = useAdvancedLayerStoreV2();
 
   // Handle fill mode selection
   const handleModeSelect = useCallback((mode: FillMode) => {

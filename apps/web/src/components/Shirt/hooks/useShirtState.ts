@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useApp } from '../../../App';
+import { useAdvancedLayerStoreV2 } from '../../../core/AdvancedLayerSystemV2';
 import { vectorStore } from '../../../vector/vectorState';
 
 export const useShirtState = () => {
@@ -18,7 +19,8 @@ export const useShirtState = () => {
   const modelScale = useApp(s => s.modelScale);
   const modelPosition = useApp(s => s.modelPosition);
   const modelRotation = useApp(s => s.modelRotation);
-  const composedCanvas = useApp(s => s.composedCanvas);
+  // Use V2 system for composed canvas
+  const { composedCanvas } = useAdvancedLayerStoreV2();
   const activeTool = useApp(s => s.activeTool);
   const vectorMode = useApp(s => s.vectorMode);
   

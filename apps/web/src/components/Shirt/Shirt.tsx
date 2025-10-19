@@ -11,6 +11,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { ModelData } from '../../types/app';
 import { useApp } from '../../App';
+import { useAdvancedLayerStoreV2 } from '../../core/AdvancedLayerSystemV2';
 
 // Hooks
 import { useShirtRendering } from './hooks/useShirtRendering';
@@ -41,7 +42,8 @@ export const Shirt: React.FC<ShirtProps> = ({
   const modelScale = useApp(s => s.modelScale);
   const modelPosition = useApp(s => s.modelPosition);
   const modelRotation = useApp(s => s.modelRotation);
-  const composedCanvas = useApp(s => s.composedCanvas);
+  // Use V2 system for composed canvas
+  const { composedCanvas } = useAdvancedLayerStoreV2();
   const activeTool = useApp(s => s.activeTool);
   const vectorMode = useApp(s => s.vectorMode);
   

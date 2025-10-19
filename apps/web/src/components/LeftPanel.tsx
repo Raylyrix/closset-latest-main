@@ -11,9 +11,8 @@ import { exportMeshAsGLB } from '../exporters';
 import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 
 export function LeftPanel() {
-  const layers = useApp(s => s.layers);
-  const activeLayerId = useApp(s => s.activeLayerId);
-  const composedCanvas = useApp(s => s.composedCanvas);
+  // Use V2 system directly instead of legacy App.tsx properties
+  const { layers, activeLayerId, composedCanvas } = useAdvancedLayerStoreV2();
   const modelChoice = useApp(s => s.modelChoice);
   const activeTool = useApp(s => s.activeTool);
   const setActiveTool = useApp(s => s.setActiveTool);

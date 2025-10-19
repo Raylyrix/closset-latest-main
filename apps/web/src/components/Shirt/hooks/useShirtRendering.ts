@@ -8,12 +8,14 @@
 import { useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../../../App';
+import { useAdvancedLayerStoreV2 } from '../../../core/AdvancedLayerSystemV2';
 import { vectorStore } from '../../../vector/vectorState';
 import { renderStitchType } from '../../../utils/stitchRendering';
 import { performanceMonitor } from '../../../utils/PerformanceMonitor';
 
 export const useShirtRendering = () => {
-  const composedCanvas = useApp(s => s.composedCanvas);
+  // Use V2 system for composed canvas
+  const { composedCanvas } = useAdvancedLayerStoreV2();
   const getActiveLayer = useApp(s => s.getActiveLayer);
   const composeLayers = useApp(s => s.composeLayers);
   const brushColor = useApp(s => s.brushColor);

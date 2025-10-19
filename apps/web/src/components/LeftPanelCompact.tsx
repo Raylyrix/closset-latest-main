@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../App';
+import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { SERVER_URL, upscalePng } from '../api';
 import { exportMeshAsGLB } from '../exporters';
 import { useModelStore } from '../stores/domainStores';
 import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 
 export function LeftPanelCompact() {
-  const layers = useApp(s => s.layers);
-  const activeLayerId = useApp(s => s.activeLayerId);
-  const composedCanvas = useApp(s => s.composedCanvas);
+  // Use V2 system directly instead of legacy App.tsx properties
+  const { layers, activeLayerId, composedCanvas } = useAdvancedLayerStoreV2();
   const modelChoice = useApp(s => s.modelChoice);
   const activeTool = useApp(s => s.activeTool);
   const setActiveTool = useApp(s => s.setActiveTool);
