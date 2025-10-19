@@ -157,7 +157,7 @@ export function AdvancedLayerSystemV2Test() {
         timestamp: Date.now()
       };
 
-      addBrushStroke(layerId, brushStroke); // FIXED: Missing layerId parameter
+      addBrushStroke(testLayer.id, brushStroke); // FIXED: Use testLayer.id instead of undefined layerId
       const strokes = getBrushStrokes(testLayer.id);
       
       if (strokes.length !== 1) {
@@ -168,7 +168,7 @@ export function AdvancedLayerSystemV2Test() {
         throw new Error('Brush stroke ID mismatch');
       }
 
-      removeBrushStroke(layerId, brushStroke.id); // FIXED: Missing layerId parameter
+      removeBrushStroke(testLayer.id, brushStroke.id); // FIXED: Use testLayer.id instead of undefined layerId
       const remainingStrokes = getBrushStrokes(testLayer.id);
       
       if (remainingStrokes.length !== 0) {
@@ -185,16 +185,19 @@ export function AdvancedLayerSystemV2Test() {
         id: `text_${Date.now()}`,
         layerId: testLayer.id,
         text: 'Test Text',
+        x: 100, // FIXED: Added missing x property
+        y: 100, // FIXED: Added missing y property
         u: 0.5,
         v: 0.5,
         fontSize: 24,
         fontFamily: 'Arial',
         color: '#000000',
         opacity: 1.0,
-        zIndex: 0
+        zIndex: 0,
+        timestamp: Date.now() // FIXED: Added missing timestamp property
       };
 
-      addTextElement(layerId, textElement); // FIXED: Missing layerId parameter
+      addTextElement(testLayer.id, textElement); // FIXED: Use testLayer.id instead of undefined layerId
       const texts = getTextElements(testLayer.id);
       
       if (texts.length !== 1) {
@@ -205,7 +208,7 @@ export function AdvancedLayerSystemV2Test() {
         throw new Error('Text element ID mismatch');
       }
 
-      removeTextElement(layerId, textElement.id); // FIXED: Missing layerId parameter
+      removeTextElement(testLayer.id, textElement.id); // FIXED: Use testLayer.id instead of undefined layerId
       const remainingTexts = getTextElements(testLayer.id);
       
       if (remainingTexts.length !== 0) {
@@ -251,7 +254,7 @@ export function AdvancedLayerSystemV2Test() {
     await runTest('Automatic Layer Manager Integration', async () => {
       const initialCount = layers.length;
       
-      const newLayer = createLayerForTool('brush');
+      const newLayer = triggerBrushStart({ size: 10, color: '#000000' }); // FIXED: createLayerForTool doesn't exist, use triggerBrushStart
       
       if (layers.length !== initialCount + 1) {
         throw new Error(`Expected ${initialCount + 1} layers after automatic creation, got ${layers.length}`);

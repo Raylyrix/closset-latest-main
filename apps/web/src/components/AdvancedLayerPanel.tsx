@@ -600,7 +600,7 @@ function LayerEffectsPanel({ layerId, effects, onEffectsChange }: LayerEffectsPa
       id: `effect_${Date.now()}`,
       type: effectType as any,
       enabled: true,
-      // settings: getDefaultEffectSettings(effectType) // FIXED: settings property doesn't exist in LayerEffect
+      properties: {} // FIXED: Added missing properties field
     };
     onEffectsChange([...effects, newEffect]);
   }, [effects, onEffectsChange]);

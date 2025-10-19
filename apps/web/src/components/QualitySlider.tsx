@@ -86,7 +86,7 @@ export const QualitySlider: React.FC<QualitySliderProps> = ({ className = '' }) 
     adaptivePerformanceManager.setAutoAdjustment(enabled);
   };
 
-  const handleCustomOverride = (key: keyof PerformancePreset, value: any) => {
+  const handleCustomOverride = (key: string, value: any) => { // FIXED: PerformancePreset doesn't exist
     adaptivePerformanceManager.setUserOverride({ [key]: value });
     const preset = adaptivePerformanceManager.getCurrentPreset();
     setCurrentPreset(preset);

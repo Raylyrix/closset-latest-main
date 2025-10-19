@@ -25,7 +25,24 @@ const DualViewPanel: React.FC = () => {
   const resetViews = () => console.log('Views reset');
 
   const enabled = dualView; // FIXED: dualView is boolean, not object
-  const viewportSettings = {}; // FIXED: placeholder for missing viewportSettings
+  const viewportSettings = { // FIXED: Add placeholder properties for missing viewportSettings
+    mode: 'split-horizontal',
+    splitRatio: 0.5,
+    splitDirection: 'horizontal',
+    pipPosition: 'top-right',
+    pipSize: 0.3,
+    pipOpacity: 0.8,
+    syncZoom: true,
+    syncPan: true,
+    syncRotation: false,
+    crossHairSync: false,
+    showUVOverlay: false,
+    showWireframe: false,
+    showNormals: false,
+    showSeams: false,
+    syncQuality: 'medium',
+    adaptiveQuality: true
+  };
 
   if (!enabled) {
     return (
