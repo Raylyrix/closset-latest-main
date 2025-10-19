@@ -1631,10 +1631,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         const textElements = layer.content.textElements || [];
         for (const textEl of textElements) {
           ctx.save();
-          ctx.font = `${textEl.fontSize}px ${textEl.fontFamily}`;
+          
+          // Set text properties
+          ctx.font = `${textEl.bold ? 'bold ' : ''}${textEl.italic ? 'italic ' : ''}${textEl.fontSize}px ${textEl.fontFamily}`;
           ctx.fillStyle = textEl.color;
           ctx.globalAlpha = textEl.opacity;
+          ctx.textAlign = textEl.align || 'left';
+          ctx.textBaseline = 'top'; // ✅ FIX: Use 'top' baseline to prevent inversion
+          
+          // Apply rotation if needed
+          if (textEl.rotation && textEl.rotation !== 0) {
+            ctx.translate(textEl.x, textEl.y);
+            ctx.rotate((textEl.rotation * Math.PI) / 180);
+            ctx.translate(-textEl.x, -textEl.y);
+          }
+          
+          // Draw text
           ctx.fillText(textEl.text, textEl.x, textEl.y);
+          
           ctx.restore();
         }
         
