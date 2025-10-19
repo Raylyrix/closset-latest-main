@@ -1168,9 +1168,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const appState = useApp.getState();
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
-      const canvasSize = CANVAS_CONFIG.COMPOSED.width; // Use composed canvas size
-      const pixelX = Math.floor(uv.u * canvasSize);
-      const pixelY = Math.floor(uv.v * canvasSize);
+      // Use actual composed canvas size from App state, not config
+      const composedCanvas = useApp.getState().composedCanvas;
+      const canvasWidth = composedCanvas?.width || 4096;
+      const canvasHeight = composedCanvas?.height || 4096;
+      const pixelX = Math.floor(uv.u * canvasWidth);
+      const pixelY = Math.floor((1 - uv.v) * canvasHeight); // V is flipped in canvas space
       
       const textElement: TextElement = {
         id,
@@ -1212,7 +1215,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         text: textElement.text,
         uv: { u: uv.u, v: uv.v },
         pixel: { x: pixelX, y: pixelY },
-        canvasSize: canvasSize,
+        canvasSize: { width: canvasWidth, height: canvasHeight },
         layerId: targetLayerId
       });
       
