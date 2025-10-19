@@ -1575,10 +1575,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       console.log('🔍 DEBUG: getAllTextElements called - checking', state.layers.length, 'layers');
       console.log('🔍 DEBUG: Store instance ID:', state.id || 'no-id', 'Timestamp:', Date.now());
-      console.log('🔍 DEBUG: Store layers:', state.layers.map(l => ({ id: l.id, name: l.name, type: l.type })));
+      console.log('🔍 DEBUG: Store layers:', state.layers.map((l: AdvancedLayer) => ({ id: l.id, name: l.name, type: l.type })));
       console.log('🔍 DEBUG: Using global instance:', !!globalStoreInstance);
       
-      state.layers.forEach((layer, index) => {
+      state.layers.forEach((layer: AdvancedLayer, index: number) => {
         console.log(`🔍 DEBUG: Layer ${index}:`, {
           id: layer.id,
           name: layer.name,
@@ -1591,12 +1591,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         if (layer.content.textElements && layer.content.textElements.length > 0) {
           allTextElements.push(...layer.content.textElements);
           console.log(`🔍 DEBUG: Added ${layer.content.textElements.length} text elements from layer ${layer.name}`);
-          console.log(`🔍 DEBUG: Text elements:`, layer.content.textElements.map(t => ({ id: t.id, text: t.text })));
+          console.log(`🔍 DEBUG: Text elements:`, layer.content.textElements.map((t: TextElement) => ({ id: t.id, text: t.text })));
         }
       });
       
       console.log('🔍 DEBUG: getAllTextElements returning', allTextElements.length, 'total text elements');
-      console.log('🔍 DEBUG: All text elements:', allTextElements.map(t => ({ id: t.id, text: t.text, layerId: t.layerId })));
+      console.log('🔍 DEBUG: All text elements:', allTextElements.map((t: TextElement) => ({ id: t.id, text: t.text, layerId: t.layerId })));
       return allTextElements;
     },
     
@@ -2160,7 +2160,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     autoOrganizeLayers: () => {
       get().autoGroupLayers();
     }
-  }))
+  }
+  })
 );
 
 // Export types - REMOVED: Conflicts with existing exports above
