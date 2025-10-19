@@ -1108,11 +1108,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       // Get current text settings from App state
       const appState = useApp.getState();
       
+      // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
+      const canvasSize = CANVAS_CONFIG.COMPOSED.width; // Use composed canvas size
+      const pixelX = Math.floor(uv.u * canvasSize);
+      const pixelY = Math.floor(uv.v * canvasSize);
+      
       const textElement: TextElement = {
         id,
         text,
-        x: 0,
-        y: 0,
+        x: pixelX,  // ✅ FIXED: Convert UV to pixel X coordinate
+        y: pixelY,  // ✅ FIXED: Convert UV to pixel Y coordinate
         u: uv.u,
         v: uv.v,
         fontSize: appState.textSize,
@@ -1144,7 +1149,13 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             : layer
         )
       }));
-      console.log('🎨 Added text element via App interface:', textElement);
+      console.log('🎨 Added text element via App interface:', {
+        text: textElement.text,
+        uv: { u: uv.u, v: uv.v },
+        pixel: { x: pixelX, y: pixelY },
+        canvasSize: canvasSize,
+        layerId: targetLayerId
+      });
       
       return id;
     },
