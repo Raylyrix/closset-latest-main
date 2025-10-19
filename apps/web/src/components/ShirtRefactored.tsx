@@ -4270,8 +4270,12 @@ export function ShirtRefactored({
                 
                 const appState = useApp.getState();
                 if (appState.addTextElement) {
-                    appState.addTextElement(userText, { u: uv.x, v: 1 - uv.y });
-                  console.log('🎨 Text element added successfully');
+                    const textId = appState.addTextElement(userText, { u: uv.x, v: 1 - uv.y });
+                  console.log('🎨 Text element added successfully with ID:', textId);
+                  
+                  // ✅ CRITICAL FIX: Automatically select the newly created text
+                  appState.setActiveTextId(textId);
+                  console.log('🎨 Text automatically selected:', textId);
                   
                   // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation for text
                   const newLayerId = triggerTextCreated({

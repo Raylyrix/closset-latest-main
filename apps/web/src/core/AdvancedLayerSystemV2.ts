@@ -420,15 +420,30 @@ const createDefaultContent = (type: LayerType): LayerContent => {
     case 'paint':
       // CRITICAL FIX: Create actual canvas for paint layers with correct size
       const canvas = createLayerCanvas();
-      return { canvas };
+      return { 
+        canvas,
+        brushStrokes: [], // ✅ FIX: Initialize brush strokes array
+        textElements: [],  // ✅ FIX: Initialize text elements array
+        imageElements: [], // ✅ FIX: Initialize image elements array
+        puffElements: []   // ✅ FIX: Initialize puff elements array
+      };
     case 'text':
-      return { text: '' };
+      return { 
+        text: '',
+        textElements: [] // ✅ FIX: Initialize text elements array
+      };
     case 'image':
-      return { imageData: undefined };
+      return { 
+        imageData: undefined,
+        imageElements: [] // ✅ FIX: Initialize image elements array
+      };
     case 'vector':
       return { vectorData: null };
     case 'puff':
-      return { puffData: null };
+      return { 
+        puffData: null,
+        puffElements: [] // ✅ FIX: Initialize puff elements array
+      };
     case 'embroidery':
       return { embroideryData: null };
     case 'adjustment':
