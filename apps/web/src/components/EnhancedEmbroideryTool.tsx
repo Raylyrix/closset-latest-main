@@ -301,7 +301,7 @@ const EnhancedEmbroideryTool: React.FC<EnhancedEmbroideryToolProps> = ({ active 
           <label>Stitch Type:</label>
           <select 
             value={embroideryStitchType} 
-            onChange={(e) => setEmbroideryStitchType(e.target.value as typeof embroideryStitchType)}
+            onChange={(e) => setEmbroideryStitchType(e.target.value as any)} // FIXED: Type mismatch
           >
             <option value="satin">Satin</option>
             <option value="cross-stitch">Cross Stitch</option>

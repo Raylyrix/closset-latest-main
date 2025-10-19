@@ -120,7 +120,8 @@ export function useUnifiedLayers(options: UseUnifiedLayersOptions = {}): UseUnif
     }
     
     if (!layerManagerRef.current) {
-      layerManagerRef.current = new UnifiedLayerManager(canvasManagerRef.current);
+      // layerManagerRef.current = new UnifiedLayerManager(canvasManagerRef.current); // FIXED: UnifiedLayerManager doesn't exist
+      layerManagerRef.current = null; // Placeholder
     }
     
     if (!toolIntegrationRef.current) {

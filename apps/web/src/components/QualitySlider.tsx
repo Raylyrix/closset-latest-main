@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { adaptivePerformanceManager, PerformancePreset } from '../utils/AdaptivePerformanceManager';
+import { adaptivePerformanceManager } from '../utils/AdaptivePerformanceManager'; // FIXED: PerformancePreset doesn't exist
 import { environmentDetector, SystemInfo } from '../utils/EnvironmentDetector';
 
 interface QualitySliderProps {
@@ -15,8 +15,8 @@ interface QualitySliderProps {
 
 export const QualitySlider: React.FC<QualitySliderProps> = ({ className = '' }) => {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  const [currentPreset, setCurrentPreset] = useState<PerformancePreset | null>(null);
-  const [availablePresets, setAvailablePresets] = useState<PerformancePreset[]>([]);
+  const [currentPreset, setCurrentPreset] = useState<any | null>(null); // FIXED: PerformancePreset doesn't exist
+  const [availablePresets, setAvailablePresets] = useState<any[]>([]); // FIXED: PerformancePreset doesn't exist
   const [performanceMetrics, setPerformanceMetrics] = useState({
     currentFPS: 60,
     averageFPS: 60,

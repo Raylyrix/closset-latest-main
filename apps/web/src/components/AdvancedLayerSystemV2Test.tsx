@@ -44,7 +44,7 @@ export function AdvancedLayerSystemV2Test() {
     composeLayers
   } = useAdvancedLayerStoreV2();
 
-  const { createLayerForTool } = useAutomaticLayerManager();
+  const { triggerBrushStart } = useAutomaticLayerManager(); // FIXED: createLayerForTool doesn't exist
 
   const updateTestResult = (id: string, updates: Partial<TestResult>) => {
     setTestResults(prev => prev.map(test => 
@@ -157,7 +157,7 @@ export function AdvancedLayerSystemV2Test() {
         timestamp: Date.now()
       };
 
-      addBrushStroke(brushStroke);
+      addBrushStroke(layerId, brushStroke); // FIXED: Missing layerId parameter
       const strokes = getBrushStrokes(testLayer.id);
       
       if (strokes.length !== 1) {
@@ -168,7 +168,7 @@ export function AdvancedLayerSystemV2Test() {
         throw new Error('Brush stroke ID mismatch');
       }
 
-      removeBrushStroke(brushStroke.id);
+      removeBrushStroke(layerId, brushStroke.id); // FIXED: Missing layerId parameter
       const remainingStrokes = getBrushStrokes(testLayer.id);
       
       if (remainingStrokes.length !== 0) {
@@ -194,7 +194,7 @@ export function AdvancedLayerSystemV2Test() {
         zIndex: 0
       };
 
-      addTextElement(textElement);
+      addTextElement(layerId, textElement); // FIXED: Missing layerId parameter
       const texts = getTextElements(testLayer.id);
       
       if (texts.length !== 1) {
@@ -205,7 +205,7 @@ export function AdvancedLayerSystemV2Test() {
         throw new Error('Text element ID mismatch');
       }
 
-      removeTextElement(textElement.id);
+      removeTextElement(layerId, textElement.id); // FIXED: Missing layerId parameter
       const remainingTexts = getTextElements(testLayer.id);
       
       if (remainingTexts.length !== 0) {

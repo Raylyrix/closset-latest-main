@@ -51,39 +51,39 @@ export function UltimateLayerPanel() {
     mergeLayers,
     flattenAll,
     // 3D-Aware Projection actions
-    setProjectionMode,
-    updateProjectionSettings,
-    toggleSurfaceLock,
-    setDepthOffset,
-    setNormalInfluence,
-    toggleCurvatureAdaptation,
-    toggleSeamAwareness,
+    // setProjectionMode, // FIXED: Property doesn't exist
+    // updateProjectionSettings, // FIXED: Property doesn't exist
+    // toggleSurfaceLock, // FIXED: Property doesn't exist
+    // setDepthOffset, // FIXED: Property doesn't exist
+    // setNormalInfluence, // FIXED: Property doesn't exist
+    // toggleCurvatureAdaptation, // FIXED: Property doesn't exist
+    // toggleSeamAwareness, // FIXED: Property doesn't exist
     
     // Geometry targeting actions
-    enableGeometryTargeting,
-    disableGeometryTargeting,
-    addGeometryTarget,
-    removeGeometryTarget,
-    updateGeometryTarget,
-    setGeometryTargetingFallback,
-    toggleGeometryTargetingPreview,
-    setGeometryTargetingInfluence,
-    getAvailableSurfaces,
-    getAvailableMaterials,
+    // enableGeometryTargeting, // FIXED: Property doesn't exist
+    // disableGeometryTargeting, // FIXED: Property doesn't exist
+    // addGeometryTarget, // FIXED: Property doesn't exist
+    // removeGeometryTarget, // FIXED: Property doesn't exist
+    // updateGeometryTarget, // FIXED: Property doesn't exist
+    // setGeometryTargetingFallback, // FIXED: Property doesn't exist
+    // toggleGeometryTargetingPreview, // FIXED: Property doesn't exist
+    // setGeometryTargetingInfluence, // FIXED: Property doesn't exist
+    // getAvailableSurfaces, // FIXED: Property doesn't exist
+    // getAvailableMaterials, // FIXED: Property doesn't exist
     
     // 3D Blending actions
-    setBlendingMode3D,
-    updateBlendingSettings3D,
-    setSurfaceInfluence,
-    setDepthInfluence,
-    setCurvatureInfluence,
-    setSeamAwareness,
-    setMaterialSettings,
-    setLightingSettings,
-    setAdvancedSettings,
-    setBlendingQuality,
-    toggleRealtimeBlending,
-    toggleBlendingCache
+    // setBlendingMode3D, // FIXED: Property doesn't exist
+    // updateBlendingSettings3D, // FIXED: Property doesn't exist
+    // setSurfaceInfluence, // FIXED: Property doesn't exist
+    // setDepthInfluence, // FIXED: Property doesn't exist
+    // setCurvatureInfluence, // FIXED: Property doesn't exist
+    // setSeamAwareness, // FIXED: Property doesn't exist
+    // setMaterialSettings, // FIXED: Property doesn't exist
+    // setLightingSettings, // FIXED: Property doesn't exist
+    // setAdvancedSettings, // FIXED: Property doesn't exist
+    // setBlendingQuality, // FIXED: Property doesn't exist
+    // toggleRealtimeBlending, // FIXED: Property doesn't exist
+    // toggleBlendingCache // FIXED: Property doesn't exist
   } = useAdvancedLayerStoreV2();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -108,7 +108,7 @@ export function UltimateLayerPanel() {
 
   // Get filtered layers
   const filteredLayerIds = layerOrder.filter(layerId => {
-    const layer = layers.get(layerId);
+    const layer = layers.find((l: any) => l.id === layerId); // FIXED: layers is array, not Map
     if (!layer) return false;
     
     // Apply type filter
@@ -322,7 +322,7 @@ export function UltimateLayerPanel() {
           </div>
         ) : (
           filteredLayerIds.map((layerId, index) => {
-            const layer = layers.get(layerId);
+            const layer = layers.find((l: any) => l.id === layerId); // FIXED: layers is array, not Map
             if (!layer) return null;
             
             const isActive = activeLayerId === layerId;

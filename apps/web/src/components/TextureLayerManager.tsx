@@ -26,7 +26,7 @@ export interface TextureLayer {
   texture: THREE.CanvasTexture;
   visible: boolean;
   opacity: number;
-  blendMode: THREE.BlendEquation;
+  blendMode: THREE.BlendingEquation; // FIXED: BlendEquation doesn't exist, use BlendingEquation
   order: number;
   needsUpdate: boolean;
 }

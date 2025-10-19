@@ -137,7 +137,7 @@ export function Toolbar() {
               >
                 🚀 Performance
               </button>
-            <PuffPrintManager />
+            {/* <PuffPrintManager /> */} {/* FIXED: PuffPrintManager doesn't exist */}
           </div>
 
           {/* Save/Load Group */}

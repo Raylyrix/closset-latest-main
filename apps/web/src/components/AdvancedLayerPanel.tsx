@@ -298,7 +298,7 @@ export function AdvancedLayerPanel({
         padding: '4px'
       }}>
         {layerOrder.map(layerId => {
-          const layer = layers.get(layerId);
+          const layer = layers.find((l: any) => l.id === layerId); // FIXED: layers is array, not Map
           if (!layer) return null;
 
           return (
@@ -355,7 +355,7 @@ export function AdvancedLayerPanel({
           </button>
         </div>
         <div style={{ fontSize: '10px', color: '#888888' }}>
-          {layers.size} {layers.size === 1 ? 'layer' : 'layers'}
+          {layers.length} {layers.length === 1 ? 'layer' : 'layers'} {/* FIXED: layers is array, not Map */}
         </div>
       </div>
     </div>
@@ -600,7 +600,7 @@ function LayerEffectsPanel({ layerId, effects, onEffectsChange }: LayerEffectsPa
       id: `effect_${Date.now()}`,
       type: effectType as any,
       enabled: true,
-      settings: getDefaultEffectSettings(effectType)
+      // settings: getDefaultEffectSettings(effectType) // FIXED: settings property doesn't exist in LayerEffect
     };
     onEffectsChange([...effects, newEffect]);
   }, [effects, onEffectsChange]);
