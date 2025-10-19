@@ -120,6 +120,20 @@ export interface ImageElement {
   timestamp: number;
 }
 
+// Puff element interface (for puff print effects)
+export interface PuffElement {
+  id: string;
+  x: number;          // Pixel X position
+  y: number;          // Pixel Y position
+  radius: number;     // Puff radius in pixels
+  height: number;     // Displacement height (0-1)
+  softness: number;   // Puff softness (0-1)
+  color: string;      // Puff color
+  opacity: number;    // Puff opacity
+  layerId: string;
+  timestamp: number;
+}
+
 // History system for undo/redo
 export interface LayerHistorySnapshot {
   id: string;
@@ -147,6 +161,7 @@ export interface LayerContent {
   brushStrokes?: BrushStroke[]; // For paint layers
   textElements?: TextElement[]; // For text layers
   displacementCanvas?: HTMLCanvasElement; // For displacement mapping
+  puffElements?: PuffElement[]; // ✅ NEW: For puff print elements
 }
 
 // Main Layer interface
@@ -284,6 +299,12 @@ interface AdvancedLayerStoreV2 {
   updateImageElementFromApp: (id: string, patch: Partial<ImageElement>) => void;
   deleteImageElementFromApp: (id: string) => void;
   getAllImageElements: () => ImageElement[];
+  
+  // Enhanced puff element management (compatible with App.tsx interface)
+  addPuffElementFromApp: (puffData: any, layerId?: string) => string;
+  updatePuffElementFromApp: (id: string, patch: Partial<PuffElement>) => void;
+  deletePuffElementFromApp: (id: string) => void;
+  getAllPuffElements: () => PuffElement[];
   
   // Backward compatibility helpers
   getLayerCanvas: (layerId: string) => HTMLCanvasElement | null;
@@ -1316,6 +1337,120 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       return allImageElements;
     },
     
+    // Enhanced puff element management (compatible with App.tsx interface)
+    addPuffElementFromApp: (puffData: any, layerId?: string) => {
+      const id = Math.random().toString(36).slice(2);
+      const state = get();
+      
+      // Ensure we have a valid layer ID
+      let targetLayerId = layerId || state.activeLayerId || 'puff';
+      
+      // If the target layer doesn't exist, create a default puff layer
+      if (!state.layers.find(l => l.id === targetLayerId)) {
+        console.log('🎨 Creating default puff layer for puff element');
+        const puffLayerId = get().createLayer('puff', 'Puff Layer');
+        targetLayerId = puffLayerId;
+      }
+      
+      // Ensure the layer has a displacement canvas
+      const targetLayer = state.layers.find(l => l.id === targetLayerId);
+      if (targetLayer && !targetLayer.content.displacementCanvas) {
+        console.log('🎨 Creating displacement canvas for puff layer');
+        const displacementCanvas = createLayerCanvas();
+        set(state => ({
+          layers: state.layers.map(layer => 
+            layer.id === targetLayerId 
+              ? {
+                  ...layer,
+                  content: {
+                    ...layer.content,
+                    displacementCanvas: displacementCanvas
+                  }
+                }
+              : layer
+          )
+        }));
+      }
+      
+      const puffElement: PuffElement = {
+        id,
+        x: puffData.x || 0,
+        y: puffData.y || 0,
+        radius: puffData.radius || 20,
+        height: puffData.height || 0.5,
+        softness: puffData.softness || 0.8,
+        color: puffData.color || '#ff69b4',
+        opacity: puffData.opacity || 1,
+        layerId: targetLayerId,
+        timestamp: Date.now()
+      };
+      
+      // Add puff element to the layer
+      set(state => ({
+        layers: state.layers.map(layer => 
+          layer.id === targetLayerId 
+            ? {
+                ...layer,
+                content: {
+                  ...layer.content,
+                  puffElements: [...(layer.content.puffElements || []), puffElement]
+                },
+                updatedAt: new Date()
+              }
+            : layer
+        )
+      }));
+      
+      console.log('🎨 Added puff element via App interface:', {
+        x: puffElement.x,
+        y: puffElement.y,
+        radius: puffElement.radius,
+        height: puffElement.height,
+        layerId: targetLayerId
+      });
+      
+      return id;
+    },
+    
+    updatePuffElementFromApp: (id: string, patch: Partial<PuffElement>) => {
+      set(state => ({
+        layers: state.layers.map(layer => ({
+          ...layer,
+          content: {
+            ...layer.content,
+            puffElements: layer.content.puffElements?.map(puff => 
+              puff.id === id ? { ...puff, ...patch } : puff
+            ) || []
+          }
+        }))
+      }));
+    },
+    
+    deletePuffElementFromApp: (id: string) => {
+      set(state => ({
+        layers: state.layers.map(layer => ({
+          ...layer,
+          content: {
+            ...layer.content,
+            puffElements: layer.content.puffElements?.filter(puff => puff.id !== id) || []
+          }
+        }))
+      }));
+    },
+    
+    getAllPuffElements: () => {
+      const state = get();
+      const allPuffElements: PuffElement[] = [];
+      
+      state.layers.forEach(layer => {
+        if (layer.content.puffElements) {
+          allPuffElements.push(...layer.content.puffElements);
+        }
+      });
+      
+      return allPuffElements;
+    },
+    
     updateTextElementFromApp: (id: string, patch: Partial<TextElement>) => {
       set(state => ({
         layers: state.layers.map(layer => ({
@@ -1511,6 +1646,51 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
           };
           img.src = imageEl.dataUrl || imageEl.src || '';
+          
+          ctx.restore();
+        }
+        
+        // Draw puff elements
+        const puffElements = layer.content.puffElements || [];
+        for (const puffEl of puffElements) {
+          ctx.save();
+          ctx.globalAlpha = puffEl.opacity;
+          ctx.globalCompositeOperation = 'source-over';
+          
+          // Draw puff color
+          ctx.fillStyle = puffEl.color;
+          ctx.beginPath();
+          ctx.arc(puffEl.x, puffEl.y, puffEl.radius, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Draw displacement if displacement canvas exists
+          if (layer.content.displacementCanvas) {
+            const dispCtx = layer.content.displacementCanvas.getContext('2d');
+            if (dispCtx) {
+              dispCtx.save();
+              dispCtx.globalCompositeOperation = 'lighten'; // Prevents spikes
+              
+              const centerHeight = Math.floor(255 * puffEl.height);
+              const grad = dispCtx.createRadialGradient(puffEl.x, puffEl.y, 0, puffEl.x, puffEl.y, puffEl.radius);
+              
+              // Create smooth gradient for displacement
+              const stops = 12;
+              for (let i = 0; i <= stops; i++) {
+                const t = i / stops;
+                const cosValue = Math.cos((1 - t) * Math.PI / 2);
+                const height = Math.floor(centerHeight * cosValue * puffEl.softness);
+                grad.addColorStop(t, `rgb(${height}, ${height}, ${height})`);
+              }
+              grad.addColorStop(1, 'rgb(0, 0, 0)');
+              
+              dispCtx.fillStyle = grad;
+              dispCtx.beginPath();
+              dispCtx.arc(puffEl.x, puffEl.y, puffEl.radius, 0, Math.PI * 2);
+              dispCtx.fill();
+              
+              dispCtx.restore();
+            }
+          }
           
           ctx.restore();
         }

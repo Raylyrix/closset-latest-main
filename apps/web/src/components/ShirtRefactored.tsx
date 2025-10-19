@@ -9,6 +9,8 @@ import { canvasPool } from '../utils/CanvasPool';
 import { geometryManager } from '../utils/GeometryManager';
 import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
+import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
+import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 
 // Import new modular components
 import { ShirtRenderer } from './Shirt/ShirtRenderer';
@@ -20,8 +22,6 @@ import { ShirtRenderer } from './Shirt/ShirtRenderer';
 // import { LAYER_SYSTEM_CONFIG } from '../config/LayerConfig';
 // import { layerPersistenceManager } from '../core/LayerPersistenceManager';
 import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
-import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
-import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 // import { Brush3DIntegration } from './Brush3DIntegrationNew'; // Using existing useApp painting system instead
 
 // Import selection system
@@ -3171,8 +3171,8 @@ export function ShirtRefactored({
       }
 
     } else if (activeTool === 'puffPrint') {
-      // ========== SMOOTH CONTINUOUS PUFF STROKE SYSTEM ==========
-      // Draws smooth strokes with perfect dome displacement (no individual circles)
+      // ========== PUFF TOOL WITH V2 LAYER SYSTEM INTEGRATION ==========
+      // Now uses V2 layer system for proper displacement canvas support
       
       const puffBrushSize = useApp.getState().puffBrushSize;
       const puffColor = useApp.getState().puffColor;
@@ -3182,11 +3182,32 @@ export function ShirtRefactored({
       if (!ctx) return;
       
       const puffRadius = puffBrushSize / 2;
-      const activeLayer = useApp.getState().layers.find(l => l.id === useApp.getState().activeLayerId);
       
-      if (!activeLayer?.displacementCanvas) return;
+      // CRITICAL FIX: Use V2 layer system instead of App.tsx layers
+      const v2State = useAdvancedLayerStoreV2.getState();
+      const activeLayer = v2State.layers.find(l => l.id === v2State.activeLayerId);
       
-      const dispCtx = activeLayer.displacementCanvas.getContext('2d', { willReadFrequently: true });
+      // Helper function to create layer canvas
+      const createLayerCanvas = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = CANVAS_CONFIG.LAYER.width;
+        canvas.height = CANVAS_CONFIG.LAYER.height;
+        return canvas;
+      };
+      
+      // Ensure layer has displacement canvas
+      if (!activeLayer?.content.displacementCanvas) {
+        console.log('🎨 Creating displacement canvas for puff tool');
+        const displacementCanvas = createLayerCanvas();
+        v2State.updateLayer(activeLayer?.id || 'default', {
+          content: {
+            ...activeLayer?.content,
+            displacementCanvas: displacementCanvas
+          }
+        });
+      }
+      
+      const dispCtx = activeLayer?.content.displacementCanvas?.getContext('2d', { willReadFrequently: true });
       if (!dispCtx) return;
       
       // STEP 1: Draw smooth continuous color stroke
@@ -3197,6 +3218,17 @@ export function ShirtRefactored({
         ctx.beginPath();
         ctx.arc(px, py, puffRadius, 0, Math.PI * 2);
         ctx.fill();
+        
+        // CRITICAL FIX: Also add puff element to V2 system
+        v2State.addPuffElementFromApp({
+          x: px,
+          y: py,
+          radius: puffRadius,
+          height: puffHeight,
+          softness: puffSoftness,
+          color: puffColor,
+          opacity: 1.0
+        }, activeLayer?.id);
       };
       
       drawWithSymmetry(drawPuffColor);
