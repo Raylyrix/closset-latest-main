@@ -552,6 +552,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
+      // Force composition and visual update
+      get().composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'layer-visibility-v2', layerId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after layer visibility change (V2)');
+      }, 50);
+      
       console.log(`👁️ Set layer ${id} visibility: ${visible}`);
     },
     
@@ -562,6 +574,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
+      // Force composition and visual update
+      get().composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'layer-opacity-v2', layerId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after layer opacity change (V2)');
+      }, 50);
+      
       console.log(`🔍 Set layer ${id} opacity: ${opacity}`);
     },
     
@@ -571,6 +595,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           layer.id === id ? { ...layer, blendMode, updatedAt: new Date() } : layer
         )
       }));
+      
+      // Force composition and visual update
+      get().composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'layer-blendmode-v2', layerId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after layer blend mode change (V2)');
+      }, 50);
       
       console.log(`🎨 Set layer ${id} blend mode: ${blendMode}`);
     },
@@ -617,6 +653,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         };
       });
       
+      // Force composition and visual update
+      get().composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'layer-reorder-up-v2', layerId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after layer move up (V2)');
+      }, 50);
+      
       console.log(`⬆️ Moved layer ${id} up`);
     },
     
@@ -636,6 +684,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }))
         };
       });
+      
+      // Force composition and visual update
+      get().composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'layer-reorder-down-v2', layerId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after layer move down (V2)');
+      }, 50);
       
       console.log(`⬇️ Moved layer ${id} down`);
     },
