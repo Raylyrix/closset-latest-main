@@ -506,7 +506,7 @@ export class LayerModelSynchronizer {
 // ============================================================================
 
 export function useLayerModelSync(modelScene: THREE.Group | null) {
-  const layerStore = useAdvancedLayerStore();
+  const layerStore = useAdvancedLayerStoreV2();
   const synchronizerRef = useRef<LayerModelSynchronizer | null>(null);
 
   useEffect(() => {
