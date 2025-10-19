@@ -3364,6 +3364,29 @@ try {
 
 export function App() {
   const composedCanvas = useApp(s => s.composedCanvas);
+  
+  // Listen for controls state changes to force immediate updates
+  useEffect(() => {
+    const handleControlsStateChange = (event: CustomEvent) => {
+      const { enabled, reason } = event.detail;
+      console.log('🎮 Controls state change event received:', { enabled, reason });
+      
+      // Force immediate state update
+      useApp.setState({ controlsEnabled: enabled });
+      
+      // Force OrbitControls to re-evaluate by triggering a small delay
+      setTimeout(() => {
+        const currentState = useApp.getState().controlsEnabled;
+        console.log('🎮 After controls state change - current state:', currentState);
+      }, 10);
+    };
+
+    window.addEventListener('controlsStateChanged', handleControlsStateChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('controlsStateChanged', handleControlsStateChange as EventListener);
+    };
+  }, []);
   const activeTool = useApp(s => s.activeTool);
   const vectorMode = useApp(s => s.vectorMode);
   const showPuffVectorPrompt = useApp(s => s.showPuffVectorPrompt);
@@ -3682,12 +3705,21 @@ export function App() {
               screenSpacePanning={false}
               mouseButtons={useMemo(() => {
                 const controlsEnabled = useApp.getState().controlsEnabled;
+                console.log('🎮 OrbitControls mouseButtons - controlsEnabled:', controlsEnabled);
                 return {
-                  LEFT: controlsEnabled ? THREE.MOUSE.ROTATE : undefined,
+                  LEFT: controlsEnabled ? THREE.MOUSE.ROTATE : undefined, // Disable left mouse when controls disabled
                   MIDDLE: THREE.MOUSE.DOLLY, // Always allow zoom with middle mouse
                   RIGHT: controlsEnabled ? THREE.MOUSE.PAN : THREE.MOUSE.DOLLY
                 };
               }, [useApp(s => s.controlsEnabled)])}
+              onStart={() => {
+                const controlsEnabled = useApp.getState().controlsEnabled;
+                console.log('🎮 OrbitControls onStart - controlsEnabled:', controlsEnabled);
+              }}
+              onEnd={() => {
+                const controlsEnabled = useApp.getState().controlsEnabled;
+                console.log('🎮 OrbitControls onEnd - controlsEnabled:', controlsEnabled);
+              }}
               touches={useMemo(() => {
                 const controlsEnabled = useApp.getState().controlsEnabled;
                 return {

@@ -4206,8 +4206,22 @@ export function ShirtRefactored({
                   txtHeight: textHeight,
                   originalFontSize: clickedText.fontSize
                 };
+                
+                // CRITICAL FIX: Properly disable 3D controls to prevent model rotation during resize
                 setControlsEnabled(false);
-                console.log('🎨 Resize mode activated. Drag mode:', (window as any).__textDragging, 'Resize mode:', (window as any).__textResizing);
+                useApp.setState({ controlsEnabled: false });
+                
+                // Force immediate state synchronization
+                setTimeout(() => {
+                  const currentState = useApp.getState().controlsEnabled;
+                  console.log('🎨 Resize mode activated. Controls disabled to prevent model rotation. State:', currentState);
+                  
+                  // Dispatch event to force OrbitControls update
+                  window.dispatchEvent(new CustomEvent('controlsStateChanged', {
+                    detail: { enabled: false, reason: 'text-resizing' }
+                  }));
+                }, 0);
+                console.log('🎨 Drag mode:', (window as any).__textDragging, 'Resize mode:', (window as any).__textResizing);
               } else {
                 // Start dragging - SAME AS IMAGE TOOL
                 console.log('🎨 Text tool: ===== STARTING DRAG MODE =====');
@@ -4222,8 +4236,21 @@ export function ShirtRefactored({
                   txtV: clickedText.v || 0.5,
                   textId: clickedText.id
                 };
+                
+                // CRITICAL FIX: Properly disable 3D controls to prevent model rotation
                 setControlsEnabled(false);
-                console.log('🎨 Drag mode activated!');
+                useApp.setState({ controlsEnabled: false });
+                
+                // Force immediate state synchronization
+                setTimeout(() => {
+                  const currentState = useApp.getState().controlsEnabled;
+                  console.log('🎨 Drag mode activated! Controls disabled to prevent model rotation. State:', currentState);
+                  
+                  // Dispatch event to force OrbitControls update
+                  window.dispatchEvent(new CustomEvent('controlsStateChanged', {
+                    detail: { enabled: false, reason: 'text-dragging' }
+                  }));
+                }, 0);
                 console.log('🎨 __textDragging:', (window as any).__textDragging);
                 console.log('🎨 __textResizing:', (window as any).__textResizing);
                 console.log('🎨 __textDragStart:', (window as any).__textDragStart);
@@ -5426,7 +5453,12 @@ export function ShirtRefactored({
       console.log('🔄 Text tool: Ended rotating - updating texture');
       (window as any).__textRotating = false;
       delete (window as any).__textRotateStart;
+      
+      // CRITICAL FIX: Properly re-enable 3D controls after text rotation
       setControlsEnabled(true);
+      useApp.setState({ controlsEnabled: true });
+      console.log('🎨 Text rotation ended - controls re-enabled');
+      
       // Trigger final texture update
       const { composeLayers } = useApp.getState();
       composeLayers(true);
@@ -5440,7 +5472,12 @@ export function ShirtRefactored({
       console.log('🎨 Text tool: Ended resizing - updating texture');
       (window as any).__textResizing = false;
       delete (window as any).__textResizeStart;
+      
+      // CRITICAL FIX: Properly re-enable 3D controls after text resizing
       setControlsEnabled(true);
+      useApp.setState({ controlsEnabled: true });
+      console.log('🎨 Text resizing ended - controls re-enabled');
+      
       // Trigger final texture update
       const { composeLayers } = useApp.getState();
       composeLayers(true);
@@ -5454,7 +5491,22 @@ export function ShirtRefactored({
       console.log('🎨 Text tool: Ended dragging - updating texture');
       (window as any).__textDragging = false;
       delete (window as any).__textDragStart;
+      
+      // CRITICAL FIX: Properly re-enable 3D controls after text dragging
       setControlsEnabled(true);
+      useApp.setState({ controlsEnabled: true });
+      
+      // Force immediate state synchronization
+      setTimeout(() => {
+        const currentState = useApp.getState().controlsEnabled;
+        console.log('🎨 Text dragging ended - controls re-enabled. State:', currentState);
+        
+        // Dispatch event to force OrbitControls update
+        window.dispatchEvent(new CustomEvent('controlsStateChanged', {
+          detail: { enabled: true, reason: 'text-dragging-ended' }
+        }));
+      }, 0);
+      
       // Trigger final texture update
       const { composeLayers } = useApp.getState();
       composeLayers(true);

@@ -8,6 +8,7 @@ import { useApp } from '../App';
 import { useAdvancedLayerStoreV2, AdvancedLayer, LayerGroup, BlendMode, LayerEffect, LayerMask } from '../core/AdvancedLayerSystemV2';
 import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
 import { useLayerSelectionSystem } from '../core/LayerSelectionSystem';
+import { EnhancedTextSettings } from './EnhancedTextSettings';
 
 interface RightPanelCompactProps {
   activeToolSidebar?: string | null;
@@ -3178,6 +3179,184 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
             </div>
           </div>
         )}
+
+        {/* Advanced Typography Features */}
+        {activeTool === 'text' && activeTextId && (() => {
+          const activeText = textElements.find(t => t.id === activeTextId);
+          if (!activeText) return null;
+
+          return (
+            <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(138,43,226,0.1)', borderRadius: '4px', border: '1px solid rgba(138,43,226,0.3)' }}>
+              <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#BA55D3' }}>
+                ✨ Advanced Typography
+              </div>
+              
+              {/* Word Spacing */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '2px' }}>
+                  Word Spacing: {activeText.wordSpacing || 0}px
+                </div>
+                <input
+                  type="range"
+                  min="-10"
+                  max="50"
+                  step="0.5"
+                  value={activeText.wordSpacing || 0}
+                  onChange={(e) => {
+                    updateTextElement(activeTextId, { wordSpacing: parseFloat(e.target.value) });
+                    setTimeout(() => {
+                      const { composeLayers } = useApp.getState();
+                      composeLayers();
+                      if ((window as any).updateModelTexture) {
+                        (window as any).updateModelTexture(true, true);
+                      }
+                    }, 10);
+                  }}
+                  style={{ width: '100%', accentColor: '#BA55D3' }}
+                />
+              </div>
+
+              {/* Text Transform */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '2px' }}>Text Transform</div>
+                <select
+                  value={activeText.textTransform || 'none'}
+                  onChange={(e) => {
+                    updateTextElement(activeTextId, { textTransform: e.target.value as 'none' | 'uppercase' | 'lowercase' | 'capitalize' });
+                    setTimeout(() => {
+                      const { composeLayers } = useApp.getState();
+                      composeLayers();
+                      if ((window as any).updateModelTexture) {
+                        (window as any).updateModelTexture(true, true);
+                      }
+                    }, 10);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '4px',
+                    background: '#000000',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(138,43,226,0.3)',
+                    borderRadius: '3px',
+                    fontSize: '8px'
+                  }}
+                >
+                  <option value="none">None</option>
+                  <option value="uppercase">UPPERCASE</option>
+                  <option value="lowercase">lowercase</option>
+                  <option value="capitalize">Capitalize</option>
+                </select>
+              </div>
+
+              {/* Multi-line Support */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Multi-line Support</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <input
+                    type="checkbox"
+                    checked={activeText.lineBreak || false}
+                    onChange={(e) => {
+                      updateTextElement(activeTextId, { lineBreak: e.target.checked });
+                      setTimeout(() => {
+                        const { composeLayers } = useApp.getState();
+                        composeLayers();
+                        if ((window as any).updateModelTexture) {
+                          (window as any).updateModelTexture(true, true);
+                        }
+                      }, 10);
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '8px', color: '#CCC' }}>Enable Line Break</span>
+                </div>
+                
+                {activeText.lineBreak && (
+                  <div style={{ marginTop: '4px' }}>
+                    <div style={{ fontSize: '8px', color: '#999', marginBottom: '2px' }}>
+                      Max Width: {activeText.maxWidth || 200}px
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="800"
+                      step="10"
+                      value={activeText.maxWidth || 200}
+                      onChange={(e) => {
+                        updateTextElement(activeTextId, { maxWidth: parseInt(e.target.value) });
+                        setTimeout(() => {
+                          const { composeLayers } = useApp.getState();
+                          composeLayers();
+                          if ((window as any).updateModelTexture) {
+                            (window as any).updateModelTexture(true, true);
+                          }
+                        }, 10);
+                      }}
+                      style={{ width: '100%', accentColor: '#BA55D3' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Text Baseline */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '2px' }}>Text Baseline</div>
+                <select
+                  value={activeText.textBaseline || 'top'}
+                  onChange={(e) => {
+                    updateTextElement(activeTextId, { textBaseline: e.target.value as 'top' | 'middle' | 'bottom' | 'alphabetic' | 'hanging' });
+                    setTimeout(() => {
+                      const { composeLayers } = useApp.getState();
+                      composeLayers();
+                      if ((window as any).updateModelTexture) {
+                        (window as any).updateModelTexture(true, true);
+                      }
+                    }, 10);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '4px',
+                    background: '#000000',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(138,43,226,0.3)',
+                    borderRadius: '3px',
+                    fontSize: '8px'
+                  }}
+                >
+                  <option value="top">Top</option>
+                  <option value="middle">Middle</option>
+                  <option value="bottom">Bottom</option>
+                  <option value="alphabetic">Alphabetic</option>
+                  <option value="hanging">Hanging</option>
+                </select>
+              </div>
+
+              {/* Text Indent */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '2px' }}>
+                  Text Indent: {activeText.textIndent || 0}px
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={activeText.textIndent || 0}
+                  onChange={(e) => {
+                    updateTextElement(activeTextId, { textIndent: parseInt(e.target.value) });
+                    setTimeout(() => {
+                      const { composeLayers } = useApp.getState();
+                      composeLayers();
+                      if ((window as any).updateModelTexture) {
+                        (window as any).updateModelTexture(true, true);
+                      }
+                    }, 10);
+                  }}
+                  style={{ width: '100%', accentColor: '#BA55D3' }}
+                />
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Image Settings */}
         {(activeTool === 'image' || activeTool === 'importImage') && (

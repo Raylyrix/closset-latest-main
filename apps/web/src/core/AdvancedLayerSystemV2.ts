@@ -51,6 +51,9 @@ export interface BrushStroke {
   timestamp: number;
 }
 
+// Import text effects types
+import { TextEffects, TextShadow, TextStroke, TextGradient, TextGlow, Text3DEffect } from '../utils/TextEffects';
+
 // Text element interface
 export interface TextElement {
   id: string;
@@ -79,7 +82,7 @@ export interface TextElement {
   lineHeight?: number;
   stroke?: string | { width: number; color: string };
   strokeWidth?: number;
-  textBaseline?: 'top' | 'middle' | 'bottom';
+  textBaseline?: 'top' | 'middle' | 'bottom' | 'alphabetic' | 'hanging' | 'ideographic';
   scaleX?: number;
   scaleY?: number;
   shadow?: {
@@ -88,6 +91,25 @@ export interface TextElement {
     offsetY: number;
     color: string;
   };
+  // Advanced text effects
+  effects?: TextEffects;
+  // Typography controls
+  fontWeight?: number | string;
+  fontStyle?: 'normal' | 'italic' | 'oblique';
+  textDecoration?: 'none' | 'underline' | 'line-through' | 'overline';
+  wordSpacing?: number;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  textIndent?: number;
+  whiteSpace?: 'normal' | 'nowrap' | 'pre' | 'pre-wrap' | 'pre-line';
+  // Multi-line support
+  maxWidth?: number;
+  lineBreak?: boolean;
+  // Text path support (for future text-on-path feature)
+  pathId?: string;
+  pathOffset?: number;
+  // Accessibility
+  ariaLabel?: string;
+  role?: string;
 }
 
 // Image element interface (for imported images)
@@ -368,6 +390,9 @@ interface AdvancedLayerStoreV2 {
   
   // Layer composition
   composeLayers: () => HTMLCanvasElement | null;
+  
+  // Helper methods
+  wrapText: (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => string[];
 }
 
 // Helper functions
@@ -1676,12 +1701,20 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         for (const textEl of textElements) {
           ctx.save();
           
-          // Set text properties
-          ctx.font = `${textEl.bold ? 'bold ' : ''}${textEl.italic ? 'italic ' : ''}${textEl.fontSize}px ${textEl.fontFamily}`;
+          // Set text properties with enhanced typography support
+          const fontWeight = textEl.fontWeight || (textEl.bold ? 'bold' : 'normal');
+          const fontStyle = textEl.fontStyle || (textEl.italic ? 'italic' : 'normal');
+          ctx.font = `${fontStyle} ${fontWeight} ${textEl.fontSize}px ${textEl.fontFamily}`;
+          
           ctx.fillStyle = textEl.color;
           ctx.globalAlpha = textEl.opacity;
           ctx.textAlign = textEl.align || 'left';
-          ctx.textBaseline = 'top'; // ✅ FIX: Use 'top' baseline to prevent inversion
+          ctx.textBaseline = textEl.textBaseline || 'top';
+          
+          // Apply letter spacing if specified
+          if (textEl.letterSpacing) {
+            ctx.letterSpacing = `${textEl.letterSpacing}px`;
+          }
           
           // Apply rotation if needed
           if (textEl.rotation && textEl.rotation !== 0) {
@@ -1690,8 +1723,83 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.translate(-textEl.x, -textEl.y);
           }
           
-          // Draw text
-          ctx.fillText(textEl.text, textEl.x, textEl.y);
+        // Apply advanced typography features
+        if (textEl.wordSpacing && textEl.wordSpacing !== 0) {
+          ctx.wordSpacing = `${textEl.wordSpacing}px`;
+        }
+
+        // Apply text transform
+        let displayText = textEl.text;
+        if (textEl.textTransform && textEl.textTransform !== 'none') {
+          switch (textEl.textTransform) {
+            case 'uppercase':
+              displayText = textEl.text.toUpperCase();
+              break;
+            case 'lowercase':
+              displayText = textEl.text.toLowerCase();
+              break;
+            case 'capitalize':
+              displayText = textEl.text.replace(/\b\w/g, l => l.toUpperCase());
+              break;
+          }
+        }
+
+        // Handle multi-line text rendering
+        if (textEl.maxWidth && textEl.lineBreak) {
+          const lines = get().wrapText(ctx, displayText, textEl.maxWidth);
+          const lineHeight = (textEl.lineHeight || 1.2) * textEl.fontSize;
+          
+          lines.forEach((line, index) => {
+            const y = textEl.y + (index * lineHeight);
+            
+            // Apply text effects for each line
+            if (textEl.effects) {
+              import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
+                TextEffectsRenderer.applyEffects(ctx, line, textEl.x, y, textEl.effects!);
+              }).catch(() => {
+                ctx.fillText(line, textEl.x, y);
+              });
+            } else {
+              ctx.fillText(line, textEl.x, y);
+            }
+          });
+        } else {
+          // Single line text rendering
+          if (textEl.effects) {
+            import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
+              TextEffectsRenderer.applyEffects(ctx, displayText, textEl.x, textEl.y, textEl.effects!);
+            }).catch(() => {
+              ctx.fillText(displayText, textEl.x, textEl.y);
+            });
+          } else {
+            ctx.fillText(displayText, textEl.x, textEl.y);
+          }
+        }
+          
+          // Apply text decoration
+          if (textEl.textDecoration && textEl.textDecoration !== 'none') {
+            const metrics = ctx.measureText(textEl.text);
+            const decorationY = textEl.y + textEl.fontSize * 0.8; // Position decoration line
+            
+            ctx.strokeStyle = textEl.color;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            if (textEl.textDecoration === 'underline') {
+              ctx.moveTo(textEl.x, decorationY);
+              ctx.lineTo(textEl.x + metrics.width, decorationY);
+            } else if (textEl.textDecoration === 'line-through') {
+              const strikeY = textEl.y + textEl.fontSize * 0.5;
+              ctx.moveTo(textEl.x, strikeY);
+              ctx.lineTo(textEl.x + metrics.width, strikeY);
+            } else if (textEl.textDecoration === 'overline') {
+              const overlineY = textEl.y + textEl.fontSize * 0.2;
+              ctx.moveTo(textEl.x, overlineY);
+              ctx.lineTo(textEl.x + metrics.width, overlineY);
+            }
+            
+            ctx.stroke();
+          }
           
           ctx.restore();
         }
@@ -2128,6 +2236,31 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     // Missing auto-organize
     autoOrganizeLayers: () => {
       get().autoGroupLayers();
+    },
+    
+    // Helper method to wrap text to fit within maxWidth
+    wrapText: (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] => {
+      const words = text.split(' ');
+      const lines: string[] = [];
+      let currentLine = '';
+
+      for (const word of words) {
+        const testLine = currentLine + (currentLine ? ' ' : '') + word;
+        const metrics = ctx.measureText(testLine);
+        
+        if (metrics.width > maxWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      
+      return lines;
     }
   }))
 );
