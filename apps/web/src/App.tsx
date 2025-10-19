@@ -41,7 +41,7 @@ import { Project as AdvProject, Layer as AdvLayer, createDefaultStyles, createDe
 import { history } from './utils/history';
 
 // Import new domain stores for state management
-import { useModelStore, useToolStore, useLayerStore, useProjectStore } from './stores/domainStores';
+import { useModelStore, useToolStore, useProjectStore } from './stores/domainStores';
 
 const cloneProject = (proj: AdvProject | null): AdvProject | null => {
   if (!proj) return null;

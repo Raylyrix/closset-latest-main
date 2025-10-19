@@ -418,72 +418,8 @@ interface LayerState {
   redo: () => void;
 }
 
-export const useLayerStore = create<LayerState>()(
-  subscribeWithSelector((set, get) => ({
-    // Initial state
-    layers: [],
-    activeLayerId: '',
-    layerOrder: [],
-    composedCanvas: null,
-    layerCanvases: new Map(),
-    activeEffects: [],
-    layerEffects: new Map(),
-    history: [],
-    historyIndex: -1,
-
-    // Actions
-    addLayer: (layer) =>
-      set((state) => ({
-        layers: [...state.layers, layer],
-        layerOrder: [...state.layerOrder, layer.id]
-      })),
-
-    removeLayer: (id) =>
-      set((state) => ({
-        layers: state.layers.filter(l => l.id !== id),
-        layerOrder: state.layerOrder.filter(lid => lid !== id),
-        layerCanvases: new Map([...state.layerCanvases].filter(([key]) => key !== id))
-      })),
-
-    setActiveLayer: (id) => set({ activeLayerId: id }),
-
-    updateLayer: (id, updates) =>
-      set((state) => ({
-        layers: state.layers.map(layer =>
-          layer.id === id ? { ...layer, ...updates } : layer
-        )
-      })),
-
-    reorderLayers: (newOrder) => set({ layerOrder: newOrder }),
-
-    composeLayers: () => {
-      // TODO: Implement layer composition
-      console.log('Composing layers...');
-    },
-
-    undo: () => {
-      const state = get();
-      if (state.historyIndex > 0) {
-        const previousState = state.history[state.historyIndex - 1];
-        set({
-          ...previousState,
-          historyIndex: state.historyIndex - 1
-        });
-      }
-    },
-
-    redo: () => {
-      const state = get();
-      if (state.historyIndex < state.history.length - 1) {
-        const nextState = state.history[state.historyIndex + 1];
-        set({
-          ...nextState,
-          historyIndex: state.historyIndex + 1
-        });
-      }
-    }
-  }))
-);
+// ✅ REMOVED: useLayerStore - conflicting with AdvancedLayerSystemV2
+// All layer operations now handled by useAdvancedLayerStoreV2
 
 // ============================================================================
 // PROJECT STORE - Save/Load, Assets, Metadata
@@ -589,8 +525,5 @@ export const useModelData = () => useModelStore(state => ({
   modelPosition: state.modelPosition,
   modelRotation: state.modelRotation
 }));
-export const useLayerData = () => useLayerStore(state => ({
-  layers: state.layers,
-  activeLayerId: state.activeLayerId,
-  composedCanvas: state.composedCanvas
-}));
+// ✅ REMOVED: useLayerData - conflicting with AdvancedLayerSystemV2
+// Use useAdvancedLayerStoreV2 directly instead
