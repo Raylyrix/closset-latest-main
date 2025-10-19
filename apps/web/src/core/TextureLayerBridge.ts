@@ -11,7 +11,7 @@
 import { useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../App';
-import { TextureLayer } from './TextureLayerManager';
+// import { TextureLayer } from './TextureLayerManager'; // REMOVED: File doesn't exist
 
 // ============================================================================
 // TEXTURE LAYER BRIDGE CLASS
@@ -19,7 +19,7 @@ import { TextureLayer } from './TextureLayerManager';
 
 export class TextureLayerBridge {
   private static instance: TextureLayerBridge;
-  private layers: Map<string, TextureLayer> = new Map();
+  private layers: Map<string, any> = new Map(); // FIXED: TextureLayer type not available
   private layerOrder: string[] = [];
   private modelScene: THREE.Group | null = null;
   private composedCanvas: HTMLCanvasElement | null = null;

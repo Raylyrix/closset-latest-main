@@ -2198,7 +2198,7 @@ export function Shirt() {
     
     if (isAlt) {
       const angle = Math.atan2((e as any).movementY||0, (e as any).movementX||1);
-      (useApp.getState() as any).updateTextElement(activeTextId, { rotation: textEl.rotation + angle });
+      (useApp.getState() as any).updateTextElement(activeTextId, { rotation: (textEl.rotation || 0) + angle }); // FIXED: rotation might be undefined
     } else if (isShift) {
       const delta = ((e as any).movementX || 0) * 2;
       const newSize = Math.max(8, Math.min(256, textEl.fontSize + delta));

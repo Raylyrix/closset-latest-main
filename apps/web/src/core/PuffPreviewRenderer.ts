@@ -44,15 +44,15 @@ export class PuffPreviewRenderer {
   private settings: PreviewSettings;
   
   // Three.js objects
-  private scene: THREE.Scene;
-  private camera: THREE.PerspectiveCamera;
-  private renderer: THREE.WebGLRenderer;
+  private scene!: THREE.Scene; // FIXED: Add definite assignment assertion
+  private camera!: THREE.PerspectiveCamera; // FIXED: Add definite assignment assertion
+  private renderer!: THREE.WebGLRenderer; // FIXED: Add definite assignment assertion
   private controls: any; // OrbitControls
   
   // Lighting
-  private ambientLight: THREE.AmbientLight;
-  private directionalLight: THREE.DirectionalLight;
-  private pointLights: THREE.PointLight[];
+  private ambientLight!: THREE.AmbientLight; // FIXED: Add definite assignment assertion
+  private directionalLight!: THREE.DirectionalLight; // FIXED: Add definite assignment assertion
+  private pointLights!: THREE.PointLight[]; // FIXED: Add definite assignment assertion
   
   // Materials
   private originalMaterials: Map<string, THREE.Material | THREE.Material[]> = new Map();
@@ -73,7 +73,7 @@ export class PuffPreviewRenderer {
   private lastFpsUpdate: number = 0;
   
   // Rendering optimization
-  private renderTarget: THREE.WebGLRenderTarget;
+  private renderTarget!: THREE.WebGLRenderTarget; // FIXED: Add definite assignment assertion
   private needsUpdate: boolean = true;
   private updateThrottle: number = 16; // 60fps max
   
@@ -186,7 +186,7 @@ export class PuffPreviewRenderer {
         this.originalMaterials.set(child.uuid, child.material);
         
         // Create preview materials
-        const previewMaterials = materials.map(mat => {
+        const previewMaterials = materials.map((mat: any) => { // FIXED: Parameter type
           if (mat.isMeshStandardMaterial) {
             const previewMat = mat.clone();
             previewMat.wireframe = this.settings.showWireframe;

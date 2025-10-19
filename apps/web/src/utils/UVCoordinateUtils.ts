@@ -226,7 +226,7 @@ export function debounce<T extends (...args: any[]) => any>(
   let timeoutId: NodeJS.Timeout;
   
   return function(this: any, ...args: Parameters<T>): void {
-    clearTimeout(timeoutId);
+    clearTimeout(timeoutId as any); // FIXED: Type mismatch
     timeoutId = setTimeout(() => func.apply(this, args), delay);
   };
 }

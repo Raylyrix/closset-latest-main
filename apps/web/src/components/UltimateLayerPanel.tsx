@@ -467,7 +467,7 @@ export function UltimateLayerPanel() {
                   )}
                   
                   {/* Tags */}
-                  {layer.tags.map(tag => (
+                  {layer.tags.map((tag: any) => ( // FIXED: Parameter type
                     <span key={tag} style={{
                       padding: '2px 4px',
                       background: 'rgba(59, 130, 246, 0.3)',
@@ -896,7 +896,7 @@ export function UltimateLayerPanel() {
                    maxHeight: '60px',
                    overflowY: 'auto'
                  }}>
-                   {getAvailableSurfaces().slice(0, 6).map(surface => (
+                    {getAvailableSurfaces().slice(0, 6).map((surface: any) => ( // FIXED: Parameter type
                      <div key={surface} style={{ marginBottom: '2px' }}>
                        • {surface}
                      </div>
@@ -936,7 +936,7 @@ export function UltimateLayerPanel() {
                      maxHeight: '40px',
                      overflowY: 'auto'
                    }}>
-                     {layer.geometryTargeting.targets.map((target, index) => (
+                      {layer.geometryTargeting.targets.map((target: any, index: any) => ( // FIXED: Parameter types
                        <div key={index} style={{ 
                          marginBottom: '2px',
                          display: 'flex',

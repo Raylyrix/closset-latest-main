@@ -393,7 +393,7 @@ export function useToolLayerManager() {
       const bridge = (window as any).unifiedLayerBridge;
       if (bridge) {
         // Pass the store functions, not the state
-        managerRef.current.initialize(useApp, useAdvancedLayerStore, bridge);
+        managerRef.current.initialize(useApp, useAdvancedLayerStoreV2, bridge); // FIXED: useAdvancedLayerStore doesn't exist
       } else {
         console.warn('🛠️ UnifiedLayerBridge not found, tool layer manager will initialize later');
       }

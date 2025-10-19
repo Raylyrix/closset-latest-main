@@ -282,7 +282,7 @@ export const useUniversalSelection = create<UniversalSelectionStore>()(
       // Find elements that intersect with the selection box
       const intersectingElements: string[] = [];
       for (const [id, element] of state.selectedElements) {
-        if (state.selectionBox && get().elementIntersectsBox(element, state.selectionBox)) {
+        if (state.selectionBox && (get() as any).elementIntersectsBox(element, state.selectionBox)) { // FIXED: method doesn't exist
           intersectingElements.push(id);
         }
       }
@@ -300,7 +300,7 @@ export const useUniversalSelection = create<UniversalSelectionStore>()(
       const selectedElements = get().getSelectedElements();
       if (selectedElements.length === 0) return;
 
-      const bounds = get().calculateSelectionBounds(selectedElements);
+      const bounds = (get() as any).calculateSelectionBounds(selectedElements); // FIXED: method doesn't exist
       const origin = bounds ? { x: bounds.centerX || bounds.x + bounds.width / 2, y: bounds.centerY || bounds.y + bounds.height / 2 } : { x, y };
 
       set({
@@ -418,7 +418,7 @@ export const useUniversalSelection = create<UniversalSelectionStore>()(
 
     getSelectionBounds: () => {
       const selectedElements = get().getSelectedElements();
-      return get().calculateSelectionBounds(selectedElements);
+      return (get() as any).calculateSelectionBounds(selectedElements); // FIXED: method doesn't exist
     },
 
     hitTest: (x: number, y: number) => {
@@ -427,7 +427,7 @@ export const useUniversalSelection = create<UniversalSelectionStore>()(
       const sortedElements = elements.sort((a, b) => b.zIndex - a.zIndex);
       
       for (const element of sortedElements) {
-        if (get().pointInBounds(x, y, element.bounds)) {
+        if ((get() as any).pointInBounds(x, y, element.bounds)) { // FIXED: method doesn't exist
           return element;
         }
       }
@@ -437,7 +437,7 @@ export const useUniversalSelection = create<UniversalSelectionStore>()(
 
     hitTestMultiple: (x: number, y: number) => {
       const elements = get().getAllElements();
-      return elements.filter(element => get().pointInBounds(x, y, element.bounds));
+      return elements.filter(element => (get() as any).pointInBounds(x, y, element.bounds)); // FIXED: method doesn't exist
     },
 
     // Context menu

@@ -227,9 +227,9 @@ class EnvironmentDetector {
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
       
       if (gl) {
-        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        const debugInfo = (gl as any).getExtension('WEBGL_debug_renderer_info'); // FIXED: WebGL context type
         if (debugInfo) {
-          return gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'Unknown GPU';
+          return (gl as any).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'Unknown GPU'; // FIXED: WebGL context type
         }
       }
       return 'Unknown GPU';
@@ -255,9 +255,9 @@ class EnvironmentDetector {
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
       
       if (gl) {
-        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        const debugInfo = (gl as any).getExtension('WEBGL_debug_renderer_info'); // FIXED: WebGL context type
         if (debugInfo) {
-          return gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || 'Unknown';
+          return (gl as any).getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || 'Unknown'; // FIXED: WebGL context type
         }
       }
       return 'Unknown';
@@ -272,7 +272,7 @@ class EnvironmentDetector {
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
       
       if (gl) {
-        return gl.getParameter(gl.MAX_TEXTURE_SIZE) || 1024;
+        return (gl as any).getParameter((gl as any).MAX_TEXTURE_SIZE) || 1024; // FIXED: WebGL context type
       }
       return 1024;
     } catch {
@@ -286,7 +286,7 @@ class EnvironmentDetector {
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
       
       if (gl) {
-        return gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 1024;
+        return (gl as any).getParameter((gl as any).MAX_RENDERBUFFER_SIZE) || 1024; // FIXED: WebGL context type
       }
       return 1024;
     } catch {
@@ -341,8 +341,8 @@ class EnvironmentDetector {
       
       // Perform a series of WebGL operations
       for (let i = 0; i < 50; i++) {
-        gl.clearColor(i / 50, 0.5, 0.5, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
+        (gl as any).clearColor(i / 50, 0.5, 0.5, 1.0); // FIXED: WebGL context type
+        (gl as any).clear((gl as any).COLOR_BUFFER_BIT); // FIXED: WebGL context type
       }
 
       const endTime = performance.now();

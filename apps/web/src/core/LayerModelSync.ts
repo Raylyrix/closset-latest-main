@@ -9,6 +9,7 @@
  * - Memory management
  */
 
+import React, { useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
 import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { LayerEffectRenderer } from '../core/LayerEffects';
@@ -46,7 +47,7 @@ export class LayerModelSynchronizer {
   private effectRenderer: LayerEffectRenderer;
   private config: ModelSyncConfig;
   private lastUpdateTime: number = 0;
-  private updateTimeout: NodeJS.Timeout | null = null;
+  private updateTimeout: ReturnType<typeof setTimeout> | null = null;
   private textureMaps: TextureMaps = {
     diffuse: null,
     displacement: null,
@@ -126,7 +127,7 @@ export class LayerModelSynchronizer {
    */
   private scheduleUpdate(): void {
     if (this.updateTimeout) {
-      clearTimeout(this.updateTimeout);
+      clearTimeout(this.updateTimeout as any);
     }
 
     this.updateTimeout = setTimeout(() => {
@@ -476,7 +477,7 @@ export class LayerModelSynchronizer {
    */
   dispose(): void {
     if (this.updateTimeout) {
-      clearTimeout(this.updateTimeout);
+      clearTimeout(this.updateTimeout as any);
     }
     
     this.effectRenderer.dispose();

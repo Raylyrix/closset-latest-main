@@ -266,6 +266,7 @@ export const useToolStore = create<ToolState>()(
     previousTool: 'select',
 
     brushSettings: {
+      color: '#000000', // FIXED: Missing color property
       size: 50,
       opacity: 1,
       hardness: 0.5,

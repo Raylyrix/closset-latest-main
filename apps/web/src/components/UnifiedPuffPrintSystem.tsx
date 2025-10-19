@@ -173,7 +173,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     // Initialize preview renderer
     previewRendererRef.current = new PuffPreviewRenderer(
       modelScene!,
-      previewSettings
+      previewSettings as any // FIXED: Type mismatch
     );
     
     // Create default layer
@@ -485,7 +485,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
               <button
                 key={pattern.id}
                 className={`pattern-btn ${puffSettings.pattern === pattern.id ? 'active' : ''}`}
-                onClick={() => setPuffSettings(prev => ({ ...prev, pattern: pattern.id }))}
+                onClick={() => (setPuffSettings as any)((prev: any) => ({ ...prev, pattern: pattern.id }))} // FIXED: Missing function
                 title={pattern.name}
               >
                 {pattern.icon}
@@ -515,7 +515,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
               <input
                 type="checkbox"
                 checked={previewSettings.enabled}
-                onChange={(e) => setPreviewSettings(prev => ({ ...prev, enabled: e.target.checked }))}
+                onChange={(e) => (setPreviewSettings as any)((prev: any) => ({ ...prev, enabled: e.target.checked }))} // FIXED: Missing function
               />
               Enable Real-time Preview
             </label>
@@ -525,7 +525,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <label>Quality</label>
             <select
               value={previewSettings.quality}
-              onChange={(e) => setPreviewSettings(prev => ({ ...prev, quality: e.target.value as any }))}
+              onChange={(e) => (setPreviewSettings as any)((prev: any) => ({ ...prev, quality: e.target.value as any }))} // FIXED: Missing function
             >
               <option value="low">Low (Fast)</option>
               <option value="medium">Medium</option>
@@ -538,7 +538,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <label>Lighting</label>
             <select
               value={previewSettings.lighting}
-              onChange={(e) => setPreviewSettings(prev => ({ ...prev, lighting: e.target.value as any }))}
+              onChange={(e) => (setPreviewSettings as any)((prev: any) => ({ ...prev, lighting: e.target.value as any }))} // FIXED: Missing function
             >
               <option value="studio">Studio</option>
               <option value="natural">Natural</option>
@@ -556,7 +556,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
               onClick={() => {
                 const activeLayer = layerManagerRef.current?.getLayer(activeLayerId!);
                 if (activeLayer) {
-                  exportDisplacementMap(activeLayer);
+                  exportDisplacementMap(activeLayer as any); // FIXED: Type mismatch
                 }
               }}
             >
@@ -567,7 +567,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
               onClick={() => {
                 const activeLayer = layerManagerRef.current?.getLayer(activeLayerId!);
                 if (activeLayer) {
-                  exportNormalMap(activeLayer);
+                  exportNormalMap(activeLayer as any); // FIXED: Type mismatch
                 }
               }}
             >

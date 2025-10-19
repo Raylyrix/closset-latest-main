@@ -1650,5 +1650,5 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
   }))
 );
 
-// Export types
-export type { LayerHistorySnapshot, LayerHistoryState, AdvancedLayer, LayerGroup, LayerEffect, LayerMask, LayerTransform, LayerContent, BrushStroke, TextElement };
+// Export types - REMOVED: Conflicts with existing exports above
+// export type { LayerHistorySnapshot, LayerHistoryState, AdvancedLayer, LayerGroup, LayerEffect, LayerMask, LayerTransform, LayerContent, BrushStroke, TextElement };

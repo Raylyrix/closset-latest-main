@@ -78,7 +78,7 @@ export class LayerSystemHealthCheck {
    */
   stopMonitoring(): void {
     if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
+      clearInterval(this.healthCheckInterval as any); // FIXED: Type mismatch
       this.healthCheckInterval = null;
       console.log('🛑 Stopped layer system health monitoring');
     }
@@ -146,7 +146,7 @@ export class LayerSystemHealthCheck {
           layerVisibility: false,
           textureUpdates: false,
           layerComposition: false,
-          errors: [`Health check failed: ${error.message}`],
+          errors: [`Health check failed: ${String(error)}`], // FIXED: Error type
           warnings: [],
           performance: { layerCreationTime: 0, opacityChangeTime: 0, textureUpdateTime: 0 }
         },

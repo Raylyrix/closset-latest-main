@@ -61,9 +61,9 @@ interface PerformanceMetrics {
 class UnifiedPerformanceManager {
   private static instance: UnifiedPerformanceManager;
   
-  private deviceCapabilities: DeviceCapabilities;
+  private deviceCapabilities!: DeviceCapabilities; // FIXED: Add definite assignment assertion
   private currentPreset: string = 'auto';
-  private performanceMetrics: PerformanceMetrics;
+  private performanceMetrics!: PerformanceMetrics; // FIXED: Add definite assignment assertion
   private performanceHistory: PerformanceMetrics[] = [];
   private presets: Map<string, PerformancePreset> = new Map();
   
@@ -522,5 +522,5 @@ class UnifiedPerformanceManager {
 }
 
 // Export singleton instance
-export const unifiedPerformanceManager = new UnifiedPerformanceManager();
+export const unifiedPerformanceManager = UnifiedPerformanceManager.getInstance(); // FIXED: Private constructor
 export default unifiedPerformanceManager;

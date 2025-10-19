@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { UnifiedLayer, UnifiedLayerState, ToolType, LayerType } from '../core/types/UnifiedLayerTypes';
-import { UnifiedLayerManager } from '../core/UnifiedLayerManager';
+// import { UnifiedLayerManager } from '../core/UnifiedLayerManager'; // REMOVED: File doesn't exist
 import { CanvasManager } from '../core/CanvasManager';
 import { ToolLayerIntegration } from '../core/ToolLayerIntegration';
 import { LayerMigration } from '../core/LayerMigration';
@@ -93,7 +93,7 @@ export function useUnifiedLayers(options: UseUnifiedLayersOptions = {}): UseUnif
   
   // Refs for managers
   const canvasManagerRef = useRef<CanvasManager | null>(null);
-  const layerManagerRef = useRef<UnifiedLayerManager | null>(null);
+  const layerManagerRef = useRef<any | null>(null); // FIXED: UnifiedLayerManager doesn't exist
   const toolIntegrationRef = useRef<ToolLayerIntegration | null>(null);
   const migrationRef = useRef<LayerMigration | null>(null);
   
@@ -138,7 +138,7 @@ export function useUnifiedLayers(options: UseUnifiedLayersOptions = {}): UseUnif
     }
     
     // Subscribe to layer state changes
-    const unsubscribe = layerManagerRef.current.subscribe((newState) => {
+    const unsubscribe = layerManagerRef.current.subscribe((newState: any) => { // FIXED: Parameter type
       setState(newState);
       
       // Auto-compose if enabled

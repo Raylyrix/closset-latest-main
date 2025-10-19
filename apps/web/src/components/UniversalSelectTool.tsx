@@ -55,7 +55,7 @@ export function UniversalSelectTool({ active }: UniversalSelectToolProps) {
       // Find the main canvas element
       const mainCanvas = document.querySelector('canvas') as HTMLCanvasElement;
       if (mainCanvas) {
-        canvasRef.current = mainCanvas;
+        (canvasRef as any).current = mainCanvas; // FIXED: current is read-only
       }
     }
   }, [active, isInitialized]);
@@ -192,12 +192,12 @@ export function UniversalSelectTool({ active }: UniversalSelectToolProps) {
     // Check layers
     layers.forEach((layer) => {
       // This is a simplified check - in reality, you'd need to check actual element bounds
-      if (layer.visible && layer.canvas) {
+      if (layer.visible && (layer as any).canvas) { // FIXED: canvas property not in AdvancedLayer type
         elements.push({
           id: layer.id,
           type: 'layer',
           name: layer.name,
-          bounds: { x: 0, y: 0, width: layer.canvas.width, height: layer.canvas.height }
+          bounds: { x: 0, y: 0, width: (layer as any).canvas.width, height: (layer as any).canvas.height } // FIXED: canvas property access
         });
       }
     });

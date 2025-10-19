@@ -435,7 +435,7 @@ export class PuffMemoryManager {
   // Cleanup all resources
   public cleanup(): void {
     if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
+      clearInterval(this.cleanupTimer as any); // FIXED: Type mismatch
       this.cleanupTimer = null;
     }
     

@@ -71,12 +71,12 @@ export class PuffLayerManager {
   private memoryManager: PuffMemoryManager;
   
   // Composition canvases
-  private composedDisplacementCanvas: HTMLCanvasElement;
-  private composedNormalCanvas: HTMLCanvasElement;
-  private composedHeightCanvas: HTMLCanvasElement;
-  private composedDisplacementCtx: CanvasRenderingContext2D;
-  private composedNormalCtx: CanvasRenderingContext2D;
-  private composedHeightCtx: CanvasRenderingContext2D;
+  private composedDisplacementCanvas!: HTMLCanvasElement; // FIXED: Add definite assignment assertion
+  private composedNormalCanvas!: HTMLCanvasElement; // FIXED: Add definite assignment assertion
+  private composedHeightCanvas!: HTMLCanvasElement; // FIXED: Add definite assignment assertion
+  private composedDisplacementCtx!: CanvasRenderingContext2D; // FIXED: Add definite assignment assertion
+  private composedNormalCtx!: CanvasRenderingContext2D; // FIXED: Add definite assignment assertion
+  private composedHeightCtx!: CanvasRenderingContext2D; // FIXED: Add definite assignment assertion
   
   // History management
   private history: LayerHistory[] = [];

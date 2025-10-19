@@ -46,17 +46,17 @@ export class PuffDisplacementEngine {
   private memoryManager: PuffMemoryManager;
   
   // Canvas contexts
-  private displacementCanvas: HTMLCanvasElement;
-  private normalCanvas: HTMLCanvasElement;
-  private heightCanvas: HTMLCanvasElement;
-  private displacementCtx: CanvasRenderingContext2D;
-  private normalCtx: CanvasRenderingContext2D;
-  private heightCtx: CanvasRenderingContext2D;
+  private displacementCanvas!: HTMLCanvasElement; // FIXED: Add definite assignment assertion
+  private normalCanvas!: HTMLCanvasElement; // FIXED: Add definite assignment assertion
+  private heightCanvas!: HTMLCanvasElement; // FIXED: Add definite assignment assertion
+  private displacementCtx!: CanvasRenderingContext2D; // FIXED: Add definite assignment assertion
+  private normalCtx!: CanvasRenderingContext2D; // FIXED: Add definite assignment assertion
+  private heightCtx!: CanvasRenderingContext2D; // FIXED: Add definite assignment assertion
   
   // Three.js textures
-  private displacementTexture: THREE.CanvasTexture;
-  private normalTexture: THREE.CanvasTexture;
-  private heightTexture: THREE.CanvasTexture;
+  private displacementTexture!: THREE.CanvasTexture; // FIXED: Add definite assignment assertion
+  private normalTexture!: THREE.CanvasTexture; // FIXED: Add definite assignment assertion
+  private heightTexture!: THREE.CanvasTexture; // FIXED: Add definite assignment assertion
   
   // Performance tracking
   private lastUpdateTime: number = 0;

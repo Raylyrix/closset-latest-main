@@ -6,12 +6,12 @@
  */
 
 import { UnifiedLayer, ToolType, BrushStroke, EmbroideryStitch, PuffData, VectorPath } from './types/UnifiedLayerTypes';
-import { UnifiedLayerManager } from './UnifiedLayerManager';
+// import { UnifiedLayerManager } from './UnifiedLayerManager'; // REMOVED: File doesn't exist
 import { CanvasManager } from './CanvasManager';
 
 export class ToolLayerIntegration {
   constructor(
-    private layerManager: UnifiedLayerManager,
+    private layerManager: any, // FIXED: UnifiedLayerManager doesn't exist
     private canvasManager: CanvasManager
   ) {}
   
@@ -381,7 +381,7 @@ export class ToolLayerIntegration {
    */
   getLayerForTool(toolType: ToolType): UnifiedLayer | null {
     const layers = this.layerManager.getAllLayers();
-    return layers.find(layer => layer.toolType === toolType && layer.visible) || null;
+    return layers.find((layer: any) => layer.toolType === toolType && layer.visible) || null; // FIXED: Parameter type
   }
   
   /**

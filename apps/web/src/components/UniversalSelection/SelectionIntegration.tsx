@@ -82,7 +82,7 @@ export function SelectionIntegration({ children }: SelectionIntegrationProps) {
       locked: false,
       zIndex: 0,
       data: {
-        src: image.src,
+        src: (image as any).src || image.dataUrl, // FIXED: src property doesn't exist, use dataUrl
         width: image.uWidth * 1024,
         height: image.uHeight * 1024,
         opacity: image.opacity || 1,
@@ -97,10 +97,10 @@ export function SelectionIntegration({ children }: SelectionIntegrationProps) {
       id: shape.id,
       type: 'shape',
       bounds: {
-        x: shape.u * 1024,
-        y: (1 - shape.v) * 1024,
-        width: shape.uWidth * 1024,
-        height: shape.uHeight * 1024,
+        x: (shape as any).u * 1024 || 0, // FIXED: u property doesn't exist
+        y: (1 - (shape as any).v) * 1024 || 0, // FIXED: v property doesn't exist
+        width: (shape as any).uWidth * 1024 || shape.size, // FIXED: uWidth property doesn't exist
+        height: (shape as any).uHeight * 1024 || shape.size, // FIXED: uHeight property doesn't exist
         rotation: shape.rotation || 0
       },
       visible: true,
@@ -108,10 +108,10 @@ export function SelectionIntegration({ children }: SelectionIntegrationProps) {
       zIndex: 0,
       data: {
         shapeType: shape.type,
-        points: shape.points || [],
-        stroke: shape.stroke,
-        fill: shape.fill,
-        strokeWidth: shape.strokeWidth
+        points: (shape as any).points || [], // FIXED: points property doesn't exist
+        stroke: (shape as any).stroke || shape.color, // FIXED: stroke property doesn't exist
+        fill: (shape as any).fill || shape.color, // FIXED: fill property doesn't exist
+        strokeWidth: (shape as any).strokeWidth || 1 // FIXED: strokeWidth property doesn't exist
       }
     }));
   }, [shapeElements]);

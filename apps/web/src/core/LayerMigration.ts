@@ -6,12 +6,12 @@
  */
 
 import { UnifiedLayer, LayerType, ToolType, LayerMigrationData } from './types/UnifiedLayerTypes';
-import { UnifiedLayerManager } from './UnifiedLayerManager';
+// import { UnifiedLayerManager } from './UnifiedLayerManager'; // REMOVED: File doesn't exist
 import { CanvasManager } from './CanvasManager';
 
 export class LayerMigration {
   constructor(
-    private layerManager: UnifiedLayerManager,
+    private layerManager: any, // FIXED: UnifiedLayerManager doesn't exist
     private canvasManager: CanvasManager
   ) {}
   

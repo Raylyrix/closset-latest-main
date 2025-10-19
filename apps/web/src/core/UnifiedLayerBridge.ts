@@ -118,7 +118,7 @@ export class UnifiedLayerBridge {
 
     // Update layer properties in main app
     for (const [layerId, advancedLayer] of advancedLayers) {
-      const appLayer = appLayers.find(l => l.id === layerId);
+      const appLayer = appLayers.find((l: any) => l.id === layerId); // FIXED: Parameter type
       if (appLayer) {
         // Update layer properties
         updateLayer(layerId, {
@@ -156,7 +156,7 @@ export class UnifiedLayerBridge {
       
       // Update app layer order to match advanced order
       advancedOrder.forEach((layerId, index) => {
-        const appLayer = appLayers.find(l => l.id === layerId);
+        const appLayer = appLayers.find((l: any) => l.id === layerId); // FIXED: Parameter type
         if (appLayer && appLayer.order !== index) {
           // Move layer to correct position
           this.moveLayerToPosition(layerId, index, appLayers);
@@ -231,7 +231,7 @@ export class UnifiedLayerBridge {
       case 'top':
         // Move to top by moving up multiple times
         const { layers } = this.appStore.getState();
-        const layerIndex = layers.findIndex(l => l.id === layerId);
+        const layerIndex = layers.findIndex((l: any) => l.id === layerId); // FIXED: Parameter type
         for (let i = layerIndex; i > 0; i--) {
           moveLayerUp(layerId);
         }
@@ -239,7 +239,7 @@ export class UnifiedLayerBridge {
       case 'bottom':
         // Move to bottom by moving down multiple times
         const { layers: layersBottom } = this.appStore.getState();
-        const layerIndexBottom = layersBottom.findIndex(l => l.id === layerId);
+        const layerIndexBottom = layersBottom.findIndex((l: any) => l.id === layerId); // FIXED: Parameter type
         for (let i = layerIndexBottom; i < layersBottom.length - 1; i++) {
           moveLayerDown(layerId);
         }
@@ -430,7 +430,7 @@ export function useUnifiedLayerBridge() {
     if (!bridgeRef.current) {
       bridgeRef.current = UnifiedLayerBridge.getInstance();
       // Pass the store functions, not the state
-      bridgeRef.current.initialize(useApp, useAdvancedLayerStore);
+      bridgeRef.current.initialize(useApp, useAdvancedLayerStoreV2); // FIXED: useAdvancedLayerStore doesn't exist
     }
 
     return () => {
