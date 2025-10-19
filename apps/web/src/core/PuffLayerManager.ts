@@ -650,20 +650,65 @@ export class PuffLayerManager {
   
   // Cleanup resources
   public cleanup(): void {
+    console.log('🧹 PuffLayerManager cleanup started');
+    
+    // Cleanup all layer canvases
     this.layers.forEach(layer => {
-      this.memoryManager.releaseCanvas(layer.canvas);
-      this.memoryManager.releaseCanvas(layer.displacementCanvas);
-      this.memoryManager.releaseCanvas(layer.normalCanvas);
-      this.memoryManager.releaseCanvas(layer.heightCanvas);
+      if (layer.canvas) {
+        this.memoryManager.releaseCanvas(layer.canvas);
+      }
+      if (layer.displacementCanvas) {
+        this.memoryManager.releaseCanvas(layer.displacementCanvas);
+      }
+      if (layer.normalCanvas) {
+        this.memoryManager.releaseCanvas(layer.normalCanvas);
+      }
+      if (layer.heightCanvas) {
+        this.memoryManager.releaseCanvas(layer.heightCanvas);
+      }
     });
     
-    this.memoryManager.releaseCanvas(this.composedDisplacementCanvas);
-    this.memoryManager.releaseCanvas(this.composedNormalCanvas);
-    this.memoryManager.releaseCanvas(this.composedHeightCanvas);
+    // Cleanup composition canvases
+    if (this.composedDisplacementCanvas) {
+      this.memoryManager.releaseCanvas(this.composedDisplacementCanvas);
+    }
+    if (this.composedNormalCanvas) {
+      this.memoryManager.releaseCanvas(this.composedNormalCanvas);
+    }
+    if (this.composedHeightCanvas) {
+      this.memoryManager.releaseCanvas(this.composedHeightCanvas);
+    }
     
-    this.memoryManager.cleanup();
+    // Clear canvas contexts
+    if (this.composedDisplacementCtx) {
+      this.composedDisplacementCtx.clearRect(0, 0, this.composedDisplacementCanvas.width, this.composedDisplacementCanvas.height);
+    }
+    if (this.composedNormalCtx) {
+      this.composedNormalCtx.clearRect(0, 0, this.composedNormalCanvas.width, this.composedNormalCanvas.height);
+    }
+    if (this.composedHeightCtx) {
+      this.composedHeightCtx.clearRect(0, 0, this.composedHeightCanvas.width, this.composedHeightCanvas.height);
+    }
     
-    console.log('📁 PuffLayerManager cleaned up');
+    // Clear references
+    this.composedDisplacementCanvas = null as any;
+    this.composedNormalCanvas = null as any;
+    this.composedHeightCanvas = null as any;
+    this.composedDisplacementCtx = null as any;
+    this.composedNormalCtx = null as any;
+    this.composedHeightCtx = null as any;
+    
+    // Cleanup memory manager
+    if (this.memoryManager) {
+      this.memoryManager.cleanup();
+    }
+    
+    // Clear layers
+    this.layers.clear();
+    this.layerOrder.length = 0;
+    this.history.length = 0;
+    
+    console.log('🧹 PuffLayerManager cleanup completed');
   }
 }
 

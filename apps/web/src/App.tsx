@@ -3505,11 +3505,37 @@ export function App() {
   // PERFORMANCE FIX: Removed redundant auto-save triggers to prevent excessive saving
   // Auto-save is now handled by the main debounced effect above
 
+  // Global cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      console.log('🧹 App component unmounting - triggering cleanup...');
+      
+      // Trigger memory cleanup
+      if ((window as any).unifiedPerformanceManager) {
+        (window as any).unifiedPerformanceManager.triggerMemoryCleanup();
+      }
+      
+      // Clear any pending timeouts/intervals
+      const highestTimeoutId = setTimeout(() => {}, 0);
+      for (let i = 0; i < highestTimeoutId; i++) {
+        clearTimeout(i);
+      }
+      
+      console.log('🧹 App cleanup completed');
+    };
+  }, []);
+
   // Save state before page unload
   useEffect(() => {
     const handleBeforeUnload = async () => {
       console.log('💾 Saving project state before page unload...');
       await useApp.getState().saveProjectState();
+      
+      // Trigger memory cleanup before unload
+      console.log('🧹 Triggering memory cleanup before unload...');
+      if ((window as any).unifiedPerformanceManager) {
+        (window as any).unifiedPerformanceManager.triggerMemoryCleanup();
+      }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);

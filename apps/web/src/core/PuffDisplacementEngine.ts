@@ -570,13 +570,49 @@ export class PuffDisplacementEngine {
   
   // Cleanup resources
   public cleanup(): void {
-    this.displacementTexture.dispose();
-    this.normalTexture.dispose();
-    this.heightTexture.dispose();
+    console.log('🧹 PuffDisplacementEngine cleanup started');
     
-    this.memoryManager.releaseCanvas(this.displacementCanvas);
-    this.memoryManager.releaseCanvas(this.normalCanvas);
-    this.memoryManager.releaseCanvas(this.heightCanvas);
+    // Dispose Three.js textures
+    if (this.displacementTexture) {
+      this.displacementTexture.dispose();
+      this.displacementTexture = null as any;
+    }
+    if (this.normalTexture) {
+      this.normalTexture.dispose();
+      this.normalTexture = null as any;
+    }
+    if (this.heightTexture) {
+      this.heightTexture.dispose();
+      this.heightTexture = null as any;
+    }
+    
+    // Clear canvas contexts
+    if (this.displacementCtx) {
+      this.displacementCtx.clearRect(0, 0, this.displacementCanvas.width, this.displacementCanvas.height);
+    }
+    if (this.normalCtx) {
+      this.normalCtx.clearRect(0, 0, this.normalCanvas.width, this.normalCanvas.height);
+    }
+    if (this.heightCtx) {
+      this.heightCtx.clearRect(0, 0, this.heightCanvas.width, this.heightCanvas.height);
+    }
+    
+    // Release canvases to memory manager
+    if (this.memoryManager) {
+      this.memoryManager.releaseCanvas(this.displacementCanvas);
+      this.memoryManager.releaseCanvas(this.normalCanvas);
+      this.memoryManager.releaseCanvas(this.heightCanvas);
+    }
+    
+    // Clear references
+    this.displacementCanvas = null as any;
+    this.normalCanvas = null as any;
+    this.heightCanvas = null as any;
+    this.displacementCtx = null as any;
+    this.normalCtx = null as any;
+    this.heightCtx = null as any;
+    
+    console.log('🧹 PuffDisplacementEngine cleanup completed');
   }
 }
 

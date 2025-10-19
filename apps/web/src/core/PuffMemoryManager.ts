@@ -434,8 +434,11 @@ export class PuffMemoryManager {
   
   // Cleanup all resources
   public cleanup(): void {
+    console.log('🧹 PuffMemoryManager cleanup started');
+    
+    // Stop cleanup timer
     if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer as any); // FIXED: Type mismatch
+      clearInterval(this.cleanupTimer as any);
       this.cleanupTimer = null;
     }
     
@@ -458,7 +461,18 @@ export class PuffMemoryManager {
       pool.inUse.clear();
     });
     
-    console.log('🧠 PuffMemoryManager cleaned up');
+    // Clear pools
+    this.canvasPools.clear();
+    
+    // Clear memory history
+    this.memoryHistory.length = 0;
+    
+    // Force garbage collection if available
+    if ((window as any).gc) {
+      (window as any).gc();
+    }
+    
+    console.log('🧹 PuffMemoryManager cleanup completed');
   }
 }
 

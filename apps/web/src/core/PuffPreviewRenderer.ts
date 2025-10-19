@@ -491,11 +491,19 @@ export class PuffPreviewRenderer {
   
   // Cleanup resources
   public cleanup(): void {
+    console.log('🧹 PuffPreviewRenderer cleanup started');
+    
     // Dispose renderer
-    this.renderer.dispose();
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer = null as any;
+    }
     
     // Dispose render target
-    this.renderTarget.dispose();
+    if (this.renderTarget) {
+      this.renderTarget.dispose();
+      this.renderTarget = null as any;
+    }
     
     // Dispose materials
     this.previewMaterials.forEach(material => {
@@ -505,15 +513,33 @@ export class PuffPreviewRenderer {
         material.dispose();
       }
     });
+    this.previewMaterials.clear();
+    
+    // Dispose original materials
+    this.originalMaterials.forEach(material => {
+      if (Array.isArray(material)) {
+        material.forEach(mat => mat.dispose());
+      } else {
+        material.dispose();
+      }
+    });
+    this.originalMaterials.clear();
     
     // Dispose geometries
     this.modelScene.traverse((child: any) => {
-      if (child.isMesh) {
+      if (child.isMesh && child.geometry) {
         child.geometry.dispose();
       }
     });
     
-    console.log('👁️ PuffPreviewRenderer cleaned up');
+    // Clear references
+    this.scene = null as any;
+    this.camera = null as any;
+    this.ambientLight = null as any;
+    this.directionalLight = null as any;
+    this.pointLights = null as any;
+    
+    console.log('🧹 PuffPreviewRenderer cleanup completed');
   }
 }
 

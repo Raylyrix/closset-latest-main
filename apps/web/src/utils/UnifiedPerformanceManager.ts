@@ -513,6 +513,43 @@ class UnifiedPerformanceManager {
     console.log('🎛️ Auto-adjustment sensitivity set to:', this.autoAdjustment.sensitivity);
   }
   
+  // Memory monitoring and cleanup
+  public getMemoryUsage(): number {
+    if ('memory' in performance) {
+      const memory = (performance as any).memory;
+      return memory.usedJSHeapSize / memory.jsHeapSizeLimit;
+    }
+    return 0;
+  }
+  
+  public getMemoryInfo(): { used: number; total: number; limit: number } {
+    if ('memory' in performance) {
+      const memory = (performance as any).memory;
+      return {
+        used: memory.usedJSHeapSize,
+        total: memory.totalJSHeapSize,
+        limit: memory.jsHeapSizeLimit
+      };
+    }
+    return { used: 0, total: 0, limit: 0 };
+  }
+  
+  public triggerMemoryCleanup(): void {
+    console.log('🧹 Triggering memory cleanup...');
+    
+    // Force garbage collection if available
+    if ((window as any).gc) {
+      (window as any).gc();
+    }
+    
+    // Clear performance history if it's getting large
+    if (this.performanceHistory.length > 50) {
+      this.performanceHistory = this.performanceHistory.slice(-25);
+    }
+    
+    console.log('🧹 Memory cleanup completed');
+  }
+  
   public destroy(): void {
     if (this.monitoringInterval) {
       clearInterval(this.monitoringInterval);
