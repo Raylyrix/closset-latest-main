@@ -1566,10 +1566,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     // Get all text elements across all layers (for App.tsx compatibility)
-    getAllTextElements: () => {
+    getAllTextElements: (): TextElement[] => {
       // CRITICAL FIX: Always use the same store instance
       const store = useAdvancedLayerStoreV2.getState();
-      return store.layers.flatMap(layer => layer.content.textElements || []);
+      return store.layers.flatMap((layer: AdvancedLayer) => layer.content.textElements || []);
     },
     
     // Backward compatibility helpers for App.tsx
@@ -2132,8 +2132,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     autoOrganizeLayers: () => {
       get().autoGroupLayers();
     }
-  }
-  })
+  }))
 );
 
 // Export types - REMOVED: Conflicts with existing exports above

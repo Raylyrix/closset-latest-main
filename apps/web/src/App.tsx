@@ -889,7 +889,7 @@ export const useApp = create<AppState>((set, get) => ({
   // But we need to add them back as getters for backward compatibility
   get layers() {
     const v2State = useAdvancedLayerStoreV2.getState();
-    return v2State.layers.map(layer => v2State.convertToLegacyLayer(layer));
+    return v2State.layers.map((layer: any) => v2State.convertToLegacyLayer(layer));
   },
   
   get activeLayerId() {
@@ -918,7 +918,7 @@ export const useApp = create<AppState>((set, get) => ({
     }
     
     const allBrushStrokes: any[] = [];
-    v2State.layers.forEach(layer => {
+    v2State.layers.forEach((layer: any) => {
       if (layer.content.brushStrokes) {
         allBrushStrokes.push(...layer.content.brushStrokes);
       }
@@ -2172,7 +2172,7 @@ try {
     const { layers, activeLayerId } = advancedStore;
     
     if (activeLayerId) {
-      const layer = layers.find(l => l.id === activeLayerId);
+      const layer = layers.find((l: any) => l.id === activeLayerId);
       if (layer) {
         // Convert advanced layer to legacy format for compatibility
         return {
@@ -2203,7 +2203,7 @@ try {
     
     // If we have an active layer, check if it's suitable for the current tool
     if (activeLayerId) {
-      const activeLayer = layers.find(l => l.id === activeLayerId);
+      const activeLayer = layers.find((l: any) => l.id === activeLayerId);
       if (activeLayer && activeLayer.visible) {
         // Convert advanced layer to legacy format for compatibility
         return {
@@ -2230,7 +2230,7 @@ try {
     
     console.log(`🎨 Created new layer "${layerName}" for tool: ${toolType} with ID: ${layerId}`);
     
-    const newLayer = layers.find(l => l.id === layerId);
+    const newLayer = layers.find((l: any) => l.id === layerId);
     if (newLayer) {
       return {
         id: newLayer.id, // CRITICAL: Use the actual Advanced Layer System V2 ID
@@ -2297,7 +2297,7 @@ try {
   // Layer management functions - delegated to AdvancedLayerSystemV2
   toggleLayerVisibility: (layerId: string) => {
     const v2State = useAdvancedLayerStoreV2.getState();
-    const layer = v2State.layers.find(l => l.id === layerId);
+    const layer = v2State.layers.find((l: any) => l.id === layerId);
     if (layer) {
       v2State.setLayerVisibility(layerId, !layer.visible);
     }
