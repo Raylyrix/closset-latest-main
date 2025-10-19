@@ -1229,12 +1229,12 @@ export function Shirt() {
             console.log('Adding text element:', txt);
             // Use the new text element system instead of drawing directly
             const textUV = { u: uv.x, v: 1 - uv.y }; // Fix UV coordinate conversion - flip Y axis
-            (useApp.getState() as any).addTextElement(txt, textUV, getActiveLayer()?.id);
+            useApp.getState().addTextElement(txt, textUV, getActiveLayer()?.id);
             
             // Force a recomposition to update the model
             setTimeout(() => {
               console.log('Forcing recomposition after text placement');
-              (useApp.getState() as any).composeLayers();
+              useApp.getState().composeLayers();
               manageControls('text', false);
               console.log('Controls re-enabled after text placement');
             }, 50);

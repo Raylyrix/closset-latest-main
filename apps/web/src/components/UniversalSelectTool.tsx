@@ -216,22 +216,32 @@ export function UniversalSelectTool({ active }: UniversalSelectToolProps) {
     });
 
     // Add image elements
-    importedImages.forEach((image: any) => {
+    importedImages.forEach((image) => {
       elements.push({
         id: image.id,
         type: 'image',
         name: 'Image',
-        bounds: { x: image.x, y: image.y, width: image.width, height: image.height }
+        bounds: { 
+          x: image.x || 0, 
+          y: image.y || 0, 
+          width: image.width || image.uWidth * 1024 || 100, 
+          height: image.height || image.uHeight * 1024 || 100 
+        }
       });
     });
 
     // Add shape elements
-    shapeElements.forEach((shape: any) => {
+    shapeElements.forEach((shape) => {
       elements.push({
         id: shape.id,
         type: 'shape',
         name: shape.type || 'Shape',
-        bounds: { x: shape.x, y: shape.y, width: shape.width, height: shape.height }
+        bounds: { 
+          x: shape.x || 0, 
+          y: shape.y || 0, 
+          width: shape.width || shape.size || 100, 
+          height: shape.height || shape.size || 100 
+        }
       });
     });
 

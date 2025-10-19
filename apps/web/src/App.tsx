@@ -180,6 +180,7 @@ interface AppState {
     id: string;
     name: string;
     dataUrl: string;
+    src?: string; // Additional src property for compatibility
     // UV coordinates (0-1 range) - PRIMARY for texture mapping
     u: number;          // UV X center (0-1)
     v: number;          // UV Y center (0-1)
@@ -226,6 +227,22 @@ interface AppState {
     positionX: number;
     positionY: number;
     gradient: any;
+    // UV coordinates for 3D mapping
+    u?: number;
+    v?: number;
+    uWidth?: number;
+    uHeight?: number;
+    // Stroke properties
+    stroke?: string;
+    fill?: string;
+    strokeWidth?: number;
+    // Additional properties for compatibility
+    visible?: boolean;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    points?: Array<{ x: number; y: number }>;
   }>;
   clearShapes: () => void;
   
