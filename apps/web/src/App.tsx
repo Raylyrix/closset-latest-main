@@ -904,7 +904,9 @@ export const useApp = create<AppState>((set, get) => ({
   
   get textElements() {
     const v2State = useAdvancedLayerStoreV2.getState();
-    return v2State.getAllTextElements();
+    const result = v2State.getAllTextElements();
+    console.log('🔍 DEBUG: App.tsx textElements getter called - returning', result.length, 'elements');
+    return result;
   },
   
   get brushStrokes() {
