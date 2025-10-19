@@ -1460,9 +1460,34 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           ...layer,
           content: {
             ...layer.content,
-            textElements: (layer.content.textElements || []).map(text => 
-              text.id === id ? { ...text, ...patch } : text
-            )
+            textElements: (layer.content.textElements || []).map(text => {
+              if (text.id !== id) return text;
+              
+              // CRITICAL FIX: Auto-sync UV coordinates when pixel coordinates are updated
+              let updatedText = { ...text, ...patch };
+              
+              // If pixel coordinates are updated, recalculate UV coordinates
+              if (patch.x !== undefined || patch.y !== undefined) {
+                const composedCanvas = useApp.getState().composedCanvas;
+                const canvasWidth = composedCanvas?.width || 4096;
+                const canvasHeight = composedCanvas?.height || 4096;
+                
+                const newX = patch.x !== undefined ? patch.x : text.x;
+                const newY = patch.y !== undefined ? patch.y : text.y;
+                
+                // Convert pixel coordinates back to UV coordinates
+                updatedText.u = newX / canvasWidth;
+                updatedText.v = 1 - (newY / canvasHeight); // V is flipped in canvas space
+                
+                console.log('🎨 Auto-synced UV coordinates:', {
+                  pixel: { x: newX, y: newY },
+                  uv: { u: updatedText.u, v: updatedText.v },
+                  canvasSize: { width: canvasWidth, height: canvasHeight }
+                });
+              }
+              
+              return updatedText;
+            })
           },
           updatedAt: new Date()
         }))
