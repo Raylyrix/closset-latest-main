@@ -905,6 +905,13 @@ export const useApp = create<AppState>((set, get) => ({
   get textElements() {
     const v2State = useAdvancedLayerStoreV2.getState();
     
+    console.log('🔍 DEBUG: App.tsx textElements getter - V2 state check:', {
+      hasV2State: !!v2State,
+      hasLayers: !!v2State?.layers,
+      layersCount: v2State?.layers?.length || 0,
+      timestamp: Date.now()
+    });
+    
     // CRITICAL FIX: Check if V2 system is properly initialized
     if (!v2State || !v2State.layers) {
       console.log('🔍 DEBUG: App.tsx textElements getter - V2 system not initialized yet, returning empty array');
@@ -913,6 +920,7 @@ export const useApp = create<AppState>((set, get) => ({
     
     const result = v2State.getAllTextElements();
     console.log('🔍 DEBUG: App.tsx textElements getter called - returning', result.length, 'elements');
+    console.log('🔍 DEBUG: App.tsx textElements result:', result.map(t => ({ id: t.id, text: t.text })));
     return result;
   },
   

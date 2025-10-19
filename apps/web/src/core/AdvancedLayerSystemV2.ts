@@ -218,6 +218,9 @@ interface AdvancedLayerStoreV2 {
   // Canvas state
   composedCanvas: HTMLCanvasElement | null;
   
+  // CRITICAL: Store instance ID for debugging
+  id: string;
+  
   // History state
   history: LayerHistoryState;
   
@@ -466,6 +469,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     autoGrouping: true,
     composedCanvas: null,
     expandedGroups: new Set(),
+    
+    // CRITICAL: Add store instance ID for debugging
+    id: `v2-store-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     showLayerEffects: false,
     showLayerMasks: false,
     activeGroupId: null,
@@ -1560,23 +1566,31 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const allTextElements: TextElement[] = [];
       
       console.log('🔍 DEBUG: getAllTextElements called - checking', state.layers.length, 'layers');
+      console.log('🔍 DEBUG: Store instance ID:', state.id || 'no-id', 'Timestamp:', Date.now());
       
-      state.layers.forEach((layer, index) => {
+      // CRITICAL FIX: Force state refresh to ensure we get the latest data
+      const freshState = get();
+      console.log('🔍 DEBUG: Fresh state layers count:', freshState.layers.length);
+      
+      freshState.layers.forEach((layer, index) => {
         console.log(`🔍 DEBUG: Layer ${index}:`, {
           id: layer.id,
           name: layer.name,
           type: layer.type,
           hasTextElements: !!layer.content.textElements,
-          textElementsCount: layer.content.textElements?.length || 0
+          textElementsCount: layer.content.textElements?.length || 0,
+          contentKeys: Object.keys(layer.content)
         });
         
-        if (layer.content.textElements) {
+        if (layer.content.textElements && layer.content.textElements.length > 0) {
           allTextElements.push(...layer.content.textElements);
           console.log(`🔍 DEBUG: Added ${layer.content.textElements.length} text elements from layer ${layer.name}`);
+          console.log(`🔍 DEBUG: Text elements:`, layer.content.textElements.map(t => ({ id: t.id, text: t.text })));
         }
       });
       
       console.log('🔍 DEBUG: getAllTextElements returning', allTextElements.length, 'total text elements');
+      console.log('🔍 DEBUG: All text elements:', allTextElements.map(t => ({ id: t.id, text: t.text, layerId: t.layerId })));
       return allTextElements;
     },
     
