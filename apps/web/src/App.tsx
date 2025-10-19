@@ -958,32 +958,6 @@ export const useApp = create<AppState>((set, get) => ({
   puffVectorHistory: [puffVectorEngine.getStateSnapshot()],
   puffVectorFuture: [],
 
-  // Brush strokes getter - delegated to AdvancedLayerSystemV2
-  get brushStrokes() {
-    const v2State = useAdvancedLayerStoreV2.getState();
-    const allBrushStrokes: any[] = [];
-    v2State.layers.forEach(layer => {
-      if (layer.content.brushStrokes) {
-        allBrushStrokes.push(...layer.content.brushStrokes);
-      }
-    });
-    return allBrushStrokes;
-  },
-
-  // Layers getter - delegated to AdvancedLayerSystemV2
-  get layers() {
-    const v2State = useAdvancedLayerStoreV2.getState();
-    // Convert AdvancedLayers to legacy Layer format for backward compatibility
-    return v2State.layers.map(layer => v2State.convertToLegacyLayer(layer));
-  },
-
-  // Text elements getter - delegated to AdvancedLayerSystemV2
-  get textElements() {
-    const v2State = useAdvancedLayerStoreV2.getState();
-    return v2State.getAllTextElements();
-  },
-
-
   // Methods
   setActiveTool: (tool) => set({ activeTool: tool }),
   setBrushColor: (color) => set({ brushColor: color }),
@@ -1015,8 +989,18 @@ export const useApp = create<AppState>((set, get) => ({
   setModelPosition: (position) => set({ modelPosition: position }),
   setModelRotation: (rotation) => set({ modelRotation: rotation }),
   setModelScale: (scale) => set({ modelScale: scale }),
+  
   // Layer management - delegated to AdvancedLayerSystemV2
-  // Legacy setActiveLayerId removed to prevent conflicts
+  setActiveLayerId: (id: string | null) => {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    if (id) {
+      v2State.setActiveLayer(id);
+    } else {
+      v2State.clearSelection(); // This sets activeLayerId to null
+    }
+    console.log(`🎨 Set active layer ID: ${id}`);
+  },
+  
   setActiveDecalId: (id) => set({ activeDecalId: id }),
   
   // Layer management methods - delegated to AdvancedLayerSystemV2
@@ -2146,18 +2130,6 @@ try {
         (window as any).updateModelTexture(true, false); // Apply updated composedCanvas to model
       }
     }, 50);
-  },
-
-  // Layer management methods
-  setLayers: (layers: Layer[]) => {
-    console.log('🎨 Setting layers:', layers.length);
-    set({ layers });
-    get().composeLayers();
-  },
-
-  setComposedCanvas: (canvas: HTMLCanvasElement | null) => {
-    console.log('🎨 Setting composed canvas:', !!canvas);
-    set({ composedCanvas: canvas });
   },
 
   selectImportedImage: (id: string) => {
