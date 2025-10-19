@@ -906,7 +906,7 @@ export const useApp = create<AppState>((set, get) => ({
     const v2State = useAdvancedLayerStoreV2.getState();
     
     // CRITICAL FIX: Check if V2 system is properly initialized
-    if (!v2State || !v2State.layers || v2State.layers.length === 0) {
+    if (!v2State || !v2State.layers) {
       console.log('🔍 DEBUG: App.tsx textElements getter - V2 system not initialized yet, returning empty array');
       return [];
     }
@@ -920,7 +920,7 @@ export const useApp = create<AppState>((set, get) => ({
     const v2State = useAdvancedLayerStoreV2.getState();
     
     // CRITICAL FIX: Check if V2 system is properly initialized
-    if (!v2State || !v2State.layers || v2State.layers.length === 0) {
+    if (!v2State || !v2State.layers) {
       console.log('🔍 DEBUG: App.tsx brushStrokes getter - V2 system not initialized yet, returning empty array');
       return [];
     }
