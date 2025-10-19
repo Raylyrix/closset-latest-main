@@ -1212,20 +1212,48 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       };
       
       // Add text element to the layer
-      set(state => ({
-        layers: state.layers.map(layer => 
-          layer.id === targetLayerId 
-            ? {
-                ...layer,
-                content: {
-                  ...layer.content,
-                  textElements: [...(layer.content.textElements || []), textElement]
-                },
-                updatedAt: new Date()
-              }
-            : layer
-        )
-      }));
+      set(state => {
+        console.log('🔍 DEBUG: addTextElementFromApp - Before update:', {
+          targetLayerId,
+          layersCount: state.layers.length,
+          targetLayerExists: !!state.layers.find(l => l.id === targetLayerId)
+        });
+        
+        const updatedLayers = state.layers.map(layer => {
+          if (layer.id === targetLayerId) {
+            console.log('🔍 DEBUG: Updating target layer:', {
+              layerId: layer.id,
+              layerName: layer.name,
+              currentTextElementsCount: layer.content.textElements?.length || 0,
+              hasTextElements: !!layer.content.textElements
+            });
+            
+            const updatedLayer = {
+              ...layer,
+              content: {
+                ...layer.content,
+                textElements: [...(layer.content.textElements || []), textElement]
+              },
+              updatedAt: new Date()
+            };
+            
+            console.log('🔍 DEBUG: After update:', {
+              layerId: updatedLayer.id,
+              newTextElementsCount: updatedLayer.content.textElements?.length || 0
+            });
+            
+            return updatedLayer;
+          }
+          return layer;
+        });
+        
+        console.log('🔍 DEBUG: addTextElementFromApp - After update:', {
+          layersCount: updatedLayers.length,
+          totalTextElements: updatedLayers.reduce((sum, layer) => sum + (layer.content.textElements?.length || 0), 0)
+        });
+        
+        return { layers: updatedLayers };
+      });
       console.log('🎨 Added text element via App interface:', {
         text: textElement.text,
         uv: { u: uv.u, v: uv.v },
@@ -1531,12 +1559,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const state = get();
       const allTextElements: TextElement[] = [];
       
-      state.layers.forEach(layer => {
+      console.log('🔍 DEBUG: getAllTextElements called - checking', state.layers.length, 'layers');
+      
+      state.layers.forEach((layer, index) => {
+        console.log(`🔍 DEBUG: Layer ${index}:`, {
+          id: layer.id,
+          name: layer.name,
+          type: layer.type,
+          hasTextElements: !!layer.content.textElements,
+          textElementsCount: layer.content.textElements?.length || 0
+        });
+        
         if (layer.content.textElements) {
           allTextElements.push(...layer.content.textElements);
+          console.log(`🔍 DEBUG: Added ${layer.content.textElements.length} text elements from layer ${layer.name}`);
         }
       });
       
+      console.log('🔍 DEBUG: getAllTextElements returning', allTextElements.length, 'total text elements');
       return allTextElements;
     },
     
