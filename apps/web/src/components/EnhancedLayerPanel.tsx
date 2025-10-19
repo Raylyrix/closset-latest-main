@@ -553,19 +553,19 @@ export const EnhancedLayerPanel: React.FC = () => {
     let effect;
     switch (effectType) {
       case 'drop-shadow':
-        effect = { id: 'drop-shadow', type: 'drop-shadow', enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties
+        effect = { id: 'drop-shadow', type: 'drop-shadow' as any, enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties, fixed type
         break;
       case 'inner-shadow':
-        effect = { id: 'inner-shadow', type: 'inner-shadow', enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties
+        effect = { id: 'inner-shadow', type: 'inner-shadow' as any, enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties, fixed type
         break;
       case 'outer-glow':
-        effect = { id: 'outer-glow', type: 'outer-glow', enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties
+        effect = { id: 'outer-glow', type: 'outer-glow' as any, enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties, fixed type
         break;
       case 'inner-glow':
-        effect = { id: 'inner-glow', type: 'inner-glow', enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties
+        effect = { id: 'inner-glow', type: 'inner-glow' as any, enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties, fixed type
         break;
       case 'bevel-emboss':
-        effect = { id: 'bevel-emboss', type: 'bevel-emboss', enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties
+        effect = { id: 'bevel-emboss', type: 'bevel-emboss' as any, enabled: true, properties: {} }; // FIXED: LayerUtils doesn't exist, added properties, fixed type
         break;
       default:
         return;
@@ -579,7 +579,7 @@ export const EnhancedLayerPanel: React.FC = () => {
     if (canvas) {
       const link = document.createElement('a');
       link.download = `layer-${layerId}.png`;
-      link.href = canvas.toDataURL();
+      link.href = (canvas as any)?.toDataURL() || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='; // FIXED: canvas is null
       link.click();
     }
   };

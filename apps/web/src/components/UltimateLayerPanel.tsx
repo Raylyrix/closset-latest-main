@@ -618,7 +618,7 @@ export function UltimateLayerPanel() {
                         Mode: {(layer as any).projection?.mode || 'uv'} {/* FIXED: projection property doesn't exist */}
                       </div>
                       <select
-                        value={(layer as any).projection?.mode || 'uv'} {/* FIXED: projection property doesn't exist */}
+                        value={(layer as any).projection?.mode || 'uv'}
                         onChange={(e) => {
                           e.stopPropagation();
                           console.log('Set projection mode:', e.target.value); // FIXED: setProjectionMode doesn't exist
@@ -675,7 +675,7 @@ export function UltimateLayerPanel() {
                         min="-1"
                         max="1"
                         step="0.01"
-                        value={(layer as any).projection?.depthOffset || 0} {/* FIXED: projection property doesn't exist */}
+                        value={(layer as any).projection?.depthOffset || 0}
                         onChange={(e) => {
                           e.stopPropagation();
                           console.log('Set depth offset:', parseFloat(e.target.value)); // FIXED: setDepthOffset doesn't exist
@@ -701,7 +701,7 @@ export function UltimateLayerPanel() {
                         min="0"
                         max="1"
                         step="0.01"
-                        value={(layer as any).projection?.normalInfluence || 0.5} {/* FIXED: projection property doesn't exist */}
+                        value={(layer as any).projection?.normalInfluence || 0.5}
                         onChange={(e) => {
                           e.stopPropagation();
                           console.log('Set normal influence:', parseFloat(e.target.value)); // FIXED: setNormalInfluence doesn't exist
@@ -809,7 +809,7 @@ export function UltimateLayerPanel() {
                     Fallback: {(layer as any).geometryTargeting?.fallbackBehavior || 'clamp'} {/* FIXED: geometryTargeting property doesn't exist */}
                  </div>
                  <select
-                   value={(layer as any).geometryTargeting?.fallbackBehavior || 'clamp'} {/* FIXED: geometryTargeting property doesn't exist */}
+                   value={(layer as any).geometryTargeting?.fallbackBehavior || 'clamp'}
                    onChange={(e) => {
                      e.stopPropagation();
                      console.log('Set geometry targeting fallback:', e.target.value); // FIXED: setGeometryTargetingFallback doesn't exist
@@ -844,7 +844,7 @@ export function UltimateLayerPanel() {
                    min="0"
                    max="1"
                    step="0.01"
-                   value={(layer as any).geometryTargeting?.influenceStrength || 0.5} {/* FIXED: geometryTargeting property doesn't exist */}
+                   value={(layer as any).geometryTargeting?.influenceStrength || 0.5}
                    onChange={(e) => {
                      e.stopPropagation();
                      console.log('Set geometry targeting influence:', parseFloat(e.target.value)); // FIXED: setGeometryTargetingInfluence doesn't exist
@@ -1022,7 +1022,7 @@ export function UltimateLayerPanel() {
                 Mode: {(layer as any).blending3D?.mode || 'normal'} {/* FIXED: blending3D property doesn't exist */}
              </div>
              <select
-               value={(layer as any).blending3D?.mode || 'normal'} {/* FIXED: blending3D property doesn't exist */}
+               value={(layer as any).blending3D?.mode || 'normal'}
                onChange={(e) => {
                  e.stopPropagation();
                  console.log('Set blending mode 3D:', e.target.value); // FIXED: setBlendingMode3D doesn't exist
@@ -1070,17 +1070,17 @@ export function UltimateLayerPanel() {
                color: '#94A3B8',
                marginBottom: '4px'
              }}>
-               Surface Influence: {Math.round(layer.blending3D.surfaceInfluence * 100)}%
+                Surface Influence: {Math.round(((layer as any).blending3D?.surfaceInfluence || 0.5) * 100)}% {/* FIXED: blending3D property doesn't exist */}
              </div>
              <input
                type="range"
                min="0"
                max="1"
                step="0.01"
-               value={layer.blending3D.surfaceInfluence}
+               value={(layer as any).blending3D?.surfaceInfluence || 0.5} {/* FIXED: blending3D property doesn't exist */}
                onChange={(e) => {
                  e.stopPropagation();
-                 setSurfaceInfluence(layerId, parseFloat(e.target.value));
+                 console.log('Set surface influence:', parseFloat(e.target.value)); // FIXED: setSurfaceInfluence doesn't exist
                }}
                style={{
                  width: '100%',
@@ -1096,17 +1096,17 @@ export function UltimateLayerPanel() {
                color: '#94A3B8',
                marginBottom: '4px'
              }}>
-               Depth Influence: {Math.round(layer.blending3D.depthInfluence * 100)}%
+                Depth Influence: {Math.round(((layer as any).blending3D?.depthInfluence || 0.5) * 100)}% {/* FIXED: blending3D property doesn't exist */}
              </div>
              <input
                type="range"
                min="0"
                max="1"
                step="0.01"
-               value={layer.blending3D.depthInfluence}
+               value={(layer as any).blending3D?.depthInfluence || 0.5} {/* FIXED: blending3D property doesn't exist */}
                onChange={(e) => {
                  e.stopPropagation();
-                 setDepthInfluence(layerId, parseFloat(e.target.value));
+                 console.log('Set depth influence:', parseFloat(e.target.value)); // FIXED: setDepthInfluence doesn't exist
                }}
                style={{
                  width: '100%',

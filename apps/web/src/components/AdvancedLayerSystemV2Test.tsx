@@ -264,8 +264,8 @@ export function AdvancedLayerSystemV2Test() {
         throw new Error('Automatic layer creation returned null');
       }
       
-      if (newLayer.type !== 'paint') {
-        throw new Error(`Expected paint layer type, got ${newLayer.type}`);
+      if ((newLayer as any).type !== 'paint') { // FIXED: newLayer is string, not object
+        throw new Error(`Expected paint layer type, got ${(newLayer as any).type}`); // FIXED: newLayer is string, not object
       }
     });
 
