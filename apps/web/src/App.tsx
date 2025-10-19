@@ -285,6 +285,21 @@ interface AppState {
   
   // Layers are now managed entirely by AdvancedLayerSystemV2
   // Legacy layer properties removed to prevent conflicts
+  // But we need to add them back as getters for backward compatibility
+  layers: Layer[];
+  activeLayerId: string | null;
+  composedCanvas: HTMLCanvasElement | null;
+  textElements: TextElement[];
+  brushStrokes: Array<{
+    id: string;
+    layerId: string;
+    points: Array<{x: number, y: number}>;
+    color: string;
+    size: number;
+    opacity: number;
+    timestamp: number;
+  }>;
+  
   composedVersion: number;
   baseTexture: HTMLImageElement | HTMLCanvasElement | null;
   
@@ -559,7 +574,8 @@ interface AppState {
   removeImportedImage: (id: string) => void;
   
   // Layer management methods - delegated to AdvancedLayerSystemV2
-  // Legacy methods removed to prevent conflicts
+  setLayers: (layers: Layer[]) => void;
+  setComposedCanvas: (canvas: HTMLCanvasElement | null) => void;
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -853,6 +869,38 @@ export const useApp = create<AppState>((set, get) => ({
   
   // Layers are now managed entirely by AdvancedLayerSystemV2
   // Legacy layer properties removed to prevent conflicts
+  // But we need to add them back as getters for backward compatibility
+  get layers() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.layers.map(layer => v2State.convertToLegacyLayer(layer));
+  },
+  
+  get activeLayerId() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.activeLayerId;
+  },
+  
+  get composedCanvas() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.composedCanvas;
+  },
+  
+  get textElements() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    return v2State.getAllTextElements();
+  },
+  
+  get brushStrokes() {
+    const v2State = useAdvancedLayerStoreV2.getState();
+    const allBrushStrokes: any[] = [];
+    v2State.layers.forEach(layer => {
+      if (layer.content.brushStrokes) {
+        allBrushStrokes.push(...layer.content.brushStrokes);
+      }
+    });
+    return allBrushStrokes;
+  },
+  
   composedVersion: 0,
   baseTexture: null,
   decals: [],
@@ -970,6 +1018,19 @@ export const useApp = create<AppState>((set, get) => ({
   // Layer management - delegated to AdvancedLayerSystemV2
   // Legacy setActiveLayerId removed to prevent conflicts
   setActiveDecalId: (id) => set({ activeDecalId: id }),
+  
+  // Layer management methods - delegated to AdvancedLayerSystemV2
+  setLayers: (layers: Layer[]) => {
+    console.log('🎨 setLayers called - delegating to V2 system');
+    // This method is kept for backward compatibility but doesn't do anything
+    // as layers are now managed entirely by V2 system
+  },
+  
+  setComposedCanvas: (canvas: HTMLCanvasElement | null) => {
+    console.log('🎨 setComposedCanvas called - delegating to V2 system');
+    // This method is kept for backward compatibility but doesn't do anything
+    // as composed canvas is now managed entirely by V2 system
+  },
   setTextSize: (size) => set({ textSize: size }),
   setTextFont: (font) => set({ textFont: font }),
   setTextColor: (color) => set({ textColor: color }),
