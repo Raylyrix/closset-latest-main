@@ -552,8 +552,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
-      // Force composition and visual update
-      get().composeLayers();
+      // Force composition and visual update using App's composeLayers
+      const { composeLayers } = useApp.getState();
+      composeLayers();
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
@@ -574,8 +575,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
-      // Force composition and visual update
-      get().composeLayers();
+      // Force composition and visual update using App's composeLayers
+      const { composeLayers } = useApp.getState();
+      composeLayers();
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
@@ -596,8 +598,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
-      // Force composition and visual update
-      get().composeLayers();
+      // Force composition and visual update using App's composeLayers
+      const { composeLayers } = useApp.getState();
+      composeLayers();
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
@@ -653,8 +656,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         };
       });
       
-      // Force composition and visual update
-      get().composeLayers();
+      // Force composition and visual update using App's composeLayers
+      const { composeLayers } = useApp.getState();
+      composeLayers();
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
@@ -685,8 +689,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         };
       });
       
-      // Force composition and visual update
-      get().composeLayers();
+      // Force composition and visual update using App's composeLayers
+      const { composeLayers } = useApp.getState();
+      composeLayers();
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
