@@ -1629,7 +1629,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
 
             {/* Text Selection Dropdown (always show if text exists) */}
             {(() => {
-              const { textElements, activeTextId, selectTextElement } = useApp.getState();
+              const { textElements, activeTextId, selectTextElement } = useApp();
               
               // Show selector if any text exists
               if (textElements.length > 0) {
@@ -1771,7 +1771,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
 
             {/* Active Text Editing */}
             {(() => {
-              const { textElements, activeTextId, updateTextElement, deleteTextElement, addTextElement } = useApp.getState();
+              const { textElements, activeTextId, updateTextElement, deleteTextElement, addTextElement } = useApp();
               if (!activeTextId) return null;
               
               const activeText = textElements.find(t => t.id === activeTextId);
