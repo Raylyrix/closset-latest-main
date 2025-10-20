@@ -2200,22 +2200,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.setLineDash([5, 5]); // Dashed border pattern
             ctx.globalAlpha = 1.0; // Full opacity for border
             
-            // CRITICAL FIX: Use current UV coordinates to calculate accurate pixel coordinates
-            const composedCanvas = useApp.getState().composedCanvas;
-            const canvasWidth = composedCanvas?.width || 4096;
-            const canvasHeight = composedCanvas?.height || 4096;
-            
-            // Calculate border position using current UV coordinates (not stale pixel coordinates)
-            const currentPixelX = Math.floor(selectedImageEl.u * canvasWidth);
-            const currentPixelY = Math.floor(selectedImageEl.v * canvasHeight);
-            const currentPixelWidth = Math.floor(selectedImageEl.uWidth * canvasWidth);
-            const currentPixelHeight = Math.floor(selectedImageEl.uHeight * canvasHeight);
-            
-            // Border coordinates (images are always positioned at top-left corner)
-            const borderX = currentPixelX;
-            const borderY = currentPixelY;
-            const borderWidth = currentPixelWidth;
-            const borderHeight = currentPixelHeight;
+            // CRITICAL FIX: Use the same pixel coordinates as image rendering
+            // Images are rendered using imageEl.x, imageEl.y, imageEl.width, imageEl.height
+            const borderX = selectedImageEl.x;
+            const borderY = selectedImageEl.y;
+            const borderWidth = selectedImageEl.width;
+            const borderHeight = selectedImageEl.height;
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
@@ -2235,7 +2225,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
               image: { 
                 uv: { u: selectedImageEl.u, v: selectedImageEl.v, uWidth: selectedImageEl.uWidth, uHeight: selectedImageEl.uHeight },
-                pixel: { x: currentPixelX, y: currentPixelY, width: currentPixelWidth, height: currentPixelHeight }
+                pixel: { x: borderX, y: borderY, width: borderWidth, height: borderHeight }
               },
               calculation: `Border calculated from current UV coordinates at (${borderX}, ${borderY})`
             });

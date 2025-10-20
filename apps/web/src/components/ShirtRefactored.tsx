@@ -4454,7 +4454,7 @@ const canvasDimensions = {
                 console.log('🎨 Image tool: Image is locked, cannot drag');
               }
             } else {
-              // CRITICAL FIX: Add click-to-place functionality for images (like text tool)
+              // CRITICAL FIX: Implement click-to-place like text tool
               console.log('🎨 Image tool: Clicked empty area - checking if image is selected');
               
               // CRITICAL: If image is already selected, don't show prompt - just deselect
@@ -4465,39 +4465,82 @@ const canvasDimensions = {
                 return;
               }
               
-              // Show image selection prompt for click-to-place functionality
-              console.log('🎨 Image tool: No image at click position - showing image selection');
+              // CRITICAL: Prevent double prompts with timestamp check (like text tool)
+              const now = Date.now();
+              if (now - lastTextPromptTimeRef.current < 500) {
+                console.log('🎨 Image tool: Skipping - prompt triggered too soon (within 500ms)');
+                return;
+              }
               
-              // CRITICAL FIX: Use layer system data instead of App state
-              // Get imported images from App state (these are the template images)
+              // CRITICAL: Stop all event propagation to prevent double triggers (like text tool)
+              if (e.stopPropagation) e.stopPropagation();
+              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              if (e.nativeEvent?.stopPropagation) e.nativeEvent.stopPropagation();
+              if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
+              
+              // Prevent double prompts with flag (like text tool)
+              if (textPromptActiveRef.current) {
+                console.log('🎨 Image tool: Skipping - prompt already active');
+                return;
+              }
+              
+              // CRITICAL: Don't show prompt if any image is already selected
+              const { selectedImageId } = useApp.getState();
+              if (selectedImageId) {
+                console.log('🎨 Image tool: Skipping - image already selected, click empty area to deselect first');
+                return;
+              }
+              
+              console.log('🎨 Image tool: About to show image selection prompt');
+              textPromptActiveRef.current = true;
+              lastTextPromptTimeRef.current = now;
+              
+              // CRITICAL FIX: Show image selection like text tool shows text prompt
               const { importedImages } = useApp.getState();
               if (importedImages.length > 0) {
-                // Use the first available template image for placement
-                const imageToPlace = importedImages[0];
-                console.log('🎨 Image tool: Placing image at click position:', imageToPlace.name);
+                // Create image selection prompt (like text tool prompt)
+                const imageNames = importedImages.map((img, index) => `${index + 1}. ${img.name}`).join('\n');
+                const userSelection = window.prompt(`Select image to place:\n\n${imageNames}\n\nEnter number (1-${importedImages.length}):`, '1');
                 
-                // Create new image at click position
-                const newImageData = {
-                  ...imageToPlace,
-                  id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  u: clickU,
-                  v: clickV,
-                  // Convert UV coordinates to pixel coordinates for layer system
-                  x: Math.floor(clickU * 2048),
-                  y: Math.floor(clickV * 2048)
-                };
+                setTimeout(() => {
+                  textPromptActiveRef.current = false;
+                }, 100);
                 
-                // CRITICAL FIX: Only add to layer system - addImageElementFromApp handles App state internally
-                const v2State = useAdvancedLayerStoreV2.getState();
-                v2State.addImageElementFromApp(newImageData);
-                
-                // Select the newly created image
-                setSelectedImageId(newImageData.id);
-                
-                console.log('🎨 Image tool: Image placed and selected:', newImageData.id);
+                if (userSelection) {
+                  const selectedIndex = parseInt(userSelection) - 1;
+                  if (selectedIndex >= 0 && selectedIndex < importedImages.length) {
+                    const imageToPlace = importedImages[selectedIndex];
+                    console.log('🎨 Image tool: Placing selected image:', imageToPlace.name);
+                    
+                    // Create new image at exact click position (like text tool)
+                    const newImageData = {
+                      ...imageToPlace,
+                      id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                      u: clickU,
+                      v: clickV,
+                      // Convert UV coordinates to pixel coordinates for layer system
+                      x: Math.floor(clickU * 2048),
+                      y: Math.floor(clickV * 2048)
+                    };
+                    
+                    // CRITICAL FIX: Only add to layer system - single source of truth
+                    const v2State = useAdvancedLayerStoreV2.getState();
+                    v2State.addImageElementFromApp(newImageData);
+                    
+                    // Select the newly created image (like text tool)
+                    setSelectedImageId(newImageData.id);
+                    
+                    console.log('🎨 Image tool: Image placed and selected:', newImageData.id);
+                  } else {
+                    console.log('🎨 Image tool: Invalid selection');
+                  }
+                }
               } else {
                 console.log('🎨 Image tool: No imported images available for placement');
                 // In a full implementation, this would trigger image import dialog
+                setTimeout(() => {
+                  textPromptActiveRef.current = false;
+                }, 100);
               }
             }
           }

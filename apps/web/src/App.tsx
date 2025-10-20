@@ -2058,16 +2058,17 @@ try {
     
     // Wait for image to load, then add to state and render
     const loadAndRender = () => {
+      // CRITICAL FIX: Only add to layer system - no App state duplication
+      const v2State = useAdvancedLayerStoreV2.getState();
+      v2State.addImageElementFromApp(imageWithDefaults); // ✅ Single source of truth
+      
+      // CRITICAL FIX: Keep importedImages for template selection only (not for rendering)
       set(state => ({ 
         importedImages: [...state.importedImages, imageWithDefaults],
         selectedImageId: imageWithDefaults.id // Auto-select newly added image
       }));
       
-      console.log('📷 Image added to state, triggering render');
-      
-      // CRITICAL FIX: Also add image to V2 layer system
-      const v2State = useAdvancedLayerStoreV2.getState();
-      v2State.addImageElementFromApp(imageWithDefaults); // ✅ Image integration with V2
+      console.log('📷 Image added to layer system, triggering render');
       
       // CRITICAL: Trigger composeLayers first (to draw image), then updateModelTexture (same as text)
       setTimeout(() => {
