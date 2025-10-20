@@ -4369,15 +4369,18 @@ const canvasDimensions = {
               const bottomRightU = topLeftU + imgWidth;
               const bottomRightV = topLeftV + imgHeight;
               
-              // Add small tolerance for easier clicking
-              const tolerance = 0.02; // 2% tolerance
+              // CRITICAL FIX: Use more precise hitbox detection with better tolerance
+              const tolerance = 0.01; // 1% tolerance for more precise detection
               
-              if (
+              // Check if click is within image bounds with tolerance
+              const isWithinBounds = (
                 clickU >= (topLeftU - tolerance) &&
                 clickU <= (bottomRightU + tolerance) &&
                 clickV >= (topLeftV - tolerance) &&
                 clickV <= (bottomRightV + tolerance)
-              ) {
+              );
+              
+              if (isWithinBounds) {
                 clickedImage = img;
                 console.log('🎨 Image tool: Hitbox detection successful', {
                   clickedUV: { u: clickU, v: clickV },

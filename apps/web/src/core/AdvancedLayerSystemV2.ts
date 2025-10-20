@@ -1354,6 +1354,15 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           console.log('🎨 Synchronizing image layer with main App state');
           // The addLayer function in App.tsx takes a name string, not an object
           appState.addLayer('Image Layer');
+          
+          // CRITICAL: Force layer panel update
+          setTimeout(() => {
+            const textureEvent = new CustomEvent('forceTextureUpdate', {
+              detail: { source: 'image-layer-creation', layerId: imageLayerId }
+            });
+            window.dispatchEvent(textureEvent);
+            console.log('🔄 Triggered texture update after image layer creation');
+          }, 100);
         }
       }
       
@@ -1420,7 +1429,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         uv: { u: imageData.u, v: imageData.v, uWidth: imageData.uWidth, uHeight: imageData.uHeight },
         pixel: { x: pixelX, y: pixelY, width: pixelWidth, height: pixelHeight },
         canvasSize: canvasSize,
-        layerId: targetLayerId
+        layerId: targetLayerId,
+        allLayers: get().layers.map(l => ({ id: l.id, name: l.name, type: l.type, visible: l.visible }))
       });
       
       return id;
