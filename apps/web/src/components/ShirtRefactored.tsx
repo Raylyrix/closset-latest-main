@@ -4356,26 +4356,35 @@ const canvasDimensions = {
             for (const img of imageElements) {
               if (!img.visible) continue;
               
-              // CRITICAL FIX: Use top-left coordinates like rendering system
-              // Convert UV coordinates to top-left based bounds
+              // CRITICAL FIX: Use current coordinates from layer system (not stored coordinates)
+              // Get the most up-to-date coordinates from the layer system
               const imgU = img.u || 0.5;
               const imgV = img.v || 0.5;
               const imgWidth = img.uWidth || 0.25;
               const imgHeight = img.uHeight || 0.25;
               
-              // Calculate top-left UV coordinates
+              // Calculate top-left UV coordinates for hitbox detection
               const topLeftU = imgU - (imgWidth / 2);
               const topLeftV = imgV - (imgHeight / 2);
               const bottomRightU = topLeftU + imgWidth;
               const bottomRightV = topLeftV + imgHeight;
               
+              // Add small tolerance for easier clicking
+              const tolerance = 0.02; // 2% tolerance
+              
               if (
-                clickU >= topLeftU &&
-                clickU <= bottomRightU &&
-                clickV >= topLeftV &&
-                clickV <= bottomRightV
+                clickU >= (topLeftU - tolerance) &&
+                clickU <= (bottomRightU + tolerance) &&
+                clickV >= (topLeftV - tolerance) &&
+                clickV <= (bottomRightV + tolerance)
               ) {
                 clickedImage = img;
+                console.log('🎨 Image tool: Hitbox detection successful', {
+                  clickedUV: { u: clickU, v: clickV },
+                  imageUV: { u: imgU, v: imgV },
+                  imageSize: { width: imgWidth, height: imgHeight },
+                  hitboxBounds: { topLeftU, topLeftV, bottomRightU, bottomRightV }
+                });
                 break;
               }
             }

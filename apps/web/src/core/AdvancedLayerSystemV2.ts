@@ -1347,6 +1347,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         console.log('🎨 Creating default image layer for image element');
         const imageLayerId = get().createLayer('image', 'Image Layer');
         targetLayerId = imageLayerId;
+        
+        // CRITICAL FIX: Also create layer in main App state for UI synchronization
+        const appState = useApp.getState();
+        if (appState.addLayer) {
+          console.log('🎨 Synchronizing image layer with main App state');
+          // The addLayer function in App.tsx takes a name string, not an object
+          appState.addLayer('Image Layer');
+        }
       }
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
