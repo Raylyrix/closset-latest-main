@@ -3671,7 +3671,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           dataUrl: event.target.result as string,
                           // UV coordinates (center of texture = 0.5, 0.5)
                           u: 0.5,           // Center horizontally
-                          v: 0.5,           // Center vertically  
+                          v: 0.5,           // Center vertically (correct for Three.js UV space)  
                           uWidth: 0.25,     // 25% of texture width
                           uHeight: 0.25,    // 25% of texture height
                           // Legacy pixel coords for migration

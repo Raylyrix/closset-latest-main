@@ -1350,11 +1350,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
+      // UV coordinates are center-based, convert to top-left pixel coordinates
       const canvasSize = CANVAS_CONFIG.COMPOSED.width; // Use composed canvas size
-      const pixelX = Math.floor(imageData.u * canvasSize);
-      const pixelY = Math.floor(imageData.v * canvasSize);
       const pixelWidth = Math.floor(imageData.uWidth * canvasSize);
       const pixelHeight = Math.floor(imageData.uHeight * canvasSize);
+      
+      // Convert center-based UV to top-left pixel coordinates
+      const centerX = imageData.u * canvasSize;
+      const centerY = imageData.v * canvasSize;
+      const pixelX = Math.floor(centerX - pixelWidth / 2);
+      const pixelY = Math.floor(centerY - pixelHeight / 2);
       
       const imageElement: ImageElement = {
         id,
@@ -1445,11 +1450,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           const newUWidth = patch.uWidth !== undefined ? patch.uWidth : updatedImage.uWidth;
           const newUHeight = patch.uHeight !== undefined ? patch.uHeight : updatedImage.uHeight;
           
-          // Convert UV coordinates to pixel coordinates
-          updatedImageEl.x = Math.floor(newU * canvasWidth);
-          updatedImageEl.y = Math.floor(newV * canvasHeight);
-          updatedImageEl.width = Math.floor(newUWidth * canvasWidth);
-          updatedImageEl.height = Math.floor(newUHeight * canvasHeight);
+          // Convert center-based UV coordinates to top-left pixel coordinates
+          const centerX = newU * canvasWidth;
+          const centerY = newV * canvasHeight;
+          const pixelWidth = Math.floor(newUWidth * canvasWidth);
+          const pixelHeight = Math.floor(newUHeight * canvasHeight);
+          
+          updatedImageEl.x = Math.floor(centerX - pixelWidth / 2);
+          updatedImageEl.y = Math.floor(centerY - pixelHeight / 2);
+          updatedImageEl.width = pixelWidth;
+          updatedImageEl.height = pixelHeight;
           
           console.log('🎨 Auto-synced image pixel coordinates:', {
             uv: { u: newU, v: newV, uWidth: newUWidth, uHeight: newUHeight },
@@ -1469,9 +1479,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           const newWidth = patch.width !== undefined ? patch.width : updatedImage.width;
           const newHeight = patch.height !== undefined ? patch.height : updatedImage.height;
           
-          // Convert pixel coordinates back to UV coordinates
-          updatedImageEl.u = newX / canvasWidth;
-          updatedImageEl.v = newY / canvasHeight;
+          // Convert top-left pixel coordinates back to center-based UV coordinates
+          const centerX = newX + newWidth / 2;
+          const centerY = newY + newHeight / 2;
+          
+          updatedImageEl.u = centerX / canvasWidth;
+          updatedImageEl.v = centerY / canvasHeight;
           updatedImageEl.uWidth = newWidth / canvasWidth;
           updatedImageEl.uHeight = newHeight / canvasHeight;
           
@@ -2221,8 +2234,33 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.rect(borderX, borderY, borderWidth, borderHeight);
             ctx.stroke();
             
-            console.log(`🎨 Image selection border drawn:`, {
+            // Draw resize handles (like text tool)
+            const handleSize = 8;
+            const handles = [
+              { x: borderX - handleSize/2, y: borderY - handleSize/2 }, // Top-left
+              { x: borderX + borderWidth/2 - handleSize/2, y: borderY - handleSize/2 }, // Top-center
+              { x: borderX + borderWidth - handleSize/2, y: borderY - handleSize/2 }, // Top-right
+              { x: borderX + borderWidth - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 }, // Right-center
+              { x: borderX + borderWidth - handleSize/2, y: borderY + borderHeight - handleSize/2 }, // Bottom-right
+              { x: borderX + borderWidth/2 - handleSize/2, y: borderY + borderHeight - handleSize/2 }, // Bottom-center
+              { x: borderX - handleSize/2, y: borderY + borderHeight - handleSize/2 }, // Bottom-left
+              { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
+            ];
+            
+            // Draw resize handles
+            ctx.fillStyle = '#00ff00';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]); // Solid lines for handles
+            
+            for (const handle of handles) {
+              ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
+              ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+            }
+            
+            console.log(`🎨 Image selection border drawn with resize handles:`, {
               border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
+              handles: handles.length,
               image: { 
                 uv: { u: selectedImageEl.u, v: selectedImageEl.v, uWidth: selectedImageEl.uWidth, uHeight: selectedImageEl.uHeight },
                 pixel: { x: borderX, y: borderY, width: borderWidth, height: borderHeight }
