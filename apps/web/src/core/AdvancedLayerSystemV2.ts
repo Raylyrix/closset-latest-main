@@ -1414,17 +1414,95 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     updateImageElementFromApp: (id: string, patch: Partial<ImageElement>) => {
-      set(state => ({
-        layers: state.layers.map(layer => ({
-          ...layer,
-          content: {
-            ...layer.content,
-            imageElements: layer.content.imageElements?.map(img => 
-              img.id === id ? { ...img, ...patch } : img
-            ) || []
+      set(state => {
+        // Find the image element to update
+        let updatedImage: ImageElement | null = null;
+        
+        for (const layer of state.layers) {
+          const imageEl = layer.content.imageElements?.find(img => img.id === id);
+          if (imageEl) {
+            updatedImage = imageEl;
+            break;
           }
-        }))
-      }));
+        }
+        
+        if (!updatedImage) {
+          console.warn('🎨 Image element not found for update:', id);
+          return state;
+        }
+        
+        // CRITICAL FIX: Auto-sync coordinates bidirectionally (same as text tool)
+        let updatedImageEl = { ...updatedImage, ...patch };
+        
+        // If UV coordinates are updated, recalculate pixel coordinates
+        if (patch.u !== undefined || patch.v !== undefined || patch.uWidth !== undefined || patch.uHeight !== undefined) {
+          const composedCanvas = useApp.getState().composedCanvas;
+          const canvasWidth = composedCanvas?.width || 4096;
+          const canvasHeight = composedCanvas?.height || 4096;
+          
+          const newU = patch.u !== undefined ? patch.u : updatedImage.u;
+          const newV = patch.v !== undefined ? patch.v : updatedImage.v;
+          const newUWidth = patch.uWidth !== undefined ? patch.uWidth : updatedImage.uWidth;
+          const newUHeight = patch.uHeight !== undefined ? patch.uHeight : updatedImage.uHeight;
+          
+          // Convert UV coordinates to pixel coordinates
+          updatedImageEl.x = Math.floor(newU * canvasWidth);
+          updatedImageEl.y = Math.floor(newV * canvasHeight);
+          updatedImageEl.width = Math.floor(newUWidth * canvasWidth);
+          updatedImageEl.height = Math.floor(newUHeight * canvasHeight);
+          
+          console.log('🎨 Auto-synced image pixel coordinates:', {
+            uv: { u: newU, v: newV, uWidth: newUWidth, uHeight: newUHeight },
+            pixel: { x: updatedImageEl.x, y: updatedImageEl.y, width: updatedImageEl.width, height: updatedImageEl.height },
+            canvasSize: { width: canvasWidth, height: canvasHeight }
+          });
+        }
+        
+        // If pixel coordinates are updated, recalculate UV coordinates
+        if (patch.x !== undefined || patch.y !== undefined || patch.width !== undefined || patch.height !== undefined) {
+          const composedCanvas = useApp.getState().composedCanvas;
+          const canvasWidth = composedCanvas?.width || 4096;
+          const canvasHeight = composedCanvas?.height || 4096;
+          
+          const newX = patch.x !== undefined ? patch.x : updatedImage.x;
+          const newY = patch.y !== undefined ? patch.y : updatedImage.y;
+          const newWidth = patch.width !== undefined ? patch.width : updatedImage.width;
+          const newHeight = patch.height !== undefined ? patch.height : updatedImage.height;
+          
+          // Convert pixel coordinates back to UV coordinates
+          updatedImageEl.u = newX / canvasWidth;
+          updatedImageEl.v = newY / canvasHeight;
+          updatedImageEl.uWidth = newWidth / canvasWidth;
+          updatedImageEl.uHeight = newHeight / canvasHeight;
+          
+          console.log('🎨 Auto-synced image UV coordinates:', {
+            pixel: { x: newX, y: newY, width: newWidth, height: newHeight },
+            uv: { u: updatedImageEl.u, v: updatedImageEl.v, uWidth: updatedImageEl.uWidth, uHeight: updatedImageEl.uHeight },
+            canvasSize: { width: canvasWidth, height: canvasHeight }
+          });
+        }
+        
+        return {
+          layers: state.layers.map(layer => ({
+            ...layer,
+            content: {
+              ...layer.content,
+              imageElements: layer.content.imageElements?.map(img => 
+                img.id === id ? updatedImageEl : img
+              ) || []
+            }
+          }))
+        };
+      });
+      
+      // CRITICAL FIX: Dispatch texture update event for immediate visual feedback
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'image-element-position-updated-v2', imageId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after image position change (V2)');
+      }, 10);
     },
     
     deleteImageElementFromApp: (id: string) => {
@@ -2115,24 +2193,37 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             console.log('🎨 Drawing selection border for image:', selectedImageEl.name);
             
             ctx.save();
-            ctx.strokeStyle = '#00ff00';
+            
+            // Set up border styling
+            ctx.strokeStyle = '#00ff00'; // Green border for images (different from text blue)
             ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
+            ctx.setLineDash([5, 5]); // Dashed border pattern
+            ctx.globalAlpha = 1.0; // Full opacity for border
             
-            // Calculate border dimensions (same as text tool)
-            const imagePixelWidth = selectedImageEl.width;
-            const imagePixelHeight = selectedImageEl.height;
+            // CRITICAL FIX: Use current UV coordinates to calculate accurate pixel coordinates
+            const composedCanvas = useApp.getState().composedCanvas;
+            const canvasWidth = composedCanvas?.width || 4096;
+            const canvasHeight = composedCanvas?.height || 4096;
             
-            let borderX = selectedImageEl.x;
-            let borderY = selectedImageEl.y;
-            let borderWidth = imagePixelWidth;
-            let borderHeight = imagePixelHeight;
+            // Calculate border position using current UV coordinates (not stale pixel coordinates)
+            const currentPixelX = Math.floor(selectedImageEl.u * canvasWidth);
+            const currentPixelY = Math.floor(selectedImageEl.v * canvasHeight);
+            const currentPixelWidth = Math.floor(selectedImageEl.uWidth * canvasWidth);
+            const currentPixelHeight = Math.floor(selectedImageEl.uHeight * canvasHeight);
             
-            // Apply rotation if needed (same as text rendering)
+            // Border coordinates (images are always positioned at top-left corner)
+            const borderX = currentPixelX;
+            const borderY = currentPixelY;
+            const borderWidth = currentPixelWidth;
+            const borderHeight = currentPixelHeight;
+            
+            // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
-              ctx.translate(selectedImageEl.x, selectedImageEl.y);
+              const centerX = borderX + borderWidth / 2;
+              const centerY = borderY + borderHeight / 2;
+              ctx.translate(centerX, centerY);
               ctx.rotate((selectedImageEl.rotation * Math.PI) / 180);
-              ctx.translate(-selectedImageEl.x, -selectedImageEl.y);
+              ctx.translate(-centerX, -centerY);
             }
             
             // Draw the selection border
@@ -2142,8 +2233,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             
             console.log(`🎨 Image selection border drawn:`, {
               border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
-              image: { x: selectedImageEl.x, y: selectedImageEl.y, width: imagePixelWidth, height: imagePixelHeight },
-              calculation: `Border drawn at (${borderX}, ${borderY})`
+              image: { 
+                uv: { u: selectedImageEl.u, v: selectedImageEl.v, uWidth: selectedImageEl.uWidth, uHeight: selectedImageEl.uHeight },
+                pixel: { x: currentPixelX, y: currentPixelY, width: currentPixelWidth, height: currentPixelHeight }
+              },
+              calculation: `Border calculated from current UV coordinates at (${borderX}, ${borderY})`
             });
             
             ctx.restore();
