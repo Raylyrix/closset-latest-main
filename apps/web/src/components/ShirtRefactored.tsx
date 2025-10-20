@@ -4356,17 +4356,24 @@ const canvasDimensions = {
             for (const img of imageElements) {
               if (!img.visible) continue;
               
-              // Check if click is within image bounds
-              const halfWidth = (img.uWidth || 0.25) / 2;
-              const halfHeight = (img.uHeight || 0.25) / 2;
+              // CRITICAL FIX: Use top-left coordinates like rendering system
+              // Convert UV coordinates to top-left based bounds
               const imgU = img.u || 0.5;
               const imgV = img.v || 0.5;
+              const imgWidth = img.uWidth || 0.25;
+              const imgHeight = img.uHeight || 0.25;
+              
+              // Calculate top-left UV coordinates
+              const topLeftU = imgU - (imgWidth / 2);
+              const topLeftV = imgV - (imgHeight / 2);
+              const bottomRightU = topLeftU + imgWidth;
+              const bottomRightV = topLeftV + imgHeight;
               
               if (
-                clickU >= imgU - halfWidth &&
-                clickU <= imgU + halfWidth &&
-                clickV >= imgV - halfHeight &&
-                clickV <= imgV + halfHeight
+                clickU >= topLeftU &&
+                clickU <= bottomRightU &&
+                clickV >= topLeftV &&
+                clickV <= bottomRightV
               ) {
                 clickedImage = img;
                 break;
@@ -4461,11 +4468,11 @@ const canvasDimensions = {
               // Show image selection prompt for click-to-place functionality
               console.log('🎨 Image tool: No image at click position - showing image selection');
               
-              // For now, we'll use a simple prompt to select from imported images
-              // In a full implementation, this would show a proper image selection UI
+              // CRITICAL FIX: Use layer system data instead of App state
+              // Get imported images from App state (these are the template images)
               const { importedImages } = useApp.getState();
               if (importedImages.length > 0) {
-                // Use the first available image for now (in real implementation, show selection UI)
+                // Use the first available template image for placement
                 const imageToPlace = importedImages[0];
                 console.log('🎨 Image tool: Placing image at click position:', imageToPlace.name);
                 
@@ -4480,10 +4487,7 @@ const canvasDimensions = {
                   y: Math.floor(clickV * 2048)
                 };
                 
-                // Add to App.tsx
-                useApp.getState().addImportedImage(newImageData);
-                
-                // Add to layer system
+                // CRITICAL FIX: Only add to layer system - addImageElementFromApp handles App state internally
                 const v2State = useAdvancedLayerStoreV2.getState();
                 v2State.addImageElementFromApp(newImageData);
                 
@@ -4643,8 +4647,11 @@ const canvasDimensions = {
           const hoverU = uv.x;
           const hoverV = 1 - uv.y; // Flip V for texture space
           
-          const { importedImages, selectedImageId } = useApp.getState();
-          const selectedImage = importedImages.find((img: any) => img.id === selectedImageId);
+          // CRITICAL FIX: Use layer system data instead of App state
+          const { selectedImageId } = useApp.getState();
+          const v2State = useAdvancedLayerStoreV2.getState();
+          const imageElements = v2State.getAllImageElements();
+          const selectedImage = imageElements.find((img: any) => img.id === selectedImageId);
           
           if (selectedImage && selectedImage.visible) {
             const anchorSize = 0.04; // INCREASED HITBOX: Same as in onPointerDown
