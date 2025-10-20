@@ -9,6 +9,7 @@ import { canvasPool } from '../utils/CanvasPool';
 import { geometryManager } from '../utils/GeometryManager';
 import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
+import { useApp } from '../App';
 import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { convertUVToPixel, convertPixelToUV, getCanvasDimensions } from '../utils/CoordinateUtils';
@@ -31,9 +32,6 @@ import SelectionVisualization from './SelectionVisualization';
 
 // Import domain stores
 import { useModelStore } from '../stores/domainStores';
-
-// Import legacy store for model sync
-import { useApp } from '../App';
 
 // Import types
 import { ModelData } from '../types/app';
@@ -802,19 +800,20 @@ export function ShirtRefactored({
   const updateModelTexture = useCallback((forceUpdate = false, updateDisplacement = false) => {
     const now = Date.now();
     
-    // CRITICAL FIX: Skip throttling for text dragging to ensure real-time updates
+    // CRITICAL FIX: Skip throttling for text and image dragging to ensure real-time updates
     const isTextDragging = (window as any).__textDragging;
-    if (!forceUpdate && !isTextDragging && now - lastTextureUpdateRef.current < TEXTURE_UPDATE_THROTTLE) {
+    const isImageDragging = (window as any).__imageDragging;
+    if (!forceUpdate && !isTextDragging && !isImageDragging && now - lastTextureUpdateRef.current < TEXTURE_UPDATE_THROTTLE) {
       console.log('🎨 updateModelTexture throttled - skipping update');
       return;
     }
     lastTextureUpdateRef.current = now;
     
-    console.log('🎨 updateModelTexture called with:', { forceUpdate, updateDisplacement, isTextDragging });
+    console.log('🎨 updateModelTexture called with:', { forceUpdate, updateDisplacement, isTextDragging, isImageDragging });
     
-    // CRITICAL FIX: Skip additional throttling for text dragging
+    // CRITICAL FIX: Skip additional throttling for text and image dragging
     const textureUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 200 : 100; // ms between texture updates
-    if (!forceUpdate && !isTextDragging && (window as any).lastTextureUpdateTime && (now - (window as any).lastTextureUpdateTime) < textureUpdateThrottle) {
+    if (!forceUpdate && !isTextDragging && !isImageDragging && (window as any).lastTextureUpdateTime && (now - (window as any).lastTextureUpdateTime) < textureUpdateThrottle) {
       console.log('🎨 Texture update throttled');
       return;
     }
@@ -4346,11 +4345,15 @@ const canvasDimensions = {
             
             console.log('🎨 Image tool: Click at UV:', { u: clickU, v: clickV });
             
-            // Check if click is on any image
-            const { importedImages, setSelectedImageId } = useApp.getState();
+            // Check if click is on any image - CRITICAL FIX: Use layer system data like text tool
+            const { setSelectedImageId } = useApp.getState();
+            const v2State = useAdvancedLayerStoreV2.getState();
+            const imageElements = v2State.getAllImageElements();
             let clickedImage: any = null;
             
-            for (const img of importedImages) {
+            console.log('🎨 Image tool: Checking', imageElements.length, 'image elements from layer system');
+            
+            for (const img of imageElements) {
               if (!img.visible) continue;
               
               // Check if click is within image bounds
@@ -4444,8 +4447,54 @@ const canvasDimensions = {
                 console.log('🎨 Image tool: Image is locked, cannot drag');
               }
             } else {
-              console.log('🎨 Image tool: No image clicked, deselecting');
-              setSelectedImageId(null);
+              // CRITICAL FIX: Add click-to-place functionality for images (like text tool)
+              console.log('🎨 Image tool: Clicked empty area - checking if image is selected');
+              
+              // CRITICAL: If image is already selected, don't show prompt - just deselect
+              const { selectedImageId: currentSelectedId } = useApp.getState();
+              if (currentSelectedId) {
+                console.log('🎨 Image tool: Deselecting current image (clicked empty area)');
+                setSelectedImageId(null);
+                return;
+              }
+              
+              // Show image selection prompt for click-to-place functionality
+              console.log('🎨 Image tool: No image at click position - showing image selection');
+              
+              // For now, we'll use a simple prompt to select from imported images
+              // In a full implementation, this would show a proper image selection UI
+              const { importedImages } = useApp.getState();
+              if (importedImages.length > 0) {
+                // Use the first available image for now (in real implementation, show selection UI)
+                const imageToPlace = importedImages[0];
+                console.log('🎨 Image tool: Placing image at click position:', imageToPlace.name);
+                
+                // Create new image at click position
+                const newImageData = {
+                  ...imageToPlace,
+                  id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  u: clickU,
+                  v: clickV,
+                  // Convert UV coordinates to pixel coordinates for layer system
+                  x: Math.floor(clickU * 2048),
+                  y: Math.floor(clickV * 2048)
+                };
+                
+                // Add to App.tsx
+                useApp.getState().addImportedImage(newImageData);
+                
+                // Add to layer system
+                const v2State = useAdvancedLayerStoreV2.getState();
+                v2State.addImageElementFromApp(newImageData);
+                
+                // Select the newly created image
+                setSelectedImageId(newImageData.id);
+                
+                console.log('🎨 Image tool: Image placed and selected:', newImageData.id);
+              } else {
+                console.log('🎨 Image tool: No imported images available for placement');
+                // In a full implementation, this would trigger image import dialog
+              }
             }
           }
         } else if (activeTool === 'shapes') {
@@ -5083,7 +5132,7 @@ const canvasDimensions = {
           newHeight = Math.max(minSize, Math.min(maxSize, newHeight));
           
           // Update image size and position
-          const { updateImportedImage } = useApp.getState();
+          const { updateImportedImage, composeLayers } = useApp.getState();
           if (resizeStart.imageId) {
             updateImportedImage(resizeStart.imageId, {
               uWidth: newWidth,
@@ -5091,6 +5140,32 @@ const canvasDimensions = {
               u: Math.max(0, Math.min(1, newU)),
               v: Math.max(0, Math.min(1, newV))
             });
+            
+            // CRITICAL FIX: Force immediate layer composition and texture update
+            console.log('🎨 Image resizing - Forcing immediate layer composition');
+            composeLayers(true); // Force layer composition
+            
+            // CRITICAL FIX: Trigger texture update with bypass throttling
+            console.log('🎨 Image resizing - Triggering texture update for visual feedback');
+            updateModelTexture(true, false); // Force update for real-time feedback
+            
+            // CRITICAL FIX: Force immediate material updates to ensure visual feedback
+            const currentModelScene = useApp.getState().modelScene;
+            if (currentModelScene) {
+              currentModelScene.traverse((child: any) => {
+                if (child.isMesh && child.material) {
+                  const mat = child.material;
+                  if (mat.map) {
+                    mat.map.needsUpdate = true;
+                    mat.map.version++;
+                    mat.needsUpdate = true;
+                  }
+                }
+              });
+              
+              // Force scene re-render
+              currentModelScene.parent?.updateMatrixWorld(true);
+            }
           }
         }
         return;
@@ -5394,12 +5469,38 @@ const canvasDimensions = {
           const newV = dragStart.imgV + deltaV;
           
           // Update image position
-          const { updateImportedImage } = useApp.getState();
+          const { updateImportedImage, composeLayers } = useApp.getState();
           if (dragStart.imageId) {
             updateImportedImage(dragStart.imageId, {
               u: Math.max(0, Math.min(1, newU)),
               v: Math.max(0, Math.min(1, newV))
             });
+            
+            // CRITICAL FIX: Force immediate layer composition and texture update
+            console.log('🎨 Image dragging - Forcing immediate layer composition');
+            composeLayers(true); // Force layer composition
+            
+            // CRITICAL FIX: Trigger texture update with bypass throttling
+            console.log('🎨 Image dragging - Triggering texture update for visual feedback');
+            updateModelTexture(true, false); // Force update for real-time feedback
+            
+            // CRITICAL FIX: Force immediate material updates to ensure visual feedback
+            const currentModelScene = useApp.getState().modelScene;
+            if (currentModelScene) {
+              currentModelScene.traverse((child: any) => {
+                if (child.isMesh && child.material) {
+                  const mat = child.material;
+                  if (mat.map) {
+                    mat.map.needsUpdate = true;
+                    mat.map.version++;
+                    mat.needsUpdate = true;
+                  }
+                }
+              });
+              
+              // Force scene re-render
+              currentModelScene.parent?.updateMatrixWorld(true);
+            }
           }
         }
         return;

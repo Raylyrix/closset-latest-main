@@ -2103,44 +2103,21 @@ try {
       )
     }));
     
-    // PERFORMANCE: Throttled live update (same as text system)
-    // This updates the composedCanvas and then refreshes the model texture
-    if (!(window as any).__imageUpdateThrottle) {
-      (window as any).__imageUpdateThrottle = {
-        lastUpdate: 0,
-        pendingUpdate: null
-      };
-    }
+    // CRITICAL FIX: Also update image in V2 layer system
+    const v2State = useAdvancedLayerStoreV2.getState();
+    v2State.updateImageElementFromApp(id, updates);
     
-    const throttle = (window as any).__imageUpdateThrottle;
-    const now = Date.now();
-    const throttleDelay = 16; // 60fps for smooth updates
+    // CRITICAL FIX: Immediate layer composition for real-time updates (same as text tool)
+    const { composeLayers } = get();
+    composeLayers(true); // Force layer composition
     
-    if (now - throttle.lastUpdate >= throttleDelay) {
-      // Update immediately (same as text)
-      throttle.lastUpdate = now;
-      setTimeout(() => {
-        const { composeLayers } = get();
-        composeLayers(true); // Force clear and redraw composedCanvas with updated image
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false); // Update model from composedCanvas
-        }
-      }, 10);
-    } else {
-      // Schedule delayed update
-      if (throttle.pendingUpdate) {
-        clearTimeout(throttle.pendingUpdate);
-      }
-      throttle.pendingUpdate = setTimeout(() => {
-        throttle.lastUpdate = Date.now();
-        const { composeLayers } = get();
-        composeLayers(true); // Force clear and redraw composedCanvas with updated image
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false);
-        }
-        throttle.pendingUpdate = null;
-      }, throttleDelay);
-    }
+    // Force texture update
+    setTimeout(() => {
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'image-element-updated' }
+      });
+      window.dispatchEvent(textureEvent);
+    }, 50);
   },
 
   removeImportedImage: (id: string) => {

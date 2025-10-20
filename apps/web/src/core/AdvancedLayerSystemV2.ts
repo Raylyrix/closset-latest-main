@@ -1336,7 +1336,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     // Enhanced image element management (compatible with App.tsx interface)
     addImageElementFromApp: (imageData: any, layerId?: string) => {
-      const id = Math.random().toString(36).slice(2);
+      const id = imageData.id || Math.random().toString(36).slice(2);
       const state = get();
       
       // Ensure we have a valid layer ID
@@ -1931,6 +1931,103 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           console.log(`🎨 Text element ${textEl.id} rendered and context restored`);
         }
         
+        // 🎨 NEW: Draw selection borders for selected text elements
+        const appState = useApp.getState();
+        if (appState.activeTextId && textElements.length > 0) {
+          const selectedTextEl = textElements.find(textEl => textEl.id === appState.activeTextId);
+          
+          if (selectedTextEl) {
+            console.log(`🎨 Drawing selection border for text element:`, {
+              id: selectedTextEl.id,
+              text: selectedTextEl.text,
+              position: { x: selectedTextEl.x, y: selectedTextEl.y }
+            });
+            
+            ctx.save();
+            
+            // Set up border styling
+            ctx.strokeStyle = '#007acc'; // Blue border matching UI theme
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]); // Dashed border pattern
+            ctx.globalAlpha = 1.0; // Full opacity for border
+            
+            // Set font for text measurement (same as text rendering)
+            const fontWeight = selectedTextEl.fontWeight || (selectedTextEl.bold ? 'bold' : 'normal');
+            const fontStyle = selectedTextEl.fontStyle || (selectedTextEl.italic ? 'italic' : 'normal');
+            ctx.font = `${fontStyle} ${fontWeight} ${selectedTextEl.fontSize}px ${selectedTextEl.fontFamily}`;
+            
+            // Apply letter spacing if specified
+            if (selectedTextEl.letterSpacing) {
+              ctx.letterSpacing = `${selectedTextEl.letterSpacing}px`;
+            }
+            
+            // Apply text transform for measurement
+            let displayText = selectedTextEl.text;
+            if (selectedTextEl.textTransform && selectedTextEl.textTransform !== 'none') {
+              switch (selectedTextEl.textTransform) {
+                case 'uppercase':
+                  displayText = selectedTextEl.text.toUpperCase();
+                  break;
+                case 'lowercase':
+                  displayText = selectedTextEl.text.toLowerCase();
+                  break;
+                case 'capitalize':
+                  displayText = selectedTextEl.text.replace(/\b\w/g, l => l.toUpperCase());
+                  break;
+              }
+            }
+            
+            // Measure text dimensions
+            const textMetrics = ctx.measureText(displayText);
+            const textPixelWidth = textMetrics.width;
+            const textPixelHeight = selectedTextEl.fontSize * 1.2; // Approximate text height
+            
+            // Calculate border position based on actual text alignment behavior
+            let borderX, borderY, borderWidth, borderHeight;
+            
+            if (selectedTextEl.align === 'left') {
+              // Left align: text starts at x, y
+              borderX = selectedTextEl.x;
+              borderY = selectedTextEl.y;
+              borderWidth = textPixelWidth;
+              borderHeight = textPixelHeight;
+            } else if (selectedTextEl.align === 'right') {
+              // Right align: text ends at x, y
+              borderX = selectedTextEl.x - textPixelWidth;
+              borderY = selectedTextEl.y;
+              borderWidth = textPixelWidth;
+              borderHeight = textPixelHeight;
+            } else {
+              // Center align: text is centered at x, y
+              borderX = selectedTextEl.x - (textPixelWidth / 2);
+              borderY = selectedTextEl.y;
+              borderWidth = textPixelWidth;
+              borderHeight = textPixelHeight;
+            }
+            
+            // Apply rotation if needed (same as text rendering)
+            if (selectedTextEl.rotation && selectedTextEl.rotation !== 0) {
+              ctx.translate(selectedTextEl.x, selectedTextEl.y);
+              ctx.rotate((selectedTextEl.rotation * Math.PI) / 180);
+              ctx.translate(-selectedTextEl.x, -selectedTextEl.y);
+            }
+            
+            // Draw the selection border
+            ctx.beginPath();
+            ctx.rect(borderX, borderY, borderWidth, borderHeight);
+            ctx.stroke();
+            
+            console.log(`🎨 Selection border drawn:`, {
+              border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
+              text: { x: selectedTextEl.x, y: selectedTextEl.y, width: textPixelWidth, height: textPixelHeight },
+              alignment: selectedTextEl.align,
+              calculation: `Border ${selectedTextEl.align} aligned at (${borderX}, ${borderY})`
+            });
+            
+            ctx.restore();
+          }
+        }
+        
         // Draw image elements
         const imageElements = layer.content.imageElements || [];
         for (const imageEl of imageElements) {
@@ -1961,14 +2058,96 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.translate(0, -imageEl.y * 2 - imageEl.height);
           }
           
-          // Create image element and draw it
-          const img = new Image();
-          img.onload = () => {
-            ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
-          };
-          img.src = imageEl.dataUrl || imageEl.src || '';
+          // CRITICAL FIX: Synchronous image rendering to ensure visibility
+          if (imageEl.dataUrl) {
+            // Create image element synchronously
+            const img = new Image();
+            img.src = imageEl.dataUrl;
+            
+            if (img.complete) {
+              // Image is already loaded, draw immediately
+              ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+              console.log('🎨 Image drawn synchronously:', imageEl.name);
+            } else {
+              // Image not loaded yet, use onload callback
+              img.onload = () => {
+                ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+                console.log('🎨 Image drawn after load:', imageEl.name);
+              };
+              img.onerror = () => {
+                console.warn('🎨 Failed to load image:', imageEl.name);
+                // Draw placeholder rectangle
+                ctx.fillStyle = 'rgba(200,200,200,0.5)';
+                ctx.fillRect(imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+                ctx.strokeStyle = 'rgba(100,100,100,0.8)';
+                ctx.strokeRect(imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+              };
+            }
+          } else if (imageEl.src) {
+            // Fallback to src URL
+            const img = new Image();
+            img.onload = () => {
+              ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+              console.log('🎨 Image drawn from src:', imageEl.name);
+            };
+            img.onerror = () => {
+              console.warn('🎨 Failed to load image from src:', imageEl.name);
+            };
+            img.src = imageEl.src;
+          } else {
+            // No image data, draw placeholder
+            console.warn('🎨 No image data for:', imageEl.name);
+            ctx.fillStyle = 'rgba(200,200,200,0.5)';
+            ctx.fillRect(imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+            ctx.strokeStyle = 'rgba(100,100,100,0.8)';
+            ctx.strokeRect(imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+          }
           
           ctx.restore();
+        }
+        
+        // CRITICAL FIX: Draw selection border for selected image elements (same as text tool)
+        const appStateForImage = useApp.getState();
+        const selectedImageId = appStateForImage.selectedImageId;
+        if (selectedImageId) {
+          const selectedImageEl = imageElements.find(el => el.id === selectedImageId);
+          if (selectedImageEl && selectedImageEl.visible) {
+            console.log('🎨 Drawing selection border for image:', selectedImageEl.name);
+            
+            ctx.save();
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            
+            // Calculate border dimensions (same as text tool)
+            const imagePixelWidth = selectedImageEl.width;
+            const imagePixelHeight = selectedImageEl.height;
+            
+            let borderX = selectedImageEl.x;
+            let borderY = selectedImageEl.y;
+            let borderWidth = imagePixelWidth;
+            let borderHeight = imagePixelHeight;
+            
+            // Apply rotation if needed (same as text rendering)
+            if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
+              ctx.translate(selectedImageEl.x, selectedImageEl.y);
+              ctx.rotate((selectedImageEl.rotation * Math.PI) / 180);
+              ctx.translate(-selectedImageEl.x, -selectedImageEl.y);
+            }
+            
+            // Draw the selection border
+            ctx.beginPath();
+            ctx.rect(borderX, borderY, borderWidth, borderHeight);
+            ctx.stroke();
+            
+            console.log(`🎨 Image selection border drawn:`, {
+              border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
+              image: { x: selectedImageEl.x, y: selectedImageEl.y, width: imagePixelWidth, height: imagePixelHeight },
+              calculation: `Border drawn at (${borderX}, ${borderY})`
+            });
+            
+            ctx.restore();
+          }
         }
         
         // Draw puff elements
