@@ -1568,42 +1568,78 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     updateTextElementFromApp: (id: string, patch: Partial<TextElement>) => {
       set(state => ({
-        layers: state.layers.map(layer => ({
-          ...layer,
-          content: {
-            ...layer.content,
-            textElements: (layer.content.textElements || []).map(text => {
-              if (text.id !== id) return text;
-              
-              // CRITICAL FIX: Auto-sync UV coordinates when pixel coordinates are updated
-              let updatedText = { ...text, ...patch };
-              
-              // If pixel coordinates are updated, recalculate UV coordinates
-              if (patch.x !== undefined || patch.y !== undefined) {
-                const composedCanvas = useApp.getState().composedCanvas;
-                const canvasWidth = composedCanvas?.width || 4096;
-                const canvasHeight = composedCanvas?.height || 4096;
+        layers: state.layers.map(layer => {
+          // Check if this layer contains the text element being updated
+          const hasTextElement = layer.content.textElements?.some(text => text.id === id);
+          
+          if (!hasTextElement) return layer;
+          
+          return {
+            ...layer,
+            content: {
+              ...layer.content,
+              textElements: (layer.content.textElements || []).map(text => {
+                if (text.id !== id) return text;
                 
-                const newX = patch.x !== undefined ? patch.x : text.x;
-                const newY = patch.y !== undefined ? patch.y : text.y;
+                // CRITICAL FIX: Auto-sync coordinates bidirectionally
+                let updatedText = { ...text, ...patch };
                 
-                // Convert pixel coordinates back to UV coordinates
-                updatedText.u = newX / canvasWidth;
-                updatedText.v = 1 - (newY / canvasHeight); // V is flipped in canvas space
+                // If pixel coordinates are updated, recalculate UV coordinates
+                if (patch.x !== undefined || patch.y !== undefined) {
+                  const composedCanvas = useApp.getState().composedCanvas;
+                  const canvasWidth = composedCanvas?.width || 4096;
+                  const canvasHeight = composedCanvas?.height || 4096;
+                  
+                  const newX = patch.x !== undefined ? patch.x : text.x;
+                  const newY = patch.y !== undefined ? patch.y : text.y;
+                  
+                  // Convert pixel coordinates back to UV coordinates
+                  updatedText.u = newX / canvasWidth;
+                  updatedText.v = 1 - (newY / canvasHeight); // V is flipped in canvas space
+                  
+                  console.log('🎨 Auto-synced UV coordinates:', {
+                    pixel: { x: newX, y: newY },
+                    uv: { u: updatedText.u, v: updatedText.v },
+                    canvasSize: { width: canvasWidth, height: canvasHeight }
+                  });
+                }
                 
-                console.log('🎨 Auto-synced UV coordinates:', {
-                  pixel: { x: newX, y: newY },
-                  uv: { u: updatedText.u, v: updatedText.v },
-                  canvasSize: { width: canvasWidth, height: canvasHeight }
-                });
-              }
-              
-              return updatedText;
-            })
-          },
-          updatedAt: new Date()
-        }))
+                // CRITICAL FIX: If UV coordinates are updated, recalculate pixel coordinates
+                if (patch.u !== undefined || patch.v !== undefined) {
+                  const composedCanvas = useApp.getState().composedCanvas;
+                  const canvasWidth = composedCanvas?.width || 4096;
+                  const canvasHeight = composedCanvas?.height || 4096;
+                  
+                  const newU = patch.u !== undefined ? patch.u : text.u;
+                  const newV = patch.v !== undefined ? patch.v : text.v;
+                  
+                  // Convert UV coordinates to pixel coordinates
+                  updatedText.x = Math.floor(newU * canvasWidth);
+                  updatedText.y = Math.floor((1 - newV) * canvasHeight); // V is flipped in canvas space
+                  
+                  console.log('🎨 Auto-synced pixel coordinates:', {
+                    uv: { u: newU, v: newV },
+                    pixel: { x: updatedText.x, y: updatedText.y },
+                    canvasSize: { width: canvasWidth, height: canvasHeight }
+                  });
+                }
+                
+                return updatedText;
+              })
+            },
+            updatedAt: new Date()
+          };
+        })
       }));
+      
+      // CRITICAL FIX: Dispatch texture update event for immediate visual feedback
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'text-element-position-updated-v2', textId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after text position change (V2)');
+      }, 10);
       
       console.log('🎨 Updated text element via App interface:', id, patch);
     },
@@ -1679,6 +1715,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       if (!ctx) return null;
       
+      // CRITICAL FIX: Clear the canvas completely before drawing
+      ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
+      console.log('🎨 Canvas cleared before composition');
+      
       // CRITICAL: Preserve the base model texture first at FULL opacity
       const appState = useApp.getState();
       if (appState.baseTexture) {
@@ -1737,7 +1777,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         
         // Draw text elements
         const textElements = layer.content.textElements || [];
+        console.log(`🎨 Rendering ${textElements.length} text elements for layer ${layer.id}`);
+        
         for (const textEl of textElements) {
+          console.log(`🎨 Rendering text element:`, {
+            id: textEl.id,
+            text: textEl.text,
+            position: { x: textEl.x, y: textEl.y },
+            uv: { u: textEl.u, v: textEl.v },
+            fontSize: textEl.fontSize,
+            color: textEl.color
+          });
+          
           ctx.save();
           
           // Set text properties with enhanced typography support
@@ -1844,7 +1895,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
                   ctx.fillText(displayText, textEl.x, textEl.y);
                 });
               } else {
+                console.log(`🎨 Drawing text at position:`, { x: textEl.x, y: textEl.y, text: displayText });
                 ctx.fillText(displayText, textEl.x, textEl.y);
+                console.log(`🎨 Text drawn successfully`);
               }
             }
             
@@ -1875,6 +1928,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }
           
           ctx.restore();
+          console.log(`🎨 Text element ${textEl.id} rendered and context restored`);
         }
         
         // Draw image elements
@@ -2438,42 +2492,58 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     // Accessibility Management Methods
     initializeAccessibility: () => {
       try {
-        AccessibilityManager.initialize();
-        console.log('♿ Accessibility initialized in V2 system');
+        console.log('♿ Attempting to initialize AccessibilityManager...');
+        
+        // Check if AccessibilityManager is available and has the initialize method
+        if (AccessibilityManager && typeof AccessibilityManager.initialize === 'function') {
+          AccessibilityManager.initialize();
+          console.log('♿ Accessibility initialized in V2 system');
+        } else {
+          console.warn('♿ AccessibilityManager not available or initialize method missing - skipping initialization');
+        }
       } catch (error) {
-        console.error('Failed to initialize AccessibilityManager:', error);
+        console.warn('♿ Failed to initialize AccessibilityManager (non-critical):', error);
       }
     },
 
     registerTextElementForAccessibility: (textElement: TextElement) => {
       try {
-        AccessibilityManager.registerTextElement(textElement);
+        if (AccessibilityManager && typeof AccessibilityManager.registerTextElement === 'function') {
+          AccessibilityManager.registerTextElement(textElement);
+        }
       } catch (error) {
-        console.error('Failed to register text element for accessibility:', error);
+        console.warn('♿ Failed to register text element for accessibility (non-critical):', error);
       }
     },
 
     unregisterTextElementForAccessibility: (textId: string) => {
       try {
-        AccessibilityManager.unregisterTextElement(textId);
+        if (AccessibilityManager && typeof AccessibilityManager.unregisterTextElement === 'function') {
+          AccessibilityManager.unregisterTextElement(textId);
+        }
       } catch (error) {
-        console.error('Failed to unregister text element for accessibility:', error);
+        console.warn('♿ Failed to unregister text element for accessibility (non-critical):', error);
       }
     },
 
     updateAccessibilitySettings: (settings: any) => {
       try {
-        AccessibilityManager.updateSettings(settings);
+        if (AccessibilityManager && typeof AccessibilityManager.updateSettings === 'function') {
+          AccessibilityManager.updateSettings(settings);
+        }
       } catch (error) {
-        console.error('Failed to update accessibility settings:', error);
+        console.warn('♿ Failed to update accessibility settings (non-critical):', error);
       }
     },
 
     getAccessibilityReport: () => {
       try {
-        return AccessibilityManager.generateAccessibilityReport();
+        if (AccessibilityManager && typeof AccessibilityManager.generateAccessibilityReport === 'function') {
+          return AccessibilityManager.generateAccessibilityReport();
+        }
+        return null;
       } catch (error) {
-        console.error('Failed to generate accessibility report:', error);
+        console.warn('♿ Failed to generate accessibility report (non-critical):', error);
         return null;
       }
     }

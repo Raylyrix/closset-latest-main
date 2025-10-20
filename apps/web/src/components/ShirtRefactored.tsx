@@ -801,17 +801,20 @@ export function ShirtRefactored({
   
   const updateModelTexture = useCallback((forceUpdate = false, updateDisplacement = false) => {
     const now = Date.now();
-    if (!forceUpdate && now - lastTextureUpdateRef.current < TEXTURE_UPDATE_THROTTLE) {
+    
+    // CRITICAL FIX: Skip throttling for text dragging to ensure real-time updates
+    const isTextDragging = (window as any).__textDragging;
+    if (!forceUpdate && !isTextDragging && now - lastTextureUpdateRef.current < TEXTURE_UPDATE_THROTTLE) {
       console.log('🎨 updateModelTexture throttled - skipping update');
       return;
     }
     lastTextureUpdateRef.current = now;
     
-    console.log('🎨 updateModelTexture called with:', { forceUpdate, updateDisplacement });
+    console.log('🎨 updateModelTexture called with:', { forceUpdate, updateDisplacement, isTextDragging });
     
-    // PERFORMANCE: Additional throttling for low-end devices
+    // CRITICAL FIX: Skip additional throttling for text dragging
     const textureUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 200 : 100; // ms between texture updates
-    if (!forceUpdate && (window as any).lastTextureUpdateTime && (now - (window as any).lastTextureUpdateTime) < textureUpdateThrottle) {
+    if (!forceUpdate && !isTextDragging && (window as any).lastTextureUpdateTime && (now - (window as any).lastTextureUpdateTime) < textureUpdateThrottle) {
       console.log('🎨 Texture update throttled');
       return;
     }
@@ -900,9 +903,15 @@ export function ShirtRefactored({
             }
             
             // Always update texture to ensure changes are applied
-              mat.map = texture;
+            mat.map = texture;
             mat.needsUpdate = true;
             mat.map.needsUpdate = true;
+            
+            // CRITICAL FIX: Force immediate texture update
+            if (mat.map) {
+              mat.map.needsUpdate = true;
+              mat.map.version++;
+            }
             
             // Apply adaptive material properties based on preset
             mat.transparent = false;
@@ -942,17 +951,15 @@ export function ShirtRefactored({
       }
     });
     
-    // PERFORMANCE: Apply updates in batches to reduce GPU pressure
+    // CRITICAL FIX: Apply material updates immediately for visual feedback
     if (materialUpdates.length > 0) {
-        console.log(`🎨 Applying ${materialUpdates.length} batched material updates`);
-      requestAnimationFrame(() => {
+        console.log(`🎨 Applying ${materialUpdates.length} immediate material updates`);
         materialUpdates.forEach(({ material }) => {
           if (material && material.needsUpdate !== undefined) {
             material.needsUpdate = true;
-            console.log('🎨 Material updated:', material);
+            console.log('🎨 Material updated immediately:', material);
           }
         });
-      });
     } else {
       console.log('🎨 No material updates needed');
     }
@@ -972,6 +979,13 @@ export function ShirtRefactored({
     }
     
     console.log('🎨 Model texture updated');
+    
+    // CRITICAL FIX: Force scene re-render to ensure visual update
+    if (currentModelScene && currentModelScene.parent) {
+      console.log('🎨 Forcing scene re-render for visual update');
+      // Trigger a re-render by updating the scene
+      currentModelScene.parent.updateMatrixWorld(true);
+    }
   }, [modelScene, createPuffDisplacementMap, createPuffNormalMap, updateModelWithPuffMaps]);
 
   console.log('🎯 ShirtRefactored: updateModelTexture function defined successfully');
@@ -3884,90 +3898,36 @@ export function ShirtRefactored({
               const txtU = txt.u || 0.5;
               const txtV = txt.v || 0.5;
               
-              // CRITICAL: Use standardized coordinate conversion
+              // Use standardized coordinate conversion
               const canvasDimensions = getCanvasDimensions();
-              const textPixelCoords = convertUVToPixel({ u: txtU, v: txtV }, canvasDimensions);
-              const x = textPixelCoords.x;
-              const y = textPixelCoords.y;
               
-              // CRITICAL: Account for rotation - transform click point to text's local coordinate system
-              const rotation = txt.rotation || 0;
-              let localClickU = clickU;
-              let localClickV = clickV;
-              
-              if (rotation !== 0) {
-                // Convert click UV to pixels
-                const clickPixelX = clickU * canvasDimensions.width;
-                const clickPixelY = (1 - clickV) * canvasDimensions.height;
-                
-                // Translate to text origin
-                const relX = clickPixelX - x;
-                const relY = clickPixelY - y;
-                
-                // Rotate by -rotation to get into text's local space
-                const cosR = Math.cos(-rotation);
-                const sinR = Math.sin(-rotation);
-                const localX = relX * cosR - relY * sinR;
-                const localY = relX * sinR + relY * cosR;
-                
-                // Convert back to UV coordinates
-                localClickU = (x + localX) / canvasDimensions.width;
-                localClickV = 1 - ((y + localY) / canvasDimensions.height);
-              }
-              
-              // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
-              // Calculate border center position based on text alignment (IN PIXELS on the translated canvas)
-              let borderXPixels = 0;
-              if (txt.align === 'left') {
-                borderXPixels = textPixelWidth / 2; // Text starts at 0, so border center is at width/2
-              } else if (txt.align === 'right') {
-                borderXPixels = -textPixelWidth / 2; // Text ends at 0, so border center is at -width/2
-              } else {
-                borderXPixels = 0; // Center alignment (default)
-              }
-              
-              // Border Y position (textBaseline is 'top', so border top is at 0, IN PIXELS)
-              const borderYPixels = textPixelHeight / 2; // Center border vertically
-              
-              // CRITICAL: Calculate ABSOLUTE pixel positions of border corners (BEFORE translation is applied)
-              // In App.tsx, anchors are drawn AFTER ctx.translate(x, y), so:
-              // Anchor absolute pixel = x + (borderX ± textWidth/2), y + (borderY ± textHeight/2)
-              // Then convert to UV
+              // SIMPLIFIED hitbox detection for better reliability
               const textWidth = textPixelWidth / canvasDimensions.width;
               const textHeight = textPixelHeight / canvasDimensions.height;
-              const borderX = borderXPixels / canvasDimensions.width;
-              const borderY = borderYPixels / canvasDimensions.height;
               
-              console.log('🎨 Checking text:', txt.text, 'at UV:', txtU, txtV, 'ACTUAL bounds:', textWidth, 'x', textHeight, 'Border offset:', borderX, borderY);
+              console.log('🎨 Checking text:', txt.text, 'at UV:', txtU, txtV, 'bounds:', textWidth, 'x', textHeight);
               
-              // REDUCED hitbox to avoid overlapping anchors - only 1.1x instead of 1.5x
-              const hitboxMultiplier = 1.1;
-              
-              // CRITICAL: Calculate border center in PIXEL space, then convert to UV
-              const borderCenterPixelX = x + borderXPixels;
-              const borderCenterPixelY = y + borderYPixels;
-              const centerU = borderCenterPixelX / canvasDimensions.width;
-              const centerV = 1 - (borderCenterPixelY / canvasDimensions.height); // Flip Y when converting to UV
+              // Use a more generous hitbox multiplier for easier clicking
+              const hitboxMultiplier = 1.5;
               
               const hitboxWidthUV = textWidth * hitboxMultiplier;
               const hitboxHeightUV = textHeight * hitboxMultiplier;
               
               console.log('🎨 Hitbox check for text "' + txt.text + '":');
-              console.log('  Original Click UV:', clickU, clickV);
-              console.log('  Local Click UV (rotated):', localClickU, localClickV);
-              console.log('  Text center UV:', centerU, centerV);
+              console.log('  Click UV:', clickU, clickV);
+              console.log('  Text center UV:', txtU, txtV);
               console.log('  Hitbox size UV:', hitboxWidthUV, hitboxHeightUV);
-              console.log('  Rotation:', rotation, 'radians =', (rotation * 180 / Math.PI).toFixed(1), 'degrees');
               console.log('  Hitbox bounds:', 
-                'U:', centerU - hitboxWidthUV/2, 'to', centerU + hitboxWidthUV/2,
-                'V:', centerV - hitboxHeightUV/2, 'to', centerV + hitboxHeightUV/2
+                'U:', txtU - hitboxWidthUV/2, 'to', txtU + hitboxWidthUV/2,
+                'V:', txtV - hitboxHeightUV/2, 'to', txtV + hitboxHeightUV/2
               );
               
+              // Simple hitbox check without rotation complexity
               if (
-                localClickU >= centerU - hitboxWidthUV / 2 &&
-                localClickU <= centerU + hitboxWidthUV / 2 &&
-                localClickV >= centerV - hitboxHeightUV / 2 &&
-                localClickV <= centerV + hitboxHeightUV / 2
+                clickU >= txtU - hitboxWidthUV / 2 &&
+                clickU <= txtU + hitboxWidthUV / 2 &&
+                clickV >= txtV - hitboxHeightUV / 2 &&
+                clickV <= txtV + hitboxHeightUV / 2
               ) {
                 console.log('✅ HIT! Found clicked text:', txt.text);
                 clickedText = txt;
@@ -5379,7 +5339,7 @@ const canvasDimensions = {
           console.log('🎨 Text dragging - New pos (after snap):', { newU, newV });
           
           // Update text position (same as image tool - with throttling)
-          const { updateTextElement } = useApp.getState();
+          const { updateTextElement, composeLayers } = useApp.getState();
           if (dragStart.textId) {
             console.log('🎨 Text dragging - Calling updateTextElement with textId:', dragStart.textId);
             updateTextElement(dragStart.textId, {
@@ -5387,9 +5347,31 @@ const canvasDimensions = {
               v: Math.max(0, Math.min(1, newV))
             });
             
-            // CRITICAL FIX: Trigger texture update to reflect visual changes
+            // CRITICAL FIX: Force immediate layer composition and texture update
+            console.log('🎨 Text dragging - Forcing immediate layer composition');
+            composeLayers(true); // Force layer composition
+            
+            // CRITICAL FIX: Trigger texture update with bypass throttling
             console.log('🎨 Text dragging - Triggering texture update for visual feedback');
             updateModelTexture(true, false); // Force update for real-time feedback
+            
+            // CRITICAL FIX: Force immediate material updates to ensure visual feedback
+            const currentModelScene = useApp.getState().modelScene;
+            if (currentModelScene) {
+              currentModelScene.traverse((child: any) => {
+                if (child.isMesh && child.material) {
+                  const mat = child.material;
+                  if (mat.map) {
+                    mat.map.needsUpdate = true;
+                    mat.map.version++;
+                    mat.needsUpdate = true;
+                  }
+                }
+              });
+              
+              // Force scene re-render
+              currentModelScene.parent?.updateMatrixWorld(true);
+            }
           } else {
             console.error('🎨 Text dragging - NO textId in dragStart!');
           }
