@@ -4363,9 +4363,14 @@ const canvasDimensions = {
               const imgWidth = img.uWidth || 0.25;
               const imgHeight = img.uHeight || 0.25;
               
+              // CRITICAL FIX: Account for UV coordinate system inversion
+              // Three.js UV coordinates have Y=0 at bottom, but our hitbox detection expects Y=0 at top
+              // We need to flip the V coordinate for proper hitbox detection
+              const flippedV = 1 - imgV; // Flip V coordinate for hitbox detection
+              
               // Calculate top-left UV coordinates for hitbox detection
               const topLeftU = imgU - (imgWidth / 2);
-              const topLeftV = imgV - (imgHeight / 2);
+              const topLeftV = flippedV - (imgHeight / 2);
               const bottomRightU = topLeftU + imgWidth;
               const bottomRightV = topLeftV + imgHeight;
               

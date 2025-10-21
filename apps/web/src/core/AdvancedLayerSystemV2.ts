@@ -1430,7 +1430,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         pixel: { x: pixelX, y: pixelY, width: pixelWidth, height: pixelHeight },
         canvasSize: canvasSize,
         layerId: targetLayerId,
-        allLayers: get().layers.map(l => ({ id: l.id, name: l.name, type: l.type, visible: l.visible }))
+        allLayers: get().layers.map(l => ({ id: l.id, name: l.name, type: l.type, visible: l.visible })),
+        layerCreationTriggered: targetLayerId !== layerId,
+        originalLayerId: layerId,
+        finalLayerId: targetLayerId
       });
       
       return id;
@@ -2167,6 +2170,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.translate(0, -imageEl.y * 2 - imageEl.height);
           }
           
+          // CRITICAL FIX: Handle UV coordinate system inversion for Three.js compatibility
+          // Three.js UV coordinates have Y=0 at bottom, Canvas has Y=0 at top
+          // We need to flip the Y coordinate for proper texture mapping
+          const imageY = CANVAS_CONFIG.COMPOSED.height - imageEl.y - imageEl.height;
+          
           // CRITICAL FIX: Synchronous image rendering to ensure visibility
           if (imageEl.dataUrl) {
             // Create image element synchronously
@@ -2175,21 +2183,23 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             
             if (img.complete) {
               // Image is already loaded, draw immediately
-              ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+              // CRITICAL FIX: Use corrected Y coordinate for proper texture mapping
+              ctx.drawImage(img, imageEl.x, imageY, imageEl.width, imageEl.height);
               console.log('🎨 Image drawn synchronously:', imageEl.name);
             } else {
               // Image not loaded yet, use onload callback
               img.onload = () => {
-                ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+                // CRITICAL FIX: Use corrected Y coordinate for proper texture mapping
+                ctx.drawImage(img, imageEl.x, imageY, imageEl.width, imageEl.height);
                 console.log('🎨 Image drawn after load:', imageEl.name);
               };
               img.onerror = () => {
                 console.warn('🎨 Failed to load image:', imageEl.name);
                 // Draw placeholder rectangle
                 ctx.fillStyle = 'rgba(200,200,200,0.5)';
-                ctx.fillRect(imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+                ctx.fillRect(imageEl.x, imageY, imageEl.width, imageEl.height);
                 ctx.strokeStyle = 'rgba(100,100,100,0.8)';
-                ctx.strokeRect(imageEl.x, imageEl.y, imageEl.width, imageEl.height);
+                ctx.strokeRect(imageEl.x, imageY, imageEl.width, imageEl.height);
               };
             }
           } else if (imageEl.src) {
@@ -2232,9 +2242,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.globalAlpha = 1.0; // Full opacity for border
             
             // CRITICAL FIX: Use the same pixel coordinates as image rendering
-            // Images are rendered using imageEl.x, imageEl.y, imageEl.width, imageEl.height
+            // Images are rendered using corrected Y coordinate for UV system compatibility
             const borderX = selectedImageEl.x;
-            const borderY = selectedImageEl.y;
+            const borderY = CANVAS_CONFIG.COMPOSED.height - selectedImageEl.y - selectedImageEl.height;
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
