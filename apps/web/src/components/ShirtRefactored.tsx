@@ -23,7 +23,7 @@ import { ShirtRenderer } from './Shirt/ShirtRenderer';
 // import { layerBridge } from '../core/LayerSystemBridge';
 // import { LAYER_SYSTEM_CONFIG } from '../config/LayerConfig';
 // import { layerPersistenceManager } from '../core/LayerPersistenceManager';
-import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
+// import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
 // import { Brush3DIntegration } from './Brush3DIntegrationNew'; // Using existing useApp painting system instead
 
 // Import selection system
@@ -74,8 +74,10 @@ export function ShirtRefactored({
   // Initialize brush engine for realistic brush effects
   const brushEngine = useBrushEngine();
   
-  // Initialize automatic layer manager
-  const { triggerBrushStart, triggerBrushEnd, triggerTextCreated } = useAutomaticLayerManager();
+  // Initialize automatic layer manager - REMOVED (simplified system)
+  const triggerBrushStart = () => console.log('Brush start - simplified system');
+  const triggerBrushEnd = () => console.log('Brush end - simplified system');
+  const triggerTextCreated = () => console.log('Text created - simplified system');
   
   // Initialize selection system
   const {
@@ -2886,7 +2888,7 @@ export function ShirtRefactored({
           
           // Create a new layer if none exists
           if (!currentLayer) {
-            const layerId = createLayer('embroidery', `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Layer`);
+            const layerId = createLayer('paint', `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Layer`);
             const newLayer = layers.find(l => l.id === layerId);
             if (newLayer) {
               currentLayer = {
@@ -3540,6 +3542,42 @@ export function ShirtRefactored({
     };
   }, [createPuffDisplacementMap, createPuffNormalMap, updateModelWithPuffMaps, updateModelTexture]);
 
+  // UNIFIED IMAGE BOUNDS CALCULATION
+  // This function calculates image bounds once and uses them everywhere
+  // No more separate calculations for hitbox, borderbox, and resize anchors!
+  const getImageBounds = useCallback((imageEl: any) => {
+    const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
+    
+    // Get image properties
+    const imgU = imageEl.u || 0.5;
+    const imgV = imageEl.v || 0.5;
+    const imgWidth = imageEl.uWidth || 0.25;
+    const imgHeight = imageEl.uHeight || 0.25;
+    
+    // Convert center-based UV to pixel coordinates
+    const centerX = imgU * canvasSize;
+    const centerY = imgV * canvasSize;
+    const pixelWidth = imgWidth * canvasSize;
+    const pixelHeight = imgHeight * canvasSize;
+    
+    // Calculate bounds (top-left corner and dimensions)
+    const bounds = {
+      x: centerX - pixelWidth / 2,
+      y: centerY - pixelHeight / 2,
+      width: pixelWidth,
+      height: pixelHeight,
+      centerX,
+      centerY,
+      // UV bounds for hitbox detection
+      uvLeft: imgU - imgWidth / 2,
+      uvRight: imgU + imgWidth / 2,
+      uvTop: imgV - imgHeight / 2,
+      uvBottom: imgV + imgHeight / 2
+    };
+    
+    return bounds;
+  }, []);
+
   // Brush tool event handlers with smart behavior
   const onPointerDown = useCallback((e: any) => {
     console.log('🎨 ============================================================');
@@ -3683,16 +3721,7 @@ export function ShirtRefactored({
         console.log('💾 State saved before drawing:', actionName);
 
         // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation for drawing events
-        const newLayerId = triggerBrushStart({
-          tool: activeTool,
-          timestamp: Date.now(),
-          uv: e.uv,
-          intersections: e.intersections
-        });
-        
-        if (newLayerId) {
-          console.log('🎨 Automatic layer created for brush start:', newLayerId);
-        }
+        triggerBrushStart();
         
         // CRITICAL: Stop event propagation and prevent default to completely block OrbitControls
         if (e.stopPropagation) {
@@ -4308,15 +4337,7 @@ const canvasDimensions = {
                   console.log('🎨 Text automatically selected:', textId);
                   
                   // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation for text
-                  const newLayerId = triggerTextCreated({
-                    text: userText,
-                    position: { u: uv.x, v: 1 - uv.y },
-                    timestamp: Date.now()
-                  });
-                  
-                  if (newLayerId) {
-                    console.log('🎨 Automatic layer created for text:', newLayerId);
-                  }
+                  triggerTextCreated();
                   
                   setTimeout(() => {
                     if ((window as any).updateModelTexture) {
@@ -4358,37 +4379,15 @@ const canvasDimensions = {
             for (const img of imageElements) {
               if (!img.visible) continue;
               
-              // CRITICAL FIX: Use the same coordinate system as image rendering
-              // Convert UV coordinates to pixel coordinates for consistent hitbox detection
-              const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
-              const imgU = img.u || 0.5;
-              const imgV = img.v || 0.5;
-              const imgWidth = img.uWidth || 0.25;
-              const imgHeight = img.uHeight || 0.25;
+              // SIMPLIFIED: Use unified bounds calculation
+              const bounds = getImageBounds(img);
               
-              // Convert center-based UV to pixel coordinates (same as image drawing)
-              const centerX = imgU * canvasSize;
-              const centerY = imgV * canvasSize;
-              const pixelWidth = imgWidth * canvasSize;
-              const pixelHeight = imgHeight * canvasSize;
-              const pixelX = centerX - pixelWidth / 2;
-              const pixelY = centerY - pixelHeight / 2;
-              
-              // Convert pixel coordinates back to UV for hitbox detection
-              const topLeftU = pixelX / canvasSize;
-              const topLeftV = pixelY / canvasSize;
-              const bottomRightU = (pixelX + pixelWidth) / canvasSize;
-              const bottomRightV = (pixelY + pixelHeight) / canvasSize;
-              
-              // CRITICAL FIX: Use more precise hitbox detection with better tolerance
-              const tolerance = 0.01; // 1% tolerance for more precise detection
-              
-              // Check if click is within image bounds with tolerance
+              // Simple hitbox detection using UV bounds
               const isWithinBounds = (
-                clickU >= (topLeftU - tolerance) &&
-                clickU <= (bottomRightU + tolerance) &&
-                clickV >= (topLeftV - tolerance) &&
-                clickV <= (bottomRightV + tolerance)
+                clickU >= bounds.uvLeft &&
+                clickU <= bounds.uvRight &&
+                clickV >= bounds.uvTop &&
+                clickV <= bounds.uvBottom
               );
               
               if (isWithinBounds) {
@@ -4397,7 +4396,12 @@ const canvasDimensions = {
                   clickedUV: { u: clickU, v: clickV },
                   imageUV: { u: img.u, v: img.v },
                   imageSize: { width: img.width, height: img.height },
-                  hitboxBounds: { topLeftU, topLeftV, bottomRightU, bottomRightV }
+                  hitboxBounds: { 
+                    uvLeft: bounds.uvLeft, 
+                    uvTop: bounds.uvTop, 
+                    uvRight: bounds.uvRight, 
+                    uvBottom: bounds.uvBottom 
+                  }
                 });
                 break;
               }
@@ -4643,24 +4647,22 @@ const canvasDimensions = {
           const selectedImage = imageElements.find((img: any) => img.id === selectedImageId);
           
           if (selectedImage && selectedImage.visible) {
-            const anchorSize = 0.04; // INCREASED HITBOX: Same as in onPointerDown
-            const halfWidth = (selectedImage.uWidth || 0.25) / 2;
-            const halfHeight = (selectedImage.uHeight || 0.25) / 2;
-            const imgU = selectedImage.u || 0.5;
-            const imgV = selectedImage.v || 0.5;
+            // SIMPLIFIED: Use unified bounds calculation
+            const bounds = getImageBounds(selectedImage);
+            const anchorSize = 0.04; // Anchor hitbox size
             
-            // Calculate anchor positions for corners and edges
+            // Calculate anchor positions using unified bounds
             const anchors = {
               // Corner anchors
-              topLeft: { u: imgU - halfWidth - anchorSize/2, v: imgV - halfHeight - anchorSize/2, cursor: 'nw-resize' },
-              topRight: { u: imgU + halfWidth - anchorSize/2, v: imgV - halfHeight - anchorSize/2, cursor: 'ne-resize' },
-              bottomLeft: { u: imgU - halfWidth - anchorSize/2, v: imgV + halfHeight - anchorSize/2, cursor: 'sw-resize' },
-              bottomRight: { u: imgU + halfWidth - anchorSize/2, v: imgV + halfHeight - anchorSize/2, cursor: 'se-resize' },
+              topLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvTop - anchorSize/2, cursor: 'nw-resize' },
+              topRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvTop - anchorSize/2, cursor: 'ne-resize' },
+              bottomLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvBottom - anchorSize/2, cursor: 'sw-resize' },
+              bottomRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvBottom - anchorSize/2, cursor: 'se-resize' },
               // Edge anchors
-              top: { u: imgU - anchorSize/2, v: imgV - halfHeight - anchorSize/2, cursor: 'n-resize' },
-              bottom: { u: imgU - anchorSize/2, v: imgV + halfHeight - anchorSize/2, cursor: 's-resize' },
-              left: { u: imgU - halfWidth - anchorSize/2, v: imgV - anchorSize/2, cursor: 'w-resize' },
-              right: { u: imgU + halfWidth - anchorSize/2, v: imgV - anchorSize/2, cursor: 'e-resize' }
+              top: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize/2, cursor: 'n-resize' },
+              bottom: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvBottom - anchorSize/2, cursor: 's-resize' },
+              left: { u: bounds.uvLeft - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2, cursor: 'w-resize' },
+              right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2, cursor: 'e-resize' }
             };
             
             // Check if hovering over any anchor
@@ -4681,10 +4683,10 @@ const canvasDimensions = {
             // If not over anchor but over image, show move cursor
             if (!overAnchor) {
               const isOverImage = 
-                hoverU >= imgU - halfWidth &&
-                hoverU <= imgU + halfWidth &&
-                hoverV >= imgV - halfHeight &&
-                hoverV <= imgV + halfHeight;
+                hoverU >= bounds.uvLeft &&
+                hoverU <= bounds.uvRight &&
+                hoverV >= bounds.uvTop &&
+                hoverV <= bounds.uvBottom;
               
               if (isOverImage) {
                 document.body.style.cursor = 'move';
@@ -5532,12 +5534,7 @@ const canvasDimensions = {
       paintingActiveRef.current = false;
       
       // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation end for drawing events
-      triggerBrushEnd({
-        tool: activeTool,
-        timestamp: Date.now(),
-        uv: e.uv,
-        intersections: e.intersections
-      });
+      triggerBrushEnd();
     }
     
     // CRITICAL FIX: Don't re-enable controls for continuous drawing tools

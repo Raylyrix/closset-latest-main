@@ -2220,7 +2220,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           ctx.restore();
         }
         
-        // CRITICAL FIX: Draw selection border for selected image elements (same as text tool)
+        // CRITICAL FIX: Draw selection border for selected image elements (unified bounds)
         const appStateForImage = useApp.getState();
         const selectedImageId = appStateForImage.selectedImageId;
         if (selectedImageId) {
@@ -2236,12 +2236,26 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.setLineDash([5, 5]); // Dashed border pattern
             ctx.globalAlpha = 1.0; // Full opacity for border
             
-            // CRITICAL FIX: Use the same pixel coordinates as image rendering
-            // Images are rendered using corrected Y coordinate for UV system compatibility
-            const borderX = selectedImageEl.x;
-            const borderY = CANVAS_CONFIG.COMPOSED.height - selectedImageEl.y - selectedImageEl.height;
-            const borderWidth = selectedImageEl.width;
-            const borderHeight = selectedImageEl.height;
+            // UNIFIED BOUNDS: Use the same calculation as image rendering
+            const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
+            const imgU = selectedImageEl.u || 0.5;
+            const imgV = selectedImageEl.v || 0.5;
+            const imgWidth = selectedImageEl.uWidth || 0.25;
+            const imgHeight = selectedImageEl.uHeight || 0.25;
+            
+            // Convert center-based UV to pixel coordinates (same as image rendering)
+            const centerX = imgU * canvasSize;
+            const centerY = imgV * canvasSize;
+            const pixelWidth = imgWidth * canvasSize;
+            const pixelHeight = imgHeight * canvasSize;
+            const pixelX = centerX - pixelWidth / 2;
+            const pixelY = centerY - pixelHeight / 2;
+            
+            // Use the same coordinates as image rendering - NO Y-FLIPPING!
+            const borderX = pixelX;
+            const borderY = pixelY;
+            const borderWidth = pixelWidth;
+            const borderHeight = pixelHeight;
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
@@ -2257,7 +2271,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.rect(borderX, borderY, borderWidth, borderHeight);
             ctx.stroke();
             
-            // Draw resize handles (like text tool)
+            // Draw resize handles (8 handles: corners + edges)
             const handleSize = 8;
             const handles = [
               { x: borderX - handleSize/2, y: borderY - handleSize/2 }, // Top-left
@@ -2281,14 +2295,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
             }
             
-            console.log(`🎨 Image selection border drawn with resize handles:`, {
+            console.log(`🎨 Image selection border drawn with unified bounds:`, {
               border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
               handles: handles.length,
               image: { 
                 uv: { u: selectedImageEl.u, v: selectedImageEl.v, uWidth: selectedImageEl.uWidth, uHeight: selectedImageEl.uHeight },
                 pixel: { x: borderX, y: borderY, width: borderWidth, height: borderHeight }
               },
-              calculation: `Border calculated from current UV coordinates at (${borderX}, ${borderY})`
+              calculation: `Unified bounds calculation - no Y-flipping!`
             });
             
             ctx.restore();
