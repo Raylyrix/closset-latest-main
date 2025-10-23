@@ -1323,20 +1323,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const id = imageData.id || Math.random().toString(36).slice(2);
       const state = get();
       
-      // CRITICAL FIX: Always create a new image layer for each image
+      // CRITICAL FIX: Only create layer in V2 system, not in main App state
       console.log('🎨 Creating new image layer for imported image');
       const imageLayerId = get().createLayer('image', imageData.name || 'Imported Image');
       
-      // CRITICAL FIX: Also create layer in main App state for UI synchronization
-      const appState = useApp.getState();
-      if (appState.addLayer) {
-        console.log('🎨 Synchronizing image layer with main App state');
-        appState.addLayer(imageData.name || 'Imported Image');
-      }
+      // REMOVED: Duplicate layer creation in main App state
+      // This was causing duplicate layers to appear
+      console.log('🎨 Image layer created in V2 system only:', imageLayerId);
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
       // UV coordinates are center-based, convert to top-left pixel coordinates
       // CRITICAL FIX: Use the same canvas size calculation as unified bounds
+      const appState = useApp.getState();
       const composedCanvas = appState.composedCanvas;
       const canvasSize = composedCanvas ? composedCanvas.width : unifiedPerformanceManager.getOptimalCanvasSize().width;
       const pixelWidth = Math.floor(imageData.uWidth * canvasSize);
@@ -2202,11 +2200,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         for (const imageEl of imageElements) {
           if (!imageEl.visible) continue;
           
-            ctx.save();
-            // CRITICAL FIX: Use image opacity but ensure it's visible
-            ctx.globalAlpha = imageEl.opacity || 1.0;
-            // CRITICAL FIX: Use source-over to prevent affecting base texture
-            ctx.globalCompositeOperation = 'source-over';
+          ctx.save();
+          // CRITICAL FIX: Use BOTH layer opacity AND image opacity for proper layering
+          const layerOpacity = layer.opacity || 1.0;
+          const imageOpacity = imageEl.opacity || 1.0;
+          const combinedOpacity = layerOpacity * imageOpacity;
+          ctx.globalAlpha = combinedOpacity;
+          // CRITICAL FIX: Use source-over to prevent affecting base texture
+          ctx.globalCompositeOperation = 'source-over';
           
           // Apply rotation if needed
           if (imageEl.rotation !== 0) {
