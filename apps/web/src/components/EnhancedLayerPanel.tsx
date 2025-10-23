@@ -510,6 +510,20 @@ interface GroupItemProps {
   onDelete: () => void;
   onRename: (name: string) => void;
   children: React.ReactNode;
+  // New props for enhanced group features
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDragEnd: () => void;
+  onDrop: (position: 'above' | 'below') => void;
+  onTogglePositionLock: () => void;
+  onTogglePixelsLock: () => void;
+  onToggleTransparencyLock: () => void;
+  onToggleAllLock: () => void;
+  onSetOpacity: (opacity: number) => void;
+  onSetBlendMode: (blendMode: BlendMode) => void;
+  onDuplicate: () => void;
+  onMerge: () => void;
+  thumbnail?: string;
 }
 
 const GroupItem: React.FC<GroupItemProps> = ({
@@ -521,11 +535,27 @@ const GroupItem: React.FC<GroupItemProps> = ({
   onToggleCollapse,
   onDelete,
   onRename,
-  children
+  children,
+  // New props for enhanced group features
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  onTogglePositionLock,
+  onTogglePixelsLock,
+  onToggleTransparencyLock,
+  onToggleAllLock,
+  onSetOpacity,
+  onSetBlendMode,
+  onDuplicate,
+  onMerge,
+  thumbnail
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [tempName, setTempName] = useState(group.name);
   const [showControls, setShowControls] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showLockMenu, setShowLockMenu] = useState(false);
 
   const handleRename = () => {
     if (tempName.trim() && tempName !== group.name) {
@@ -543,15 +573,53 @@ const GroupItem: React.FC<GroupItemProps> = ({
     }
   };
 
+  // Drag & Drop handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', group.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragging(true);
+    onDragStart();
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    onDragOver();
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    onDragEnd();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedGroupId = e.dataTransfer.getData('text/plain');
+    if (draggedGroupId !== group.id) {
+      // Determine drop position based on mouse position
+      const rect = e.currentTarget.getBoundingClientRect();
+      const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+      onDrop(position);
+    }
+  };
+
   return (
     <div 
-      className={`group-item ${isActive ? 'active' : ''}`}
+      className={`group-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
       style={{
         marginBottom: '8px',
         border: '1px solid var(--border)',
         borderRadius: '6px',
-        background: 'var(--bg-secondary)'
+        background: 'var(--bg-secondary)',
+        opacity: isDragging ? 0.5 : 1,
+        transform: isDragging ? 'scale(0.95)' : 'scale(1)',
+        transition: 'all 0.2s ease'
       }}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDrop={handleDrop}
     >
       {/* Group Header */}
       <div 
@@ -568,6 +636,33 @@ const GroupItem: React.FC<GroupItemProps> = ({
         onMouseEnter={() => setShowControls(true)}
         onMouseLeave={() => setShowControls(false)}
       >
+        {/* Thumbnail */}
+        <div style={{ 
+          width: '32px', 
+          height: '32px', 
+          borderRadius: '4px',
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden'
+        }}>
+          {thumbnail ? (
+            <img 
+              src={thumbnail} 
+              alt={group.name}
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover' 
+              }}
+            />
+          ) : (
+            <span style={{ fontSize: '16px' }}>📁</span>
+          )}
+        </div>
+
         {/* Collapse Toggle */}
         <button
           className="btn"
@@ -601,6 +696,110 @@ const GroupItem: React.FC<GroupItemProps> = ({
         >
           {group.visible ? '👁️' : '🙈'}
         </button>
+
+        {/* Advanced Lock Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); setShowLockMenu(!showLockMenu); }}
+            style={{ 
+              padding: '4px', 
+              width: '20px', 
+              height: '20px',
+              background: 'transparent',
+              border: 'none',
+              color: group.locking.all ? 'var(--warning)' : 
+                     (group.locking.position || group.locking.pixels || group.locking.transparency) ? 'var(--accent)' : 'var(--muted)'
+            }}
+            title="Group locks"
+          >
+            {group.locking.all ? '🔒' : 
+             (group.locking.position || group.locking.pixels || group.locking.transparency) ? '🔐' : '🔓'}
+          </button>
+          
+          {/* Lock Menu */}
+          {showLockMenu && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: '0',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: '4px',
+              padding: '4px',
+              zIndex: 1000,
+              minWidth: '120px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            }}>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onTogglePositionLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: group.locking.position ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left'
+                }}
+              >
+                {group.locking.position ? '🔒' : '🔓'} Position
+              </button>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onTogglePixelsLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: group.locking.pixels ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left'
+                }}
+              >
+                {group.locking.pixels ? '🔒' : '🔓'} Pixels
+              </button>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onToggleTransparencyLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: group.locking.transparency ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left'
+                }}
+              >
+                {group.locking.transparency ? '🔒' : '🔓'} Transparency
+              </button>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onToggleAllLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: group.locking.all ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left',
+                  borderTop: '1px solid var(--border)',
+                  marginTop: '2px'
+                }}
+              >
+                {group.locking.all ? '🔒' : '🔓'} All
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Group Icon and Name */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -642,24 +841,85 @@ const GroupItem: React.FC<GroupItemProps> = ({
 
         {/* Quick Actions */}
         {showControls && (
-          <button
-            className="btn"
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            style={{ 
-              padding: '2px', 
-              width: '16px', 
-              height: '16px', 
-              fontSize: '10px',
-              background: 'var(--danger)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px'
-            }}
-            title="Delete group"
-          >
-            🗑️
-          </button>
+          <div style={{ display: 'flex', gap: '2px' }}>
+            <button
+              className="btn"
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+              style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
+              title="Duplicate group"
+            >
+              📋
+            </button>
+            <button
+              className="btn"
+              onClick={(e) => { e.stopPropagation(); onMerge(); }}
+              style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
+              title="Merge group"
+            >
+              🔗
+            </button>
+            <button
+              className="btn"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              style={{ 
+                padding: '2px', 
+                width: '16px', 
+                height: '16px', 
+                fontSize: '10px',
+                background: 'var(--danger)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px'
+              }}
+              title="Delete group"
+            >
+              🗑️
+            </button>
+          </div>
         )}
+      </div>
+
+      {/* Group Properties */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '10px', padding: '4px 8px', background: 'var(--bg-secondary)' }}>
+        {/* Opacity Slider */}
+        <div style={{ flex: 1, minWidth: '60px' }}>
+          <label style={{ color: 'var(--muted)', fontSize: '9px' }}>Opacity</label>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={group.opacity}
+            onChange={(e) => onSetOpacity(parseFloat(e.target.value))}
+            style={{ width: '100%', marginTop: '2px' }}
+          />
+          <span style={{ color: 'var(--muted)' }}>{Math.round(group.opacity * 100)}%</span>
+        </div>
+
+        {/* Blend Mode */}
+        <div style={{ flex: 1, minWidth: '80px' }}>
+          <label style={{ color: 'var(--muted)', fontSize: '9px' }}>Blend</label>
+          <select
+            value={group.blendMode}
+            onChange={(e) => onSetBlendMode(e.target.value as BlendMode)}
+            style={{
+              width: '100%',
+              padding: '2px',
+              fontSize: '9px',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: '4px',
+              color: 'var(--text)',
+              marginTop: '2px'
+            }}
+          >
+            {['normal', 'multiply', 'screen', 'overlay'].map((mode: any) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Group Content */}
@@ -707,7 +967,21 @@ export const EnhancedLayerPanel: React.FC = () => {
     toggleLayerPixelsLock,
     toggleLayerTransparencyLock,
     toggleLayerAllLock,
-    getLayerThumbnail
+    getLayerThumbnail,
+    // New group methods
+    dragGroupStart,
+    dragGroupOver,
+    dragGroupEnd,
+    dropGroup,
+    setGroupOpacity,
+    setGroupBlendMode,
+    toggleGroupPositionLock,
+    toggleGroupPixelsLock,
+    toggleGroupTransparencyLock,
+    toggleGroupAllLock,
+    getGroupThumbnail,
+    duplicateGroup,
+    mergeGroup
   } = useAdvancedLayerStoreV2();
 
   const [showLayerMenu, setShowLayerMenu] = useState(false);
@@ -855,6 +1129,20 @@ export const EnhancedLayerPanel: React.FC = () => {
                 onToggleCollapse={() => toggleGroupCollapse(group.id)}
                 onDelete={() => deleteGroup(group.id)}
                 onRename={(name) => renameGroup(group.id, name)}
+                // New props for enhanced group features
+                onDragStart={() => dragGroupStart(group.id)}
+                onDragOver={() => dragGroupOver(group.id, group.id)}
+                onDragEnd={() => dragGroupEnd(group.id, group.id)}
+                onDrop={(position) => dropGroup((window as any).__draggedGroupId, group.id, position)}
+                onTogglePositionLock={() => toggleGroupPositionLock(group.id)}
+                onTogglePixelsLock={() => toggleGroupPixelsLock(group.id)}
+                onToggleTransparencyLock={() => toggleGroupTransparencyLock(group.id)}
+                onToggleAllLock={() => toggleGroupAllLock(group.id)}
+                onSetOpacity={(opacity) => setGroupOpacity(group.id, opacity)}
+                onSetBlendMode={(blendMode) => setGroupBlendMode(group.id, blendMode)}
+                onDuplicate={() => duplicateGroup(group.id)}
+                onMerge={() => mergeGroup(group.id)}
+                thumbnail={getGroupThumbnail(group.id) || undefined}
               >
                 {group.childLayerIds.map(childId => {
                   const childLayer = layers.find((l: any) => l.id === childId); // FIXED: layers is array, not Map

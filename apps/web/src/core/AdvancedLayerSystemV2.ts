@@ -243,11 +243,15 @@ export interface LayerGroup {
   opacity: number;
   blendMode: BlendMode;
   locked: boolean;
+  locking: LayerLocking; // Advanced locking system for groups
   collapsed: boolean;
   layerIds: string[];
   childLayerIds: string[]; // Alias for layerIds for backward compatibility
   createdAt: Date;
+  updatedAt: Date;
   order: number;
+  thumbnail?: string; // Base64 thumbnail for group preview
+  thumbnailCanvas?: HTMLCanvasElement; // Canvas for generating group thumbnails
 }
 
 // Store state
@@ -421,6 +425,39 @@ interface AdvancedLayerStoreV2 {
   renameGroup: (groupId: string, name: string) => void;
   toggleGroupVisibility: (groupId: string) => void;
   selectGroup: (groupId: string) => void;
+  
+  // Advanced Group Operations
+  setGroupOpacity: (groupId: string, opacity: number) => void;
+  setGroupBlendMode: (groupId: string, blendMode: BlendMode) => void;
+  setGroupLocking: (groupId: string, locking: Partial<LayerLocking>) => void;
+  toggleGroupPositionLock: (groupId: string) => void;
+  toggleGroupPixelsLock: (groupId: string) => void;
+  toggleGroupTransparencyLock: (groupId: string) => void;
+  toggleGroupAllLock: (groupId: string) => void;
+  isGroupPositionLocked: (groupId: string) => boolean;
+  isGroupPixelsLocked: (groupId: string) => boolean;
+  isGroupTransparencyLocked: (groupId: string) => boolean;
+  isGroupAllLocked: (groupId: string) => boolean;
+  canGroupMove: (groupId: string) => boolean;
+  canGroupEdit: (groupId: string) => boolean;
+  canGroupChangeOpacity: (groupId: string) => boolean;
+  
+  // Group Drag & Drop
+  dragGroupStart: (groupId: string) => void;
+  dragGroupOver: (groupId: string, targetGroupId: string) => void;
+  dragGroupEnd: (groupId: string, targetGroupId: string) => void;
+  dropGroup: (groupId: string, targetGroupId: string, position: 'above' | 'below') => void;
+  
+  // Group Thumbnails
+  generateGroupThumbnail: (groupId: string) => string | null;
+  updateGroupThumbnail: (groupId: string) => void;
+  getGroupThumbnail: (groupId: string) => string | null;
+  
+  // Group Management
+  moveLayerToGroup: (layerId: string, groupId: string) => void;
+  moveLayerBetweenGroups: (layerId: string, fromGroupId: string, toGroupId: string) => void;
+  duplicateGroup: (groupId: string) => string;
+  mergeGroup: (groupId: string) => void;
   
   // Missing effects operations
   addLayerEffect: (layerId: string, effect: LayerEffect) => void;
@@ -1248,23 +1285,32 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     createGroup: (name?: string) => {
       const state = get();
       const groupName = name || generateLayerName('group', state.layers);
-       const newGroup: LayerGroup = {
-         id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-         name: groupName,
-         visible: true,
-         opacity: 1.0,
-         blendMode: 'normal',
-         locked: false,
-         collapsed: false,
-         layerIds: [],
-         childLayerIds: [], // Alias for layerIds
-         createdAt: new Date(),
-         order: state.layerOrder.length
-       };
+      const newGroup: LayerGroup = {
+        id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: groupName,
+        visible: true,
+        opacity: 1.0,
+        blendMode: 'normal',
+        locked: false,
+        locking: createDefaultLocking(), // Advanced locking system
+        collapsed: false,
+        layerIds: [],
+        childLayerIds: [], // Alias for layerIds
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        order: state.layerOrder.length
+      };
       
       set(state => ({
         groups: [...state.groups, newGroup]
       }));
+      
+      get().saveHistorySnapshot(`Create Group: ${groupName}`);
+      
+      // Generate thumbnail for the new group
+      setTimeout(() => {
+        get().generateGroupThumbnail(newGroup.id);
+      }, 100);
       
       console.log(`📁 Created group: ${groupName}`);
       return newGroup.id;
@@ -1282,27 +1328,48 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       set(state => ({
         groups: state.groups.map(group =>
           group.id === groupId
-            ? { ...group, layerIds: [...group.layerIds, layerId] }
+            ? { ...group, layerIds: [...group.layerIds, layerId], updatedAt: new Date() }
             : group
         ),
         layers: state.layers.map(layer =>
-          layer.id === layerId ? { ...layer, groupId } : layer
+          layer.id === layerId ? { ...layer, groupId, updatedAt: new Date() } : layer
         )
       }));
+      
+      get().saveHistorySnapshot(`Add Layer to Group: ${layerId} -> ${groupId}`);
+      
+      // Update group thumbnail after adding layer
+      setTimeout(() => {
+        get().updateGroupThumbnail(groupId);
+      }, 100);
       
       console.log(`➕ Added layer ${layerId} to group ${groupId}`);
     },
     
     removeFromGroup: (layerId: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === layerId);
+      const groupId = layer?.groupId;
+      
       set(state => ({
         groups: state.groups.map(group => ({
           ...group,
-          layerIds: group.layerIds.filter(id => id !== layerId)
+          layerIds: group.layerIds.filter(id => id !== layerId),
+          updatedAt: group.layerIds.includes(layerId) ? new Date() : group.updatedAt
         })),
         layers: state.layers.map(layer =>
-          layer.id === layerId ? { ...layer, groupId: undefined } : layer
+          layer.id === layerId ? { ...layer, groupId: undefined, updatedAt: new Date() } : layer
         )
       }));
+      
+      get().saveHistorySnapshot(`Remove Layer from Group: ${layerId}`);
+      
+      // Update group thumbnail after removing layer
+      if (groupId) {
+        setTimeout(() => {
+          get().updateGroupThumbnail(groupId);
+        }, 100);
+      }
       
       console.log(`➖ Removed layer ${layerId} from group`);
     },
@@ -3135,6 +3202,299 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         set({ activeGroupId: groupId });
         console.log(`🎯 Selected group: ${groupId}`);
       }
+    },
+    
+    // Advanced Group Operations
+    setGroupOpacity: (groupId: string, opacity: number) => {
+      if (!get().canGroupChangeOpacity(groupId)) {
+        console.warn(`🔒 Cannot change opacity for group ${groupId} - transparency is locked`);
+        return;
+      }
+      set(state => ({
+        groups: state.groups.map(group =>
+          group.id === groupId ? { ...group, opacity, updatedAt: new Date() } : group
+        )
+      }));
+      get().saveHistorySnapshot(`Set Group Opacity: ${groupId} to ${opacity}`);
+      console.log(`🎨 Set group ${groupId} opacity to: ${opacity}`);
+    },
+    
+    setGroupBlendMode: (groupId: string, blendMode: BlendMode) => {
+      set(state => ({
+        groups: state.groups.map(group =>
+          group.id === groupId ? { ...group, blendMode, updatedAt: new Date() } : group
+        )
+      }));
+      get().saveHistorySnapshot(`Set Group Blend Mode: ${groupId} to ${blendMode}`);
+      console.log(`🎨 Set group ${groupId} blend mode to: ${blendMode}`);
+    },
+    
+    setGroupLocking: (groupId: string, locking: Partial<LayerLocking>) => {
+      set(state => ({
+        groups: state.groups.map(group =>
+          group.id === groupId ? {
+            ...group,
+            locking: { ...group.locking, ...locking },
+            locked: locking.all !== undefined ? locking.all : group.locked,
+            updatedAt: new Date()
+          } : group
+        )
+      }));
+      get().saveHistorySnapshot(`Set Group Locking: ${groupId}`);
+      console.log(`🔒 Set group ${groupId} locking:`, locking);
+    },
+    
+    toggleGroupPositionLock: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (group) {
+        get().setGroupLocking(groupId, { position: !group.locking.position });
+        console.log(`🔒 Toggled group ${groupId} position lock: ${!group.locking.position}`);
+      }
+    },
+    
+    toggleGroupPixelsLock: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (group) {
+        get().setGroupLocking(groupId, { pixels: !group.locking.pixels });
+        console.log(`🔒 Toggled group ${groupId} pixels lock: ${!group.locking.pixels}`);
+      }
+    },
+    
+    toggleGroupTransparencyLock: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (group) {
+        get().setGroupLocking(groupId, { transparency: !group.locking.transparency });
+        console.log(`🔒 Toggled group ${groupId} transparency lock: ${!group.locking.transparency}`);
+      }
+    },
+    
+    toggleGroupAllLock: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (group) {
+        get().setGroupLocking(groupId, { all: !group.locking.all });
+        console.log(`🔒 Toggled group ${groupId} all lock: ${!group.locking.all}`);
+      }
+    },
+    
+    isGroupPositionLocked: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      return group?.locking.all || group?.locking.position || false;
+    },
+    
+    isGroupPixelsLocked: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      return group?.locking.all || group?.locking.pixels || false;
+    },
+    
+    isGroupTransparencyLocked: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      return group?.locking.all || group?.locking.transparency || false;
+    },
+    
+    isGroupAllLocked: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      return group?.locking.all || false;
+    },
+    
+    canGroupMove: (groupId: string) => {
+      return !get().isGroupPositionLocked(groupId);
+    },
+    
+    canGroupEdit: (groupId: string) => {
+      return !get().isGroupPixelsLocked(groupId);
+    },
+    
+    canGroupChangeOpacity: (groupId: string) => {
+      return !get().isGroupTransparencyLocked(groupId);
+    },
+    
+    // Group Drag & Drop
+    dragGroupStart: (groupId: string) => {
+      console.log(`🎯 Drag started for group: ${groupId}`);
+      (window as any).__draggedGroupId = groupId;
+    },
+    
+    dragGroupOver: (groupId: string, targetGroupId: string) => {
+      console.log(`🎯 Drag over group: ${groupId} -> ${targetGroupId}`);
+    },
+    
+    dragGroupEnd: (groupId: string, targetGroupId: string) => {
+      console.log(`🎯 Drag ended for group: ${groupId}`);
+      delete (window as any).__draggedGroupId;
+    },
+    
+    dropGroup: (groupId: string, targetGroupId: string, position: 'above' | 'below') => {
+      const state = get();
+      const draggedIndex = state.groups.findIndex(g => g.id === groupId);
+      const targetIndex = state.groups.findIndex(g => g.id === targetGroupId);
+      
+      if (draggedIndex === -1 || targetIndex === -1 || groupId === targetGroupId) {
+        console.warn('Invalid group IDs for drop operation or cannot drop on itself');
+        return;
+      }
+      
+      const newGroups = [...state.groups];
+      const draggedGroup = newGroups.splice(draggedIndex, 1)[0];
+      
+      let newIndex = targetIndex;
+      if (position === 'below') {
+        newIndex = targetIndex + 1;
+      }
+      if (draggedIndex < targetIndex) {
+        newIndex -= 1;
+      }
+      
+      newGroups.splice(newIndex, 0, draggedGroup);
+      
+      // Update order property for all groups
+      const updatedGroups = newGroups.map((group, index) => ({
+        ...group,
+        order: index,
+        updatedAt: new Date()
+      }));
+      
+      set({ groups: updatedGroups });
+      get().saveHistorySnapshot(`Reorder Groups: ${groupId} ${position} ${targetGroupId}`);
+      
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'group-drag-drop-v2', groupId, targetGroupId } }));
+        console.log('🔄 Triggered texture update after group drag & drop (V2)');
+      }, 50);
+      
+      console.log(`🎯 Dropped group ${groupId} ${position} ${targetGroupId}`);
+    },
+    
+    // Group Thumbnails
+    generateGroupThumbnail: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (!group) return null;
+      
+      try {
+        const thumbnailSize = 64;
+        const thumbnailCanvas = document.createElement('canvas');
+        thumbnailCanvas.width = thumbnailSize;
+        thumbnailCanvas.height = thumbnailSize;
+        const ctx = thumbnailCanvas.getContext('2d');
+        
+        if (!ctx) return null;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        
+        // Draw group thumbnail based on child layers
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fillRect(0, 0, thumbnailSize, thumbnailSize);
+        
+        // Draw preview of child layers
+        group.layerIds.forEach((layerId, index) => {
+          const layer = state.layers.find(l => l.id === layerId);
+          if (!layer || !layer.visible) return;
+          
+          const thumbX = (index % 2) * (thumbnailSize / 2);
+          const thumbY = Math.floor(index / 2) * (thumbnailSize / 2);
+          const thumbWidth = thumbnailSize / 2 - 2;
+          const thumbHeight = thumbnailSize / 2 - 2;
+          
+          ctx.fillStyle = `hsl(${index * 60}, 70%, 60%)`;
+          ctx.fillRect(thumbX + 1, thumbY + 1, thumbWidth, thumbHeight);
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(thumbX + 1, thumbY + 1, thumbWidth, thumbHeight);
+        });
+        
+        // Draw group folder icon overlay
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(thumbnailSize - 16, thumbnailSize - 16, 14, 14);
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📁', thumbnailSize - 9, thumbnailSize - 9);
+        
+        const thumbnailDataUrl = thumbnailCanvas.toDataURL('image/png');
+        set(state => ({
+          groups: state.groups.map(g => g.id === groupId ? { ...g, thumbnail: thumbnailDataUrl, thumbnailCanvas } : g)
+        }));
+        
+        console.log(`🖼️ Generated thumbnail for group: ${groupId}`);
+        return thumbnailDataUrl;
+      } catch (error) {
+        console.error('Error generating group thumbnail:', error);
+        return null;
+      }
+    },
+    
+    updateGroupThumbnail: (groupId: string) => {
+      console.log(`🖼️ Updating thumbnail for group: ${groupId}`);
+      get().generateGroupThumbnail(groupId);
+    },
+    
+    getGroupThumbnail: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      return group?.thumbnail || null;
+    },
+    
+    // Group Management
+    moveLayerToGroup: (layerId: string, groupId: string) => {
+      // Remove from current group first
+      get().removeFromGroup(layerId);
+      // Add to new group
+      get().addToGroup(layerId, groupId);
+      get().saveHistorySnapshot(`Move Layer to Group: ${layerId} -> ${groupId}`);
+      console.log(`📁 Moved layer ${layerId} to group ${groupId}`);
+    },
+    
+    moveLayerBetweenGroups: (layerId: string, fromGroupId: string, toGroupId: string) => {
+      get().removeFromGroup(layerId);
+      get().addToGroup(layerId, toGroupId);
+      get().saveHistorySnapshot(`Move Layer Between Groups: ${layerId} from ${fromGroupId} to ${toGroupId}`);
+      console.log(`📁 Moved layer ${layerId} from group ${fromGroupId} to ${toGroupId}`);
+    },
+    
+    duplicateGroup: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (!group) return '';
+      
+      const newGroupId = get().createGroup(`${group.name} Copy`);
+      const newGroup = state.groups.find(g => g.id === newGroupId);
+      if (!newGroup) return '';
+      
+      // Duplicate all layers in the group
+      group.layerIds.forEach(layerId => {
+        const duplicatedLayerId = get().duplicateLayer(layerId);
+        get().addToGroup(duplicatedLayerId, newGroupId);
+      });
+      
+      get().saveHistorySnapshot(`Duplicate Group: ${groupId} -> ${newGroupId}`);
+      console.log(`📁 Duplicated group ${groupId} to ${newGroupId}`);
+      return newGroupId;
+    },
+    
+    mergeGroup: (groupId: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === groupId);
+      if (!group || group.layerIds.length === 0) return;
+      
+      // Merge all layers in the group
+      get().mergeLayers(group.layerIds);
+      
+      // Delete the group
+      get().deleteGroup(groupId);
+      
+      get().saveHistorySnapshot(`Merge Group: ${groupId}`);
+      console.log(`📁 Merged group ${groupId}`);
     },
     
     // Missing effects operations
