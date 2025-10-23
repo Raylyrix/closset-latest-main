@@ -1340,6 +1340,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const centerX = imageData.u * canvasSize;
       const centerY = imageData.v * canvasSize;
       const pixelX = Math.floor(centerX - pixelWidth / 2);
+      // CRITICAL FIX: No Y-flipping needed - UV coordinates are already correct for canvas space
       const pixelY = Math.floor(centerY - pixelHeight / 2);
       
       const imageElement: ImageElement = {

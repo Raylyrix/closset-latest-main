@@ -4420,26 +4420,23 @@ const canvasDimensions = {
               setSelectedImageId(clickedImage.id);
               
               if (!clickedImage.locked) {
-                // Check if click is on a resize anchor
-                // INCREASED HITBOX: 0.04 (4% of texture) for easier clicking
-                const anchorSize = 0.04; // Doubled from 0.02 for easier interaction
-                const halfWidth = (clickedImage.uWidth || 0.25) / 2;
-                const halfHeight = (clickedImage.uHeight || 0.25) / 2;
-                const imgU = clickedImage.u || 0.5;
-                const imgV = clickedImage.v || 0.5;
+                // CRITICAL FIX: Use unified bounds calculation for resize anchor detection
+                // This ensures resize anchors are positioned exactly where the image bounds are
+                const bounds = getImageBounds(clickedImage);
+                const anchorSize = 0.04; // Anchor hitbox size
                 
-                // Calculate anchor positions for corners and edges
+                // Calculate anchor positions using unified bounds
                 const anchors = {
                   // Corner anchors
-                  topLeft: { u: imgU - halfWidth - anchorSize/2, v: imgV - halfHeight - anchorSize/2 },
-                  topRight: { u: imgU + halfWidth - anchorSize/2, v: imgV - halfHeight - anchorSize/2 },
-                  bottomLeft: { u: imgU - halfWidth - anchorSize/2, v: imgV + halfHeight - anchorSize/2 },
-                  bottomRight: { u: imgU + halfWidth - anchorSize/2, v: imgV + halfHeight - anchorSize/2 },
+                  topLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
+                  topRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
+                  bottomLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
+                  bottomRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
                   // Edge anchors
-                  top: { u: imgU - anchorSize/2, v: imgV - halfHeight - anchorSize/2 },
-                  bottom: { u: imgU - anchorSize/2, v: imgV + halfHeight - anchorSize/2 },
-                  left: { u: imgU - halfWidth - anchorSize/2, v: imgV - anchorSize/2 },
-                  right: { u: imgU + halfWidth - anchorSize/2, v: imgV - anchorSize/2 }
+                  top: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
+                  bottom: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
+                  left: { u: bounds.uvLeft - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 },
+                  right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 }
                 };
                 
                 // Check which anchor was clicked (corners first, then edges)
