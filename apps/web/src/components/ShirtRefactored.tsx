@@ -3548,31 +3548,36 @@ export function ShirtRefactored({
   const getImageBounds = useCallback((imageEl: any) => {
     const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
     
-    // Get image properties
-    const imgU = imageEl.u || 0.5;
-    const imgV = imageEl.v || 0.5;
-    const imgWidth = imageEl.uWidth || 0.25;
-    const imgHeight = imageEl.uHeight || 0.25;
+    // CRITICAL FIX: Use the actual pixel coordinates that are used for rendering
+    // These are already calculated and stored in the image element
+    const pixelX = imageEl.x || 0;
+    const pixelY = imageEl.y || 0;
+    const pixelWidth = imageEl.width || 256;
+    const pixelHeight = imageEl.height || 256;
     
-    // Convert center-based UV to pixel coordinates
-    const centerX = imgU * canvasSize;
-    const centerY = imgV * canvasSize;
-    const pixelWidth = imgWidth * canvasSize;
-    const pixelHeight = imgHeight * canvasSize;
+    // Calculate center coordinates
+    const centerX = pixelX + pixelWidth / 2;
+    const centerY = pixelY + pixelHeight / 2;
+    
+    // Convert pixel coordinates back to UV for hitbox detection
+    const uvLeft = pixelX / canvasSize;
+    const uvRight = (pixelX + pixelWidth) / canvasSize;
+    const uvTop = pixelY / canvasSize;
+    const uvBottom = (pixelY + pixelHeight) / canvasSize;
     
     // Calculate bounds (top-left corner and dimensions)
     const bounds = {
-      x: centerX - pixelWidth / 2,
-      y: centerY - pixelHeight / 2,
+      x: pixelX,
+      y: pixelY,
       width: pixelWidth,
       height: pixelHeight,
       centerX,
       centerY,
       // UV bounds for hitbox detection
-      uvLeft: imgU - imgWidth / 2,
-      uvRight: imgU + imgWidth / 2,
-      uvTop: imgV - imgHeight / 2,
-      uvBottom: imgV + imgHeight / 2
+      uvLeft,
+      uvRight,
+      uvTop,
+      uvBottom
     };
     
     return bounds;

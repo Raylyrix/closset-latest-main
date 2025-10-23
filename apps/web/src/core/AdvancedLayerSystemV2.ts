@@ -2236,26 +2236,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.setLineDash([5, 5]); // Dashed border pattern
             ctx.globalAlpha = 1.0; // Full opacity for border
             
-            // UNIFIED BOUNDS: Use the same calculation as image rendering
-            const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
-            const imgU = selectedImageEl.u || 0.5;
-            const imgV = selectedImageEl.v || 0.5;
-            const imgWidth = selectedImageEl.uWidth || 0.25;
-            const imgHeight = selectedImageEl.uHeight || 0.25;
-            
-            // Convert center-based UV to pixel coordinates (same as image rendering)
-            const centerX = imgU * canvasSize;
-            const centerY = imgV * canvasSize;
-            const pixelWidth = imgWidth * canvasSize;
-            const pixelHeight = imgHeight * canvasSize;
-            const pixelX = centerX - pixelWidth / 2;
-            const pixelY = centerY - pixelHeight / 2;
-            
-            // Use the same coordinates as image rendering - NO Y-FLIPPING!
-            const borderX = pixelX;
-            const borderY = pixelY;
-            const borderWidth = pixelWidth;
-            const borderHeight = pixelHeight;
+            // UNIFIED BOUNDS: Use the same pixel coordinates as image rendering
+            // Use the actual pixel coordinates stored in the image element
+            const borderX = selectedImageEl.x;
+            const borderY = selectedImageEl.y;
+            const borderWidth = selectedImageEl.width;
+            const borderHeight = selectedImageEl.height;
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
