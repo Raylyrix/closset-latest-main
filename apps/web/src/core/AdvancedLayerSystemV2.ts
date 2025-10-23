@@ -405,6 +405,9 @@ interface AdvancedLayerStoreV2 {
   // Layer composition
   composeLayers: () => HTMLCanvasElement | null;
   
+  // Animation control
+  startImageAnimation: () => void;
+  
   // Helper methods
   wrapText: (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => string[];
   
@@ -1803,26 +1806,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       };
     },
     
-  // Layer composition
-  composeLayers: () => {
-    const state = get();
-    
-    // PERFORMANCE: Throttle composition to prevent excessive calls
-    const now = Date.now();
-    if (state.lastCompositionTime && now - state.lastCompositionTime < 16) { // ~60fps max
-      return state.composedCanvas;
-    }
-    
-    // EFFICIENT IDLE ANIMATION: Lightweight timer for continuous animation
-    const appStateForAnimation = useApp.getState();
-    const hasSelectedImage = appStateForAnimation.selectedImageId;
-    
-    // If there's a selected image, schedule next animation with longer interval for performance
-    if (hasSelectedImage) {
-      // Use longer interval (100ms = 10fps) for better performance while still being smooth
-      setTimeout(() => {
-        const currentState = get();
+  // Start continuous animation for selected image
+  startImageAnimation: () => {
+    const appState = useApp.getState();
+    if (appState.selectedImageId) {
+      console.log('🎨 Starting continuous animation for selected image');
+      
+      // Start the animation loop immediately
+      const animate = () => {
         const currentAppState = useApp.getState();
+        const currentState = get();
         
         // Only continue if image is still selected
         if (currentAppState.selectedImageId && currentState.composeLayers) {
@@ -1833,8 +1826,25 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           if ((window as any).updateModelTexture) {
             (window as any).updateModelTexture(true, false);
           }
+          
+          // Schedule next frame with efficient interval
+          setTimeout(animate, 100); // 10fps for smooth animation
         }
-      }, 100); // 10fps for smooth animation with good performance
+      };
+      
+      // Start the animation loop
+      animate();
+    }
+  },
+
+  // Layer composition
+  composeLayers: () => {
+    const state = get();
+    
+    // PERFORMANCE: Throttle composition to prevent excessive calls
+    const now = Date.now();
+    if (state.lastCompositionTime && now - state.lastCompositionTime < 16) { // ~60fps max
+      return state.composedCanvas;
     }
     
     const composeThrottle = 16; // 60fps max

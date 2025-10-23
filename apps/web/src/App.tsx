@@ -1801,13 +1801,13 @@ try {
     console.log('📷 Setting selected image:', id);
     set({ selectedImageId: id });
     
-    // EFFICIENT ANIMATION: Start lightweight animation when image is selected
+    // CONTINUOUS ANIMATION: Start animation loop when image is selected
     if (id) {
-      console.log('🎨 Starting efficient animation for selected image');
-      // Trigger initial composition to start animation loop
+      console.log('🎨 Starting continuous animation for selected image');
+      // Trigger animation in V2 layer system
       const v2State = useAdvancedLayerStoreV2.getState();
-      if (v2State.composeLayers) {
-        v2State.composeLayers();
+      if (v2State.startImageAnimation) {
+        v2State.startImageAnimation();
       }
     } else {
       console.log('🎨 Image deselected - animation will stop automatically');
