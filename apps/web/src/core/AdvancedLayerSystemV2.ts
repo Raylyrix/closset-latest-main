@@ -256,6 +256,7 @@ interface AdvancedLayerStoreV2 {
   
   // Canvas state
   composedCanvas: HTMLCanvasElement | null;
+  lastCompositionTime: number | null;
   
   // CRITICAL: Store instance ID for debugging
   id: string;
@@ -506,6 +507,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     showLayerPanel: true,
     autoGrouping: true,
     composedCanvas: null,
+    lastCompositionTime: null,
     expandedGroups: new Set(),
     
     // CRITICAL: Add store instance ID for debugging
@@ -1807,11 +1809,38 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     // PERFORMANCE: Throttle composition to prevent excessive calls
     const now = Date.now();
+    if (state.lastCompositionTime && now - state.lastCompositionTime < 16) { // ~60fps max
+      return state.composedCanvas;
+    }
+    
+    // CRITICAL FIX: Continuous animation for selected images
+    // Check if there's a selected image that needs continuous animation
+    const appStateForAnimation = useApp.getState();
+    const hasSelectedImage = appStateForAnimation.selectedImageId;
+    
+    // If there's a selected image, ensure continuous redraw for animation
+    if (hasSelectedImage) {
+      // Schedule next animation frame
+      requestAnimationFrame(() => {
+        const currentState = get();
+        if (currentState.composeLayers) {
+          currentState.composeLayers();
+        }
+        // Also trigger texture update to make animation visible
+        if ((window as any).updateModelTexture) {
+          (window as any).updateModelTexture(true, false);
+        }
+      });
+    }
+    
     const composeThrottle = 16; // 60fps max
     if ((state as any).lastComposeTime && (now - (state as any).lastComposeTime) < composeThrottle) {
       return state.composedCanvas;
     }
     (state as any).lastComposeTime = now;
+    
+    // Update the lastCompositionTime
+    set(state => ({ ...state, lastCompositionTime: now }));
     
     const composedCanvas = createComposedCanvas();
     const ctx = composedCanvas.getContext('2d');
