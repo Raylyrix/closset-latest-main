@@ -1331,8 +1331,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
       // UV coordinates are center-based, convert to top-left pixel coordinates
-      // PHASE 1 FIX: Use performance manager canvas size instead of CANVAS_CONFIG
-      const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
+      // CRITICAL FIX: Use the same canvas size calculation as unified bounds
+      const composedCanvas = appState.composedCanvas;
+      const canvasSize = composedCanvas ? composedCanvas.width : unifiedPerformanceManager.getOptimalCanvasSize().width;
       const pixelWidth = Math.floor(imageData.uWidth * canvasSize);
       const pixelHeight = Math.floor(imageData.uHeight * canvasSize);
       
@@ -1441,11 +1442,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         
         // If UV coordinates are updated, recalculate pixel coordinates
         if (patch.u !== undefined || patch.v !== undefined || patch.uWidth !== undefined || patch.uHeight !== undefined) {
-          const composedCanvas = useApp.getState().composedCanvas;
-          // PHASE 1 FIX: Use performance manager canvas size as fallback
-          const fallbackCanvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
-          const canvasWidth = composedCanvas?.width || fallbackCanvasSize;
-          const canvasHeight = composedCanvas?.height || fallbackCanvasSize;
+          // CRITICAL FIX: Use the same canvas size calculation as unified bounds
+          const appState = useApp.getState();
+          const composedCanvas = appState.composedCanvas;
+          const canvasSize = composedCanvas ? composedCanvas.width : unifiedPerformanceManager.getOptimalCanvasSize().width;
+          const canvasWidth = canvasSize;
+          const canvasHeight = canvasSize;
           
           const newU = patch.u !== undefined ? patch.u : updatedImage.u;
           const newV = patch.v !== undefined ? patch.v : updatedImage.v;
@@ -1472,9 +1474,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         
         // If pixel coordinates are updated, recalculate UV coordinates
         if (patch.x !== undefined || patch.y !== undefined || patch.width !== undefined || patch.height !== undefined) {
-          const composedCanvas = useApp.getState().composedCanvas;
-          const canvasWidth = composedCanvas?.width || unifiedPerformanceManager.getOptimalCanvasSize().width;
-          const canvasHeight = composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width;
+          // CRITICAL FIX: Use the same canvas size calculation as unified bounds
+          const appState = useApp.getState();
+          const composedCanvas = appState.composedCanvas;
+          const canvasSize = composedCanvas ? composedCanvas.width : unifiedPerformanceManager.getOptimalCanvasSize().width;
+          const canvasWidth = canvasSize;
+          const canvasHeight = canvasSize;
           
           const newX = patch.x !== undefined ? patch.x : updatedImage.x;
           const newY = patch.y !== undefined ? patch.y : updatedImage.y;
