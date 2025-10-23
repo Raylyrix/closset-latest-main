@@ -2236,18 +2236,47 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             
             ctx.save();
             
-            // Set up border styling
-            ctx.strokeStyle = '#00ff00'; // Green border for images (different from text blue)
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]); // Dashed border pattern
-            ctx.globalAlpha = 1.0; // Full opacity for border
-            
             // UNIFIED BOUNDS: Use the same pixel coordinates as image rendering
             // Use the actual pixel coordinates stored in the image element
             const borderX = selectedImageEl.x;
             const borderY = selectedImageEl.y;
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
+            
+            // ANIMATION 1: PULSING GLOW EFFECT
+            // Calculate pulsing animation based on time
+            const now = Date.now();
+            const pulseSpeed = 2; // Pulses per second
+            const pulsePhase = (now * pulseSpeed * 0.001) % (Math.PI * 2);
+            const pulseIntensity = (Math.sin(pulsePhase) + 1) / 2; // 0 to 1
+            
+            // Create pulsing glow effect with multiple layers
+            const glowLayers = [
+              { color: '#00ff00', width: 6, alpha: 0.3 * pulseIntensity },
+              { color: '#00ff88', width: 4, alpha: 0.5 * pulseIntensity },
+              { color: '#00ff00', width: 2, alpha: 0.8 * pulseIntensity }
+            ];
+            
+            // Draw glowing layers (outer to inner)
+            for (const layer of glowLayers) {
+              ctx.save();
+              ctx.strokeStyle = layer.color;
+              ctx.lineWidth = layer.width;
+              ctx.globalAlpha = layer.alpha;
+              ctx.setLineDash([]); // Solid line for glow
+              
+              // Draw glow border
+              ctx.beginPath();
+              ctx.rect(borderX, borderY, borderWidth, borderHeight);
+              ctx.stroke();
+              ctx.restore();
+            }
+            
+            // Set up main border styling
+            ctx.strokeStyle = '#00ff00'; // Green border for images (different from text blue)
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]); // Dashed border pattern
+            ctx.globalAlpha = 0.8 + (0.2 * pulseIntensity); // Pulsing opacity
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
@@ -2276,15 +2305,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw resize handles
-            ctx.fillStyle = '#00ff00';
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([]); // Solid lines for handles
-            
+            // Draw pulsing resize handles
             for (const handle of handles) {
+              // Draw glow effect for handles
+              ctx.save();
+              ctx.fillStyle = '#00ff00';
+              ctx.globalAlpha = 0.3 * pulseIntensity;
+              ctx.fillRect(handle.x - 2, handle.y - 2, handleSize + 4, handleSize + 4);
+              ctx.restore();
+              
+              // Draw main handle
+              ctx.save();
+              ctx.fillStyle = '#00ff00';
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 1;
+              ctx.globalAlpha = 0.8 + (0.2 * pulseIntensity);
               ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+              ctx.restore();
             }
             
             console.log(`🎨 Image selection border drawn with unified bounds:`, {
