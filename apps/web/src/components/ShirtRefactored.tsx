@@ -863,6 +863,12 @@ export function ShirtRefactored({
     texture.repeat.set(1, 1); // Ensure 1:1 mapping without tiling
     texture.offset.set(0, 0); // Ensure no offset
     
+    // CRITICAL FIX: Ensure high quality texture generation to prevent fading
+    texture.generateMipmaps = true;
+    texture.anisotropy = 16; // Maximum anisotropy for best quality
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    
     console.log('🎨 Created texture from composedCanvas with perfect UV alignment');
     
     console.log('🎨 Created layered texture with proper wrap settings:', texture.name);
@@ -914,36 +920,34 @@ export function ShirtRefactored({
               mat.map.version++;
             }
             
-            // Apply adaptive material properties based on preset
+            // CRITICAL FIX: Apply material properties to prevent texture fading
             mat.transparent = false;
-              mat.opacity = 1.0;
-              mat.alphaTest = 0.0;
-            mat.roughness = preset.textureQuality === 'ultra' || preset.textureQuality === 'high' ? 0.3 : 0.5;
-            mat.sheen = preset.textureQuality === 'ultra' || preset.textureQuality === 'high' ? 0.1 : 0.05;
-              
-              // CRITICAL: Reset emissive to prevent washing out
-              mat.emissive.setHex(0x000000);
-              mat.emissiveIntensity = 0;
-              mat.emissiveMap = null;
-              
-              // ULTRA-REALISTIC: Material properties for natural cotton fabric appearance
+            mat.opacity = 1.0;
+            mat.alphaTest = 0.0;
+            
+            // CRITICAL: Reset emissive to prevent washing out
+            mat.emissive.setHex(0x000000);
+            mat.emissiveIntensity = 0;
+            mat.emissiveMap = null;
+            
+            // ULTRA-REALISTIC: Material properties for natural cotton fabric appearance
             mat.roughness = 0.5;
-              mat.metalness = 0.0;
-              mat.normalScale = new THREE.Vector2(1, 1);
-              
-              // Subtle fabric sheen (much less than before for realism)
+            mat.metalness = 0.0;
+            mat.normalScale = new THREE.Vector2(1, 1);
+            
+            // Subtle fabric sheen (much less than before for realism)
             mat.sheen = 0.05;
-              mat.sheenRoughness = 0.9;
-              mat.sheenColor = new THREE.Color(0xffffff);
-              
-              // Optimized color space for accurate fabric colors
-              mat.toneMapped = true;
-              mat.colorSpace = THREE.SRGBColorSpace;
-              mat.outputColorSpace = THREE.SRGBColorSpace;
-              
-              // Natural fabric lighting properties
-              mat.envMapIntensity = 0.4;
-              mat.reflectivity = 0.05;
+            mat.sheenRoughness = 0.9;
+            mat.sheenColor = new THREE.Color(0xffffff);
+            
+            // Optimized color space for accurate fabric colors
+            mat.toneMapped = true;
+            mat.colorSpace = THREE.SRGBColorSpace;
+            mat.outputColorSpace = THREE.SRGBColorSpace;
+            
+            // Natural fabric lighting properties
+            mat.envMapIntensity = 0.4;
+            mat.reflectivity = 0.05;
               
               mat.needsUpdate = true;
               materialUpdates.push({ mesh: child, material: mat });

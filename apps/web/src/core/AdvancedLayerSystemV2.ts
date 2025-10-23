@@ -1870,14 +1870,15 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       if (appState.baseTexture) {
         ctx.save();
         ctx.globalAlpha = 1.0; // Always draw base texture at full opacity
+        ctx.globalCompositeOperation = 'source-over'; // Ensure base texture is drawn properly
         ctx.drawImage(appState.baseTexture, 0, 0, composedCanvas.width, composedCanvas.height);
         ctx.restore();
         console.log('🎨 Preserved base model texture in composition at full opacity');
       } else {
-        // Fill with white background if no base texture
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, composedCanvas.width, composedCanvas.height);
-        console.log('🎨 No base texture found, filled with white background');
+        // CRITICAL FIX: Use transparent background instead of white to prevent texture fading
+        // This ensures the model's original texture remains visible
+        ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
+        console.log('🎨 No base texture found, using transparent background to preserve model texture');
       }
       
       // Sort layers by order
@@ -2181,11 +2182,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         for (const imageEl of imageElements) {
           if (!imageEl.visible) continue;
           
-          ctx.save();
-          // CRITICAL FIX: Use image opacity but ensure it's visible
-          ctx.globalAlpha = imageEl.opacity || 1.0;
-          // CRITICAL FIX: Use source-over to prevent affecting base texture
-          ctx.globalCompositeOperation = 'source-over';
+            ctx.save();
+            // CRITICAL FIX: Use image opacity but ensure it's visible
+            ctx.globalAlpha = imageEl.opacity || 1.0;
+            // CRITICAL FIX: Use source-over to prevent affecting base texture
+            ctx.globalCompositeOperation = 'source-over';
           
           // Apply rotation if needed
           if (imageEl.rotation !== 0) {
