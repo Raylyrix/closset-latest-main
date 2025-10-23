@@ -1875,10 +1875,30 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         ctx.restore();
         console.log('🎨 Preserved base model texture in composition at full opacity');
       } else {
-        // CRITICAL FIX: Use transparent background instead of white to prevent texture fading
-        // This ensures the model's original texture remains visible
-        ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
-        console.log('🎨 No base texture found, using transparent background to preserve model texture');
+        // CRITICAL FIX: Generate base texture if it doesn't exist
+        console.log('🎨 No base texture found, attempting to generate from model...');
+        const { generateBaseLayer } = appState;
+        if (generateBaseLayer) {
+          generateBaseLayer();
+          // Try again after generation
+          const updatedAppState = useApp.getState();
+          if (updatedAppState.baseTexture) {
+            ctx.save();
+            ctx.globalAlpha = 1.0;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.drawImage(updatedAppState.baseTexture, 0, 0, composedCanvas.width, composedCanvas.height);
+            ctx.restore();
+            console.log('🎨 Generated and applied base texture');
+          } else {
+            // Fallback: Use transparent background to preserve model texture
+            ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
+            console.log('🎨 Using transparent background to preserve model texture');
+          }
+        } else {
+          // Fallback: Use transparent background to preserve model texture
+          ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
+          console.log('🎨 Using transparent background to preserve model texture');
+        }
       }
       
       // Sort layers by order
@@ -2306,33 +2326,34 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
-            // ANIMATION 4: MULTI-LAYER GLOW EFFECT - VIBRANT COLORS
+            // ANIMATION 4: ULTRA-VIBRANT GLOW EFFECT - MAXIMUM VISIBILITY
             // Calculate multi-layer glow animation based on time
             const now = Date.now();
-            const glowSpeed = 1.5; // Glow cycles per second
+            const glowSpeed = 2.0; // Faster glow cycles for more dynamic effect
             const glowPhase = (now * glowSpeed * 0.001) % (Math.PI * 2);
             
-            // Create multiple glow layers with VIBRANT colors for high visibility
+            // Create ULTRA-VIBRANT glow layers with maximum visibility
             const glowLayers = [
-              { color: '#00FFFF', width: 10, alpha: 0.4, offset: 0 }, // Bright cyan outer glow
-              { color: '#FF00FF', width: 8, alpha: 0.5, offset: Math.PI / 3 }, // Bright magenta
-              { color: '#FFFF00', width: 6, alpha: 0.6, offset: Math.PI * 2 / 3 }, // Bright yellow
-              { color: '#FF0080', width: 4, alpha: 0.7, offset: Math.PI }, // Bright pink
-              { color: '#00FF80', width: 2, alpha: 0.8, offset: Math.PI * 4 / 3 } // Bright green
+              { color: '#FF0000', width: 15, alpha: 0.6, offset: 0 }, // Bright red outer glow
+              { color: '#00FF00', width: 12, alpha: 0.7, offset: Math.PI / 4 }, // Bright green
+              { color: '#0000FF', width: 10, alpha: 0.8, offset: Math.PI / 2 }, // Bright blue
+              { color: '#FFFF00', width: 8, alpha: 0.9, offset: Math.PI * 3 / 4 }, // Bright yellow
+              { color: '#FF00FF', width: 6, alpha: 1.0, offset: Math.PI }, // Bright magenta
+              { color: '#00FFFF', width: 4, alpha: 1.0, offset: Math.PI * 5 / 4 } // Bright cyan
             ];
             
-            // Draw base border with vibrant glow
+            // Draw base border with ULTRA-VIBRANT glow
             ctx.save();
-            ctx.strokeStyle = '#00FFFF'; // Bright cyan base
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 4]); // Longer dashes for visibility
-            ctx.globalAlpha = 0.8;
+            ctx.strokeStyle = '#FF0000'; // Bright red base for maximum visibility
+            ctx.lineWidth = 4;
+            ctx.setLineDash([12, 6]); // Longer dashes for maximum visibility
+            ctx.globalAlpha = 1.0; // Maximum opacity
             ctx.beginPath();
             ctx.rect(borderX, borderY, borderWidth, borderHeight);
             ctx.stroke();
             ctx.restore();
             
-            // Draw multi-layer glow effect with vibrant colors
+            // Draw multi-layer glow effect with ULTRA-VIBRANT colors
             for (const layer of glowLayers) {
               const layerPhase = (glowPhase + layer.offset) % (Math.PI * 2);
               const layerIntensity = (Math.sin(layerPhase) + 1) / 2; // 0 to 1
@@ -2350,11 +2371,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.restore();
             }
             
-            // Set up main border styling with vibrant colors
-            ctx.strokeStyle = '#00FFFF'; // Bright cyan border for images
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 4]); // Longer dashes for visibility
-            ctx.globalAlpha = 0.9; // High opacity for visibility
+            // Set up main border styling with ULTRA-VIBRANT colors
+            ctx.strokeStyle = '#FF0000'; // Bright red border for maximum visibility
+            ctx.lineWidth = 4;
+            ctx.setLineDash([12, 6]); // Longer dashes for maximum visibility
+            ctx.globalAlpha = 1.0; // Maximum opacity for visibility
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
@@ -2383,29 +2404,31 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw vibrant multi-layer glow resize handles
+            // Draw ULTRA-VIBRANT multi-layer glow resize handles
             for (const handle of handles) {
-              // Draw base handle with vibrant colors
+              // Draw base handle with ULTRA-VIBRANT colors
               ctx.save();
-              ctx.fillStyle = '#00FFFF'; // Bright cyan
+              ctx.fillStyle = '#FF0000'; // Bright red for maximum visibility
               ctx.strokeStyle = '#FFFFFF';
-              ctx.lineWidth = 2;
-              ctx.globalAlpha = 0.9;
+              ctx.lineWidth = 3;
+              ctx.globalAlpha = 1.0; // Maximum opacity
               ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
               ctx.restore();
               
-              // Draw vibrant multi-layer glow effect on handles
+              // Draw ULTRA-VIBRANT multi-layer glow effect on handles
               const handleCenterX = handle.x + handleSize / 2;
               const handleCenterY = handle.y + handleSize / 2;
               const handleGlowPhase = (glowPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
               
-              // Draw multiple vibrant glow layers for handles
+              // Draw multiple ULTRA-VIBRANT glow layers for handles
               const handleGlowLayers = [
-                { color: '#00FFFF', size: handleSize + 8, alpha: 0.3 }, // Bright cyan
-                { color: '#FF00FF', size: handleSize + 6, alpha: 0.4 }, // Bright magenta
-                { color: '#FFFF00', size: handleSize + 4, alpha: 0.5 }, // Bright yellow
-                { color: '#FF0080', size: handleSize + 2, alpha: 0.6 } // Bright pink
+                { color: '#FF0000', size: handleSize + 12, alpha: 0.5 }, // Bright red
+                { color: '#00FF00', size: handleSize + 10, alpha: 0.6 }, // Bright green
+                { color: '#0000FF', size: handleSize + 8, alpha: 0.7 }, // Bright blue
+                { color: '#FFFF00', size: handleSize + 6, alpha: 0.8 }, // Bright yellow
+                { color: '#FF00FF', size: handleSize + 4, alpha: 0.9 }, // Bright magenta
+                { color: '#00FFFF', size: handleSize + 2, alpha: 1.0 } // Bright cyan
               ];
               
               for (const glowLayer of handleGlowLayers) {
