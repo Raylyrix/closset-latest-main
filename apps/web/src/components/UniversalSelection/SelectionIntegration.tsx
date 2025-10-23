@@ -10,6 +10,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { useApp } from '../../App';
+import { useAdvancedLayerStoreV2 } from '../../core/AdvancedLayerSystemV2';
 import { useUniversalSelection } from '../../stores/UniversalSelectionStore';
 import { UniversalElement } from '../../types/UniversalSelection';
 
@@ -193,7 +194,7 @@ export function useSelectionIntegration() {
   const { getSelectedElements, selectedIds } = useUniversalSelection();
   const { 
     updateTextElement, 
-    updateImportedImage, 
+    // PHASE 2 FIX: Removed updateImportedImage - now handled by V2 system 
     updateShapeElement,
     selectTextElement,
     setSelectedImageId,
@@ -240,7 +241,9 @@ export function useSelectionIntegration() {
           });
           break;
         case 'image':
-          updateImportedImage(element.id, {
+          // PHASE 2 FIX: Update image via V2 system
+          const v2State = useAdvancedLayerStoreV2.getState();
+          v2State.updateImageElementFromApp(element.id, {
             u: transform.x / 1024,
             v: 1 - (transform.y / 1024),
             uWidth: transform.width / 1024,

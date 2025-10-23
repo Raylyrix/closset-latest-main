@@ -585,9 +585,7 @@ interface AppState {
   loadProjectState: () => Promise<boolean>;
   clearProjectState: () => Promise<boolean>;
   
-  // Imported image management methods
-  addImportedImage: (image: any) => void;
-  updateImportedImage: (id: string, updates: any) => void;
+  // PHASE 2 FIX: Removed image management methods - now handled by V2 system
   removeImportedImage: (id: string) => void;
   
   // Layer management methods - delegated to AdvancedLayerSystemV2
@@ -1989,137 +1987,11 @@ try {
     set({ selectedImageId: id });
   },
 
-  addImportedImage: (image: any) => {
-    console.log('📷 Adding imported image:', image.name);
-    
-    // Convert pixel coords to UV if needed (migration support)
-    const pixelToUV = (pixel: any, canvasWidth: number, canvasHeight: number) => {
-      const centerX = pixel.x + pixel.width / 2;
-      const centerY = pixel.y + pixel.height / 2;
-      return {
-        u: centerX / canvasWidth,
-        v: centerY / canvasHeight,
-        uWidth: pixel.width / canvasWidth,
-        uHeight: pixel.height / canvasHeight
-      };
-    };
-    
-    let imageWithUV = { ...image };
-    if (typeof image.u !== 'number' || typeof image.v !== 'number') {
-      const canvasSize = 2048; // Standard texture size
-      const uvCoords = pixelToUV(
-        {
-          x: image.x || 512,
-          y: image.y || 512,
-          width: image.width || 512,
-          height: image.height || 512
-        },
-        canvasSize,
-        canvasSize
-      );
-      imageWithUV = { ...image, ...uvCoords };
-    }
-    
-    // Ensure all required properties exist
-    const imageWithDefaults = {
-      ...imageWithUV,
-      rotation: imageWithUV.rotation || 0,
-      locked: imageWithUV.locked ?? false,
-      // Size linking and flip properties
-      sizeLinked: imageWithUV.sizeLinked ?? true,    // Default to linked
-      horizontalFlip: imageWithUV.horizontalFlip ?? false,
-      verticalFlip: imageWithUV.verticalFlip ?? false,
-      // Blending properties
-      blendMode: imageWithUV.blendMode || 'source-over', // Default to normal blend
-      // Keep legacy coords for backward compatibility
-      x: imageWithUV.x,
-      y: imageWithUV.y,
-      width: imageWithUV.width,
-      height: imageWithUV.height
-    };
-    
-    console.log('📷 Image with UV coordinates:', {
-      name: imageWithDefaults.name,
-      uv: { u: imageWithDefaults.u, v: imageWithDefaults.v },
-      size: { uWidth: imageWithDefaults.uWidth, uHeight: imageWithDefaults.uHeight }
-    });
-    
-    // Pre-load and cache the image before adding to state
-    if (!(window as any).__imageCache) {
-      (window as any).__imageCache = new Map<string, HTMLImageElement>();
-    }
-    const imageCache = (window as any).__imageCache;
-    
-    const imageElement = new Image();
-    imageElement.src = imageWithDefaults.dataUrl;
-    imageCache.set(imageWithDefaults.id, imageElement);
-    
-    console.log('📷 Pre-loading image:', imageWithDefaults.name);
-    
-    // Wait for image to load, then add to state and render
-    const loadAndRender = () => {
-      // CRITICAL FIX: Only add to layer system - no App state duplication
-      const v2State = useAdvancedLayerStoreV2.getState();
-      v2State.addImageElementFromApp(imageWithDefaults); // ✅ Single source of truth
-      
-      // CRITICAL FIX: Keep importedImages for template selection only (not for rendering)
-      set(state => ({ 
-        importedImages: [...state.importedImages, imageWithDefaults],
-        selectedImageId: imageWithDefaults.id // Auto-select newly added image
-      }));
-      
-      console.log('📷 Image added to layer system, triggering render');
-      
-      // CRITICAL: Trigger composeLayers first (to draw image), then updateModelTexture (same as text)
-      setTimeout(() => {
-        const { composeLayers } = get();
-        composeLayers(); // Draw image to composedCanvas
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false); // Apply to model
-        }
-      }, 50);
-    };
-    
-    // If image already loaded (from cache/data URL), render immediately
-    if (imageElement.complete && imageElement.naturalHeight !== 0) {
-      console.log('📷 Image already loaded, rendering immediately');
-      loadAndRender();
-    } else {
-      // Wait for image to load
-      imageElement.onload = () => {
-        console.log('📷 Image loaded, rendering now');
-        loadAndRender();
-      };
-      imageElement.onerror = () => {
-        console.error('📷 Failed to load image:', imageWithDefaults.name);
-      };
-    }
-  },
+  // PHASE 2 FIX: Removed addImportedImage - images are now handled directly by V2 system
+  // Images are imported via RightPanelCompact.tsx -> V2 system directly
 
-  updateImportedImage: (id: string, updates: any) => {
-    console.log('📷 Updating imported image:', id, updates);
-    set(state => ({
-      importedImages: state.importedImages.map(img =>
-        img.id === id ? { ...img, ...updates } : img
-      )
-    }));
-    
-    // CRITICAL FIX: Also update image in V2 layer system
-    const v2State = useAdvancedLayerStoreV2.getState();
-    v2State.updateImageElementFromApp(id, updates);
-    
-    // CRITICAL FIX: Immediate layer composition for real-time updates (same as text tool)
-    const { composeLayers } = get();
-    composeLayers(true); // Force layer composition
-    
-    // Force texture update
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'image-element-updated' }
-      });
-      window.dispatchEvent(textureEvent);
-    }, 50);
-  },
+  // PHASE 2 FIX: Removed updateImportedImage - images are now updated directly in V2 system
+  // Image updates are handled by AdvancedLayerSystemV2.updateImageElementFromApp
 
   removeImportedImage: (id: string) => {
     console.log('📷 Removing imported image:', id);

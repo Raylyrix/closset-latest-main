@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { createLayerCanvas, createComposedCanvas, createDisplacementCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { useApp } from '../App';
 import { convertUVToPixel, getCanvasDimensions } from '../utils/CoordinateUtils';
+import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 
 // Layer Types
 export type LayerType = 'paint' | 'puff' | 'vector' | 'text' | 'image' | 'embroidery' | 'adjustment' | 'group' | 'pixel' | 'smart-object' | 'shape' | 'background' | 'raster' | 'procedural' | 'fill' | 'ai-smart';
@@ -1368,7 +1369,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
       // UV coordinates are center-based, convert to top-left pixel coordinates
-      const canvasSize = CANVAS_CONFIG.COMPOSED.width; // Use composed canvas size
+      // PHASE 1 FIX: Use performance manager canvas size instead of CANVAS_CONFIG
+      const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
       const pixelWidth = Math.floor(imageData.uWidth * canvasSize);
       const pixelHeight = Math.floor(imageData.uHeight * canvasSize);
       
@@ -1436,6 +1438,20 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         finalLayerId: targetLayerId
       });
       
+      // PHASE 4 FIX: Trigger composition and texture update (same as text tool)
+      setTimeout(() => {
+        const appState = useApp.getState();
+        const { composeLayers } = appState;
+        composeLayers(); // Compose layers to transfer image to composedCanvas
+        
+        // Dispatch texture update event for immediate visual feedback
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'image-element-added-v2', imageId: id }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered composition and texture update after image placement (V2)');
+      }, 10);
+      
       return id;
     },
     
@@ -1463,8 +1479,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         // If UV coordinates are updated, recalculate pixel coordinates
         if (patch.u !== undefined || patch.v !== undefined || patch.uWidth !== undefined || patch.uHeight !== undefined) {
           const composedCanvas = useApp.getState().composedCanvas;
-          const canvasWidth = composedCanvas?.width || 4096;
-          const canvasHeight = composedCanvas?.height || 4096;
+          // PHASE 1 FIX: Use performance manager canvas size as fallback
+          const fallbackCanvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
+          const canvasWidth = composedCanvas?.width || fallbackCanvasSize;
+          const canvasHeight = composedCanvas?.height || fallbackCanvasSize;
           
           const newU = patch.u !== undefined ? patch.u : updatedImage.u;
           const newV = patch.v !== undefined ? patch.v : updatedImage.v;
@@ -1492,8 +1510,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         // If pixel coordinates are updated, recalculate UV coordinates
         if (patch.x !== undefined || patch.y !== undefined || patch.width !== undefined || patch.height !== undefined) {
           const composedCanvas = useApp.getState().composedCanvas;
-          const canvasWidth = composedCanvas?.width || 4096;
-          const canvasHeight = composedCanvas?.height || 4096;
+          const canvasWidth = composedCanvas?.width || unifiedPerformanceManager.getOptimalCanvasSize().width;
+          const canvasHeight = composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width;
           
           const newX = patch.x !== undefined ? patch.x : updatedImage.x;
           const newY = patch.y !== undefined ? patch.y : updatedImage.y;
@@ -1529,13 +1547,18 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         };
       });
       
-      // CRITICAL FIX: Dispatch texture update event for immediate visual feedback
+      // PHASE 4 FIX: Trigger composition and texture update (same as text tool)
       setTimeout(() => {
+        const appState = useApp.getState();
+        const { composeLayers } = appState;
+        composeLayers(); // Compose layers to transfer updated image to composedCanvas
+        
+        // Dispatch texture update event for immediate visual feedback
         const textureEvent = new CustomEvent('forceTextureUpdate', {
           detail: { source: 'image-element-position-updated-v2', imageId: id }
         });
         window.dispatchEvent(textureEvent);
-        console.log('🔄 Triggered texture update after image position change (V2)');
+        console.log('🔄 Triggered composition and texture update after image update (V2)');
       }, 10);
     },
     
@@ -2142,6 +2165,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         
         // Draw image elements
         const imageElements = layer.content.imageElements || [];
+        console.log(`🎨 Rendering ${imageElements.length} image elements for layer ${layer.id}`);
+        
         for (const imageEl of imageElements) {
           if (!imageEl.visible) continue;
           
@@ -2170,31 +2195,39 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.translate(0, -imageEl.y * 2 - imageEl.height);
           }
           
-          // CRITICAL FIX: Handle UV coordinate system inversion for Three.js compatibility
-          // Three.js UV coordinates have Y=0 at bottom, Canvas has Y=0 at top
-          // We need to flip the Y coordinate for proper texture mapping
-          const imageY = CANVAS_CONFIG.COMPOSED.height - imageEl.y - imageEl.height;
+          // PHASE 3 FIX: Remove manual Y coordinate inversion - UV to pixel conversion is already correct
+          // The UV coordinates are properly converted to pixel coordinates, no need for additional flipping
+          const imageY = imageEl.y;
           
-          // CRITICAL FIX: Synchronous image rendering to ensure visibility
+          // CRITICAL FIX: Force immediate image rendering
           if (imageEl.dataUrl) {
-            // Create image element synchronously
+            // Create image element and draw immediately if possible
             const img = new Image();
             img.src = imageEl.dataUrl;
             
-            if (img.complete) {
-              // Image is already loaded, draw immediately
-              // CRITICAL FIX: Use corrected Y coordinate for proper texture mapping
+            // Try to draw immediately if image is cached/loaded
+            if (img.complete && img.naturalWidth > 0) {
               ctx.drawImage(img, imageEl.x, imageY, imageEl.width, imageEl.height);
-              console.log('🎨 Image drawn synchronously:', imageEl.name);
+              console.log('🎨 Image drawn immediately (cached):', imageEl.name);
             } else {
-              // Image not loaded yet, use onload callback
+              // For async loading, we need to trigger a re-composition
               img.onload = () => {
-                // CRITICAL FIX: Use corrected Y coordinate for proper texture mapping
-                ctx.drawImage(img, imageEl.x, imageY, imageEl.width, imageEl.height);
-                console.log('🎨 Image drawn after load:', imageEl.name);
+                console.log('🎨 Image loaded, triggering re-composition:', imageEl.name);
+                // Trigger a re-composition to draw the image
+                setTimeout(() => {
+                  const appState = useApp.getState();
+                  const { composeLayers } = appState;
+                  composeLayers();
+                  
+                  // Dispatch texture update event
+                  const textureEvent = new CustomEvent('forceTextureUpdate', {
+                    detail: { source: 'image-loaded-async', imageId: imageEl.id }
+                  });
+                  window.dispatchEvent(textureEvent);
+                }, 10);
               };
               img.onerror = () => {
-                console.warn('🎨 Failed to load image:', imageEl.name);
+                console.error('🎨 Failed to load image:', imageEl.name);
                 // Draw placeholder rectangle
                 ctx.fillStyle = 'rgba(200,200,200,0.5)';
                 ctx.fillRect(imageEl.x, imageY, imageEl.width, imageEl.height);

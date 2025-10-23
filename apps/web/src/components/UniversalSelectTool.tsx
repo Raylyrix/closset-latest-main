@@ -325,9 +325,9 @@ export const UniversalSelectTool = memo(function UniversalSelectTool({ active }:
           });
           break;
         case 'image':
-          // Update image position
-          const { updateImportedImage } = useApp.getState();
-          updateImportedImage(element.id, {
+          // PHASE 2 FIX: Update image position via V2 system
+          const v2State = useAdvancedLayerStoreV2.getState();
+          v2State.updateImageElementFromApp(element.id, {
             x: element.bounds.x + (transform.x || 0),
             y: element.bounds.y + (transform.y || 0)
           });

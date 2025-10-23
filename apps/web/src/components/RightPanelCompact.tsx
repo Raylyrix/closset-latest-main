@@ -96,10 +96,8 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     deleteShapeElement,
     duplicateShapeElement,
     // Image settings
-    importedImages,
     selectedImageId,
     setSelectedImageId,
-    updateImportedImage,
     removeImportedImage
   } = useApp();
 
@@ -3664,14 +3662,15 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     const reader = new FileReader();
                     reader.onload = (event) => {
                       if (event.target?.result) {
-                        // Create image with UV coordinates (center of texture)
-                        useApp.getState().addImportedImage({
+                        // PHASE 2 FIX: Import directly to V2 system - no App.tsx duplication
+                        const v2State = useAdvancedLayerStoreV2.getState();
+                        const imageId = v2State.addImageElementFromApp({
                           id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                           name: file.name,
                           dataUrl: event.target.result as string,
-                          // UV coordinates (center of texture = 0.5, 0.5)
-                          u: 0.5,           // Center horizontally
-                          v: 0.5,           // Center vertically (correct for Three.js UV space)  
+                          // UV coordinates (adjusted for shirt model center)
+                          u: 0.45,          // Move left
+                          v: 0.65,          // Move higher up  
                           uWidth: 0.25,     // 25% of texture width
                           uHeight: 0.25,    // 25% of texture height
                           // Legacy pixel coords for migration
@@ -3690,6 +3689,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           // Blending properties
                           blendMode: 'source-over'
                         });
+                        
+                        // Auto-select the newly imported image
+                        useApp.getState().setSelectedImageId(imageId);
+                        
+                        console.log('📷 Image imported directly to V2 system:', imageId);
                       }
                     };
                     reader.readAsDataURL(file);
@@ -3721,68 +3725,77 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               </button>
               
               {/* Imported Images List */}
-              {importedImages.length > 0 && (
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{
-                    fontSize: '9px',
-                    color: '#a0aec0',
-                    fontWeight: '600',
-                    marginBottom: '6px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Images ({importedImages.length})
+              {(() => {
+                // PHASE 2 FIX: Get images from V2 system instead of App.tsx
+                const v2State = useAdvancedLayerStoreV2.getState();
+                const imageElements = v2State.getAllImageElements();
+                
+                return imageElements.length > 0 && (
+                  <div style={{ marginTop: '8px' }}>
+                    <div style={{
+                      fontSize: '9px',
+                      color: '#a0aec0',
+                      fontWeight: '600',
+                      marginBottom: '6px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Images ({imageElements.length})
+                    </div>
+                    <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {imageElements.map((img: any) => (
+                        <div
+                          key={img.id}
+                          onClick={() => useApp.getState().setSelectedImageId(img.id)}
+                          style={{
+                            padding: '6px 8px',
+                            fontSize: '9px',
+                            background: selectedImageId === img.id 
+                              ? 'rgba(0, 150, 255, 0.3)' 
+                              : 'rgba(255, 255, 255, 0.05)',
+                            border: selectedImageId === img.id
+                              ? '1px solid rgba(0, 150, 255, 0.5)'
+                              : '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            color: '#FFFFFF'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (selectedImageId !== img.id) {
+                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (selectedImageId !== img.id) {
+                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                            }
+                          }}
+                        >
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {img.visible ? '👁️' : '👁️‍🗨️'} {img.locked ? '🔒' : ''} {img.name}
+                          </span>
+                          <span style={{ fontSize: '8px', color: '#a0aec0', marginLeft: '8px' }}>
+                            {((img.uWidth || 0.25) * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {importedImages.map((img: any) => (
-                      <div
-                        key={img.id}
-                        onClick={() => useApp.getState().setSelectedImageId(img.id)}
-                        style={{
-                          padding: '6px 8px',
-                          fontSize: '9px',
-                          background: selectedImageId === img.id 
-                            ? 'rgba(0, 150, 255, 0.3)' 
-                            : 'rgba(255, 255, 255, 0.05)',
-                          border: selectedImageId === img.id
-                            ? '1px solid rgba(0, 150, 255, 0.5)'
-                            : '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          color: '#FFFFFF'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (selectedImageId !== img.id) {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (selectedImageId !== img.id) {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                          }
-                        }}
-                      >
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {img.visible ? '👁️' : '👁️‍🗨️'} {img.locked ? '🔒' : ''} {img.name}
-                        </span>
-                        <span style={{ fontSize: '8px', color: '#a0aec0', marginLeft: '8px' }}>
-                          {((img.uWidth || 0.25) * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
             
             {selectedImageId ? (
               <div style={{ marginTop: '8px', padding: '12px', background: 'rgba(0,0,0,0.4)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)' }}>
                 {(() => {
-                  const selectedImage = importedImages.find(img => img.id === selectedImageId);
+                  // PHASE 2 FIX: Get selected image from V2 system instead of App.tsx
+                  const v2State = useAdvancedLayerStoreV2.getState();
+                  const imageElements = v2State.getAllImageElements();
+                  const selectedImage = imageElements.find(img => img.id === selectedImageId);
                   if (!selectedImage) return null;
                   
                   const { setActiveTool } = useApp.getState();
@@ -3849,7 +3862,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                               min="0"
                               max="100"
                               value={(selectedImage.u || 0.5) * 100}
-                              onChange={(e) => updateImportedImage(selectedImageId, { u: parseFloat(e.target.value) / 100 })}
+                              onChange={(e) => {
+                                // PHASE 2 FIX: Update image via V2 system
+                                const v2State = useAdvancedLayerStoreV2.getState();
+                                v2State.updateImageElementFromApp(selectedImageId, { u: parseFloat(e.target.value) / 100 });
+                              }}
                               style={{ width: '100%' }}
                             />
                           </div>
@@ -3860,7 +3877,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                               min="0"
                               max="100"
                               value={(selectedImage.v || 0.5) * 100}
-                              onChange={(e) => updateImportedImage(selectedImageId, { v: parseFloat(e.target.value) / 100 })}
+                              onChange={(e) => {
+                                // PHASE 2 FIX: Update image via V2 system
+                                const v2State = useAdvancedLayerStoreV2.getState();
+                                v2State.updateImageElementFromApp(selectedImageId, { v: parseFloat(e.target.value) / 100 });
+                              }}
                               style={{ width: '100%' }}
                             />
                           </div>
@@ -3884,13 +3905,19 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                                 if (selectedImage.sizeLinked) {
                                   updates.uHeight = newWidth;
                                 }
-                                updateImportedImage(selectedImageId, updates);
+                                // PHASE 2 FIX: Update image via V2 system
+                                const v2State = useAdvancedLayerStoreV2.getState();
+                                v2State.updateImageElementFromApp(selectedImageId, updates);
                               }}
                               style={{ width: '100%' }}
                             />
                           </div>
                           <button
-                            onClick={() => updateImportedImage(selectedImageId, { sizeLinked: !selectedImage.sizeLinked })}
+                            onClick={() => {
+                              // PHASE 2 FIX: Update image via V2 system
+                              const v2State = useAdvancedLayerStoreV2.getState();
+                              v2State.updateImageElementFromApp(selectedImageId, { sizeLinked: !selectedImage.sizeLinked });
+                            }}
                             style={{
                               padding: '4px 8px',
                               fontSize: '8px',
@@ -3919,7 +3946,9 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                                 if (selectedImage.sizeLinked) {
                                   updates.uWidth = newHeight;
                                 }
-                                updateImportedImage(selectedImageId, updates);
+                                // PHASE 2 FIX: Update image via V2 system
+                                const v2State = useAdvancedLayerStoreV2.getState();
+                                v2State.updateImageElementFromApp(selectedImageId, updates);
                               }}
                               style={{ width: '100%' }}
                             />
@@ -3936,12 +3965,20 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           min="0"
                           max="360"
                           value={selectedImage.rotation || 0}
-                          onChange={(e) => updateImportedImage(selectedImageId, { rotation: parseInt(e.target.value) })}
+                          onChange={(e) => {
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, { rotation: parseInt(e.target.value) });
+                          }}
                           style={{ width: '100%', marginBottom: '8px' }}
                         />
                         <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
                           <button
-                            onClick={() => updateImportedImage(selectedImageId, { rotation: 90 })}
+                            onClick={() => {
+                              // PHASE 2 FIX: Update image via V2 system
+                              const v2State = useAdvancedLayerStoreV2.getState();
+                              v2State.updateImageElementFromApp(selectedImageId, { rotation: 90 });
+                            }}
                             style={{
                               flex: 1,
                               padding: '6px',
@@ -3956,7 +3993,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                             90°
                           </button>
                           <button
-                            onClick={() => updateImportedImage(selectedImageId, { rotation: 180 })}
+                            onClick={() => {
+                              // PHASE 2 FIX: Update image via V2 system
+                              const v2State = useAdvancedLayerStoreV2.getState();
+                              v2State.updateImageElementFromApp(selectedImageId, { rotation: 180 });
+                            }}
                             style={{
                               flex: 1,
                               padding: '6px',
@@ -3973,7 +4014,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                         </div>
                         <div style={{ display: 'flex', gap: '4px' }}>
                           <button
-                            onClick={() => updateImportedImage(selectedImageId, { horizontalFlip: !selectedImage.horizontalFlip })}
+                            onClick={() => {
+                              // PHASE 2 FIX: Update image via V2 system
+                              const v2State = useAdvancedLayerStoreV2.getState();
+                              v2State.updateImageElementFromApp(selectedImageId, { horizontalFlip: !selectedImage.horizontalFlip });
+                            }}
                             style={{
                               flex: 1,
                               padding: '6px',
@@ -3992,7 +4037,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                             ↔️ H-Flip
                           </button>
                           <button
-                            onClick={() => updateImportedImage(selectedImageId, { verticalFlip: !selectedImage.verticalFlip })}
+                            onClick={() => {
+                              // PHASE 2 FIX: Update image via V2 system
+                              const v2State = useAdvancedLayerStoreV2.getState();
+                              v2State.updateImageElementFromApp(selectedImageId, { verticalFlip: !selectedImage.verticalFlip });
+                            }}
                             style={{
                               flex: 1,
                               padding: '6px',
@@ -4021,7 +4070,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           min="0"
                           max="100"
                           value={(selectedImage.opacity || 1) * 100}
-                          onChange={(e) => updateImportedImage(selectedImageId, { opacity: parseInt(e.target.value) / 100 })}
+                          onChange={(e) => {
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, { opacity: parseInt(e.target.value) / 100 });
+                          }}
                           style={{ width: '100%' }}
                         />
                       </div>
@@ -4031,7 +4084,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                         <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '4px' }}>Blend Mode</div>
                         <select
                           value={selectedImage.blendMode || 'source-over'}
-                          onChange={(e) => updateImportedImage(selectedImageId, { blendMode: e.target.value as GlobalCompositeOperation })}
+                          onChange={(e) => {
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, { blendMode: e.target.value as GlobalCompositeOperation });
+                          }}
                           style={{
                             width: '100%',
                             padding: '6px',
@@ -4060,7 +4117,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       {/* Action Buttons */}
                       <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
                         <button
-                          onClick={() => updateImportedImage(selectedImageId, { visible: !selectedImage.visible })}
+                          onClick={() => {
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, { visible: !selectedImage.visible });
+                          }}
                           style={{
                             flex: 1,
                             padding: '8px',
@@ -4079,7 +4140,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           {selectedImage.visible ? '👁️' : '🙈'} {selectedImage.visible ? 'Visible' : 'Hidden'}
                         </button>
                         <button
-                          onClick={() => updateImportedImage(selectedImageId, { locked: !selectedImage.locked })}
+                          onClick={() => {
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, { locked: !selectedImage.locked });
+                          }}
                           style={{
                             flex: 1,
                             padding: '8px',
@@ -4126,7 +4191,9 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
                           onClick={() => {
-                            updateImportedImage(selectedImageId, { 
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, { 
                               u: 0.5, 
                               v: 0.5 
                             });
@@ -4150,7 +4217,9 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                         </button>
                         <button
                           onClick={() => {
-                            updateImportedImage(selectedImageId, {
+                            // PHASE 2 FIX: Update image via V2 system
+                            const v2State = useAdvancedLayerStoreV2.getState();
+                            v2State.updateImageElementFromApp(selectedImageId, {
                               uWidth: 0.25,
                               uHeight: 0.25
                             });

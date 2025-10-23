@@ -3832,9 +3832,11 @@ export function ShirtRefactored({
                 const txtV = txt.v || 0.5;
                 
                 const composedCanvas = useApp.getState().composedCanvas;
+                // PHASE 1 FIX: Use performance manager canvas size as fallback
+                const fallbackCanvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
                 const canvasDimensions = {
-                  width: composedCanvas?.width || 4096,
-                  height: composedCanvas?.height || 4096
+                  width: composedCanvas?.width || fallbackCanvasSize,
+                  height: composedCanvas?.height || fallbackCanvasSize
                 };
                 
                 const textWidth = textPixelWidth / canvasDimensions.width;
@@ -3994,8 +3996,8 @@ export function ShirtRefactored({
               // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
               const composedCanvas = useApp.getState().composedCanvas;
 const canvasDimensions = {
-                  width: composedCanvas?.width || 4096,
-                  height: composedCanvas?.height || 4096
+                  width: composedCanvas?.width || unifiedPerformanceManager.getOptimalCanvasSize().width,
+                  height: composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width
                 };
               
               // CRITICAL: Calculate canvas pixel position (same as App.tsx line 3035-3037)
@@ -4356,23 +4358,27 @@ const canvasDimensions = {
             for (const img of imageElements) {
               if (!img.visible) continue;
               
-              // CRITICAL FIX: Use current coordinates from layer system (not stored coordinates)
-              // Get the most up-to-date coordinates from the layer system
+              // CRITICAL FIX: Use the same coordinate system as image rendering
+              // Convert UV coordinates to pixel coordinates for consistent hitbox detection
+              const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
               const imgU = img.u || 0.5;
               const imgV = img.v || 0.5;
               const imgWidth = img.uWidth || 0.25;
               const imgHeight = img.uHeight || 0.25;
               
-              // CRITICAL FIX: Account for UV coordinate system inversion
-              // Three.js UV coordinates have Y=0 at bottom, but our hitbox detection expects Y=0 at top
-              // We need to flip the V coordinate for proper hitbox detection
-              const flippedV = 1 - imgV; // Flip V coordinate for hitbox detection
+              // Convert center-based UV to pixel coordinates (same as image drawing)
+              const centerX = imgU * canvasSize;
+              const centerY = imgV * canvasSize;
+              const pixelWidth = imgWidth * canvasSize;
+              const pixelHeight = imgHeight * canvasSize;
+              const pixelX = centerX - pixelWidth / 2;
+              const pixelY = centerY - pixelHeight / 2;
               
-              // Calculate top-left UV coordinates for hitbox detection
-              const topLeftU = imgU - (imgWidth / 2);
-              const topLeftV = flippedV - (imgHeight / 2);
-              const bottomRightU = topLeftU + imgWidth;
-              const bottomRightV = topLeftV + imgHeight;
+              // Convert pixel coordinates back to UV for hitbox detection
+              const topLeftU = pixelX / canvasSize;
+              const topLeftV = pixelY / canvasSize;
+              const bottomRightU = (pixelX + pixelWidth) / canvasSize;
+              const bottomRightV = (pixelY + pixelHeight) / canvasSize;
               
               // CRITICAL FIX: Use more precise hitbox detection with better tolerance
               const tolerance = 0.01; // 1% tolerance for more precise detection
@@ -4389,8 +4395,8 @@ const canvasDimensions = {
                 clickedImage = img;
                 console.log('🎨 Image tool: Hitbox detection successful', {
                   clickedUV: { u: clickU, v: clickV },
-                  imageUV: { u: imgU, v: imgV },
-                  imageSize: { width: imgWidth, height: imgHeight },
+                  imageUV: { u: img.u, v: img.v },
+                  imageSize: { width: img.width, height: img.height },
                   hitboxBounds: { topLeftU, topLeftV, bottomRightU, bottomRightV }
                 });
                 break;
@@ -4471,93 +4477,16 @@ const canvasDimensions = {
                 console.log('🎨 Image tool: Image is locked, cannot drag');
               }
             } else {
-              // CRITICAL FIX: Implement click-to-place like text tool
-              console.log('🎨 Image tool: Clicked empty area - checking if image is selected');
+              // PHASE 5 FIX: Simplified image tool - no click-to-place, just deselect
+              console.log('🎨 Image tool: Clicked empty area - deselecting any selected image');
               
-              // CRITICAL: If image is already selected, don't show prompt - just deselect
+              // If image is already selected, deselect it
               const { selectedImageId: currentSelectedId } = useApp.getState();
               if (currentSelectedId) {
-                console.log('🎨 Image tool: Deselecting current image (clicked empty area)');
+                console.log('🎨 Image tool: Deselecting current image');
                 setSelectedImageId(null);
-                return;
-              }
-              
-              // CRITICAL: Prevent double prompts with timestamp check (like text tool)
-              const now = Date.now();
-              if (now - lastTextPromptTimeRef.current < 500) {
-                console.log('🎨 Image tool: Skipping - prompt triggered too soon (within 500ms)');
-                return;
-              }
-              
-              // CRITICAL: Stop all event propagation to prevent double triggers (like text tool)
-              if (e.stopPropagation) e.stopPropagation();
-              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-              if (e.nativeEvent?.stopPropagation) e.nativeEvent.stopPropagation();
-              if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
-              
-              // Prevent double prompts with flag (like text tool)
-              if (textPromptActiveRef.current) {
-                console.log('🎨 Image tool: Skipping - prompt already active');
-                return;
-              }
-              
-              // CRITICAL: Don't show prompt if any image is already selected
-              const { selectedImageId } = useApp.getState();
-              if (selectedImageId) {
-                console.log('🎨 Image tool: Skipping - image already selected, click empty area to deselect first');
-                return;
-              }
-              
-              console.log('🎨 Image tool: About to show image selection prompt');
-              textPromptActiveRef.current = true;
-              lastTextPromptTimeRef.current = now;
-              
-              // CRITICAL FIX: Show image selection like text tool shows text prompt
-              const { importedImages } = useApp.getState();
-              if (importedImages.length > 0) {
-                // Create image selection prompt (like text tool prompt)
-                const imageNames = importedImages.map((img, index) => `${index + 1}. ${img.name}`).join('\n');
-                const userSelection = window.prompt(`Select image to place:\n\n${imageNames}\n\nEnter number (1-${importedImages.length}):`, '1');
-                
-                setTimeout(() => {
-                  textPromptActiveRef.current = false;
-                }, 100);
-                
-                if (userSelection) {
-                  const selectedIndex = parseInt(userSelection) - 1;
-                  if (selectedIndex >= 0 && selectedIndex < importedImages.length) {
-                    const imageToPlace = importedImages[selectedIndex];
-                    console.log('🎨 Image tool: Placing selected image:', imageToPlace.name);
-                    
-                    // Create new image at exact click position (like text tool)
-                    const newImageData = {
-                      ...imageToPlace,
-                      id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                      u: clickU,
-                      v: clickV,
-                      // Convert UV coordinates to pixel coordinates for layer system
-                      x: Math.floor(clickU * 2048),
-                      y: Math.floor(clickV * 2048)
-                    };
-                    
-                    // CRITICAL FIX: Only add to layer system - single source of truth
-                    const v2State = useAdvancedLayerStoreV2.getState();
-                    v2State.addImageElementFromApp(newImageData);
-                    
-                    // Select the newly created image (like text tool)
-                    setSelectedImageId(newImageData.id);
-                    
-                    console.log('🎨 Image tool: Image placed and selected:', newImageData.id);
-                  } else {
-                    console.log('🎨 Image tool: Invalid selection');
-                  }
-                }
               } else {
-                console.log('🎨 Image tool: No imported images available for placement');
-                // In a full implementation, this would trigger image import dialog
-                setTimeout(() => {
-                  textPromptActiveRef.current = false;
-                }, 100);
+                console.log('🎨 Image tool: No image selected - import images via right panel');
               }
             }
           }
@@ -4818,8 +4747,8 @@ const canvasDimensions = {
               // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
               const composedCanvas = useApp.getState().composedCanvas;
 const canvasDimensions = {
-                  width: composedCanvas?.width || 4096,
-                  height: composedCanvas?.height || 4096
+                  width: composedCanvas?.width || unifiedPerformanceManager.getOptimalCanvasSize().width,
+                  height: composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width
                 };
               
               // CRITICAL: Calculate canvas pixel position
@@ -4903,8 +4832,8 @@ const canvasDimensions = {
             // CRITICAL: Get actual canvas size from state (same as App.tsx uses)
             const composedCanvas = useApp.getState().composedCanvas;
 const canvasDimensions = {
-                  width: composedCanvas?.width || 4096,
-                  height: composedCanvas?.height || 4096
+                  width: composedCanvas?.width || unifiedPerformanceManager.getOptimalCanvasSize().width,
+                  height: composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width
                 };
             
             // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
@@ -5198,10 +5127,11 @@ const canvasDimensions = {
           newWidth = Math.max(minSize, Math.min(maxSize, newWidth));
           newHeight = Math.max(minSize, Math.min(maxSize, newHeight));
           
-          // Update image size and position
-          const { updateImportedImage, composeLayers } = useApp.getState();
+          // PHASE 2 FIX: Update image via V2 system
+          const { composeLayers } = useApp.getState();
           if (resizeStart.imageId) {
-            updateImportedImage(resizeStart.imageId, {
+            const v2State = useAdvancedLayerStoreV2.getState();
+            v2State.updateImageElementFromApp(resizeStart.imageId, {
               uWidth: newWidth,
               uHeight: newHeight,
               u: Math.max(0, Math.min(1, newU)),
@@ -5441,7 +5371,9 @@ const canvasDimensions = {
           
           // SMART SNAPPING: Snap to grid or other text elements
           const { showGrid, textElements } = useApp.getState();
-          const snapThreshold = 0.01; // 5px threshold in UV space (approx 41px on 4096 texture)
+          // PHASE 1 FIX: Calculate snap threshold based on actual canvas size
+          const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
+          const snapThreshold = 5 / canvasSize; // 5px threshold in UV space
           
           // 1. Snap to grid (if grid is visible)
           if (showGrid) {
@@ -5535,10 +5467,11 @@ const canvasDimensions = {
           const newU = dragStart.imgU + deltaU;
           const newV = dragStart.imgV + deltaV;
           
-          // Update image position
-          const { updateImportedImage, composeLayers } = useApp.getState();
+          // PHASE 2 FIX: Update image position via V2 system
+          const { composeLayers } = useApp.getState();
           if (dragStart.imageId) {
-            updateImportedImage(dragStart.imageId, {
+            const v2State = useAdvancedLayerStoreV2.getState();
+            v2State.updateImageElementFromApp(dragStart.imageId, {
               u: Math.max(0, Math.min(1, newU)),
               v: Math.max(0, Math.min(1, newV))
             });
