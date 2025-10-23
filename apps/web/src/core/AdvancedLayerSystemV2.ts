@@ -268,12 +268,27 @@ export interface DuplicationOptions {
   preserveBlendMode?: boolean; // Preserve original blend mode (default: true)
 }
 
+// Deletion Options
+export interface DeletionOptions {
+  skipConfirmation?: boolean; // Skip confirmation dialog (default: false)
+  moveToTrash?: boolean; // Move to trash instead of permanent deletion (default: true)
+  cleanupReferences?: boolean; // Clean up all references (default: true)
+  updateComposition?: boolean; // Update composition after deletion (default: true)
+  preserveHistory?: boolean; // Preserve deletion in history (default: true)
+  deleteChildren?: boolean; // Delete child layers/groups (default: true)
+  forceDelete?: boolean; // Force delete even if locked (default: false)
+}
+
 // Store state
 interface AdvancedLayerStoreV2 {
   // Core data
   layers: AdvancedLayer[];
   groups: LayerGroup[];
   layerOrder: string[]; // Ordered list of layer IDs (top to bottom)
+  
+  // Deletion state
+  deletedLayers: AdvancedLayer[]; // Trash for deleted layers
+  deletedGroups: LayerGroup[]; // Trash for deleted groups
   
   // Selection state
   selectedLayerIds: string[];
@@ -446,6 +461,17 @@ interface AdvancedLayerStoreV2 {
   deepCopyLayerContent: (content: LayerContent, layerType: LayerType) => LayerContent;
   cloneCanvas: (sourceCanvas: HTMLCanvasElement) => HTMLCanvasElement;
   
+  // Enhanced Deletion Operations
+  deleteLayerAdvanced: (id: string, options?: DeletionOptions) => boolean;
+  deleteSelectedLayers: (options?: DeletionOptions) => number;
+  deleteLayerWithConfirmation: (id: string, message?: string) => Promise<boolean>;
+  deleteGroupAdvanced: (id: string, options?: DeletionOptions) => boolean;
+  deleteGroupWithConfirmation: (id: string, message?: string) => Promise<boolean>;
+  deleteAllLayers: (options?: DeletionOptions) => number;
+  deleteEmptyGroups: () => number;
+  restoreDeletedLayer: (layerData: AdvancedLayer) => string;
+  restoreDeletedGroup: (groupData: LayerGroup) => string;
+  
   // Missing group operations
   renameGroup: (groupId: string, name: string) => void;
   toggleGroupVisibility: (groupId: string) => void;
@@ -610,6 +636,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     layers: [],
     groups: [],
     layerOrder: [],
+    deletedLayers: [],
+    deletedGroups: [],
     selectedLayerIds: [],
     activeLayerId: null,
     showLayerPanel: true,
@@ -674,17 +702,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     
     // Layer deletion
     deleteLayer: (id: string) => {
-      set(state => ({
-        layers: state.layers.filter(layer => layer.id !== id),
-        layerOrder: state.layerOrder.filter(layerId => layerId !== id),
-        selectedLayerIds: state.selectedLayerIds.filter(layerId => layerId !== id),
-        activeLayerId: state.activeLayerId === id ? null : state.activeLayerId
-      }));
-      
-      // Save history snapshot
-      get().saveHistorySnapshot(`Delete Layer: ${id}`);
-      
-      console.log(`🗑️ Deleted layer: ${id}`);
+      // Use enhanced deletion with default options
+      get().deleteLayerAdvanced(id, {
+        skipConfirmation: true,
+        moveToTrash: true,
+        cleanupReferences: true,
+        updateComposition: true,
+        preserveHistory: true,
+        deleteChildren: true,
+        forceDelete: false
+      });
     },
     
     // Layer duplication
@@ -1335,11 +1362,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     deleteGroup: (id: string) => {
-      set(state => ({
-        groups: state.groups.filter(group => group.id !== id)
-      }));
-      
-      console.log(`🗑️ Deleted group: ${id}`);
+      // Use enhanced deletion with default options
+      get().deleteGroupAdvanced(id, {
+        skipConfirmation: true,
+        moveToTrash: true,
+        cleanupReferences: true,
+        updateComposition: true,
+        preserveHistory: true,
+        deleteChildren: true,
+        forceDelete: false
+      });
     },
     
     addToGroup: (layerId: string, groupId: string) => {
@@ -3669,6 +3701,318 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }
       
       return clonedCanvas;
+    },
+    
+    // Enhanced Deletion Operations
+    deleteLayerAdvanced: (id: string, options: DeletionOptions = {}) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return false;
+      
+      // Default options
+      const opts: Required<DeletionOptions> = {
+        skipConfirmation: options.skipConfirmation || false,
+        moveToTrash: options.moveToTrash !== false,
+        cleanupReferences: options.cleanupReferences !== false,
+        updateComposition: options.updateComposition !== false,
+        preserveHistory: options.preserveHistory !== false,
+        deleteChildren: options.deleteChildren !== false,
+        forceDelete: options.forceDelete || false
+      };
+      
+      // Check if layer is locked and force delete is not enabled
+      if (!opts.forceDelete && (layer.locked || layer.locking.all)) {
+        console.warn(`🔒 Cannot delete locked layer: ${layer.name}`);
+        return false;
+      }
+      
+      // Move to trash or permanent deletion
+      if (opts.moveToTrash) {
+        set(state => ({
+          layers: state.layers.filter(l => l.id !== id),
+          layerOrder: state.layerOrder.filter(layerId => layerId !== id),
+          selectedLayerIds: state.selectedLayerIds.filter(layerId => layerId !== id),
+          activeLayerId: state.activeLayerId === id ? null : state.activeLayerId,
+          deletedLayers: [...state.deletedLayers, layer]
+        }));
+      } else {
+        set(state => ({
+          layers: state.layers.filter(l => l.id !== id),
+          layerOrder: state.layerOrder.filter(layerId => layerId !== id),
+          selectedLayerIds: state.selectedLayerIds.filter(layerId => layerId !== id),
+          activeLayerId: state.activeLayerId === id ? null : state.activeLayerId
+        }));
+      }
+      
+      // Clean up references
+      if (opts.cleanupReferences) {
+        // Remove from any groups
+        set(state => ({
+          groups: state.groups.map(group => ({
+            ...group,
+            layerIds: group.layerIds.filter(layerId => layerId !== id)
+          }))
+        }));
+      }
+      
+      // Update composition
+      if (opts.updateComposition) {
+        const { composeLayers } = useApp.getState();
+        composeLayers();
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'layer-deleted-v2', layerId: id } }));
+          console.log('🔄 Triggered texture update after layer deletion (V2)');
+        }, 50);
+      }
+      
+      // Save history
+      if (opts.preserveHistory) {
+        get().saveHistorySnapshot(`Delete Layer: ${layer.name}`);
+      }
+      
+      console.log(`🗑️ Deleted layer: ${layer.name} (${opts.moveToTrash ? 'moved to trash' : 'permanent'})`);
+      return true;
+    },
+    
+    deleteSelectedLayers: (options: DeletionOptions = {}) => {
+      const state = get();
+      let deletedCount = 0;
+      
+      state.selectedLayerIds.forEach(layerId => {
+        if (get().deleteLayerAdvanced(layerId, options)) {
+          deletedCount++;
+        }
+      });
+      
+      get().saveHistorySnapshot(`Delete Selected Layers: ${deletedCount} layers`);
+      console.log(`🗑️ Deleted selected layers: ${deletedCount} layers`);
+      return deletedCount;
+    },
+    
+    deleteLayerWithConfirmation: async (id: string, message?: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return false;
+      
+      const defaultMessage = `Are you sure you want to delete "${layer.name}"?`;
+      const confirmed = window.confirm(message || defaultMessage);
+      
+      if (confirmed) {
+        return get().deleteLayerAdvanced(id, {
+          skipConfirmation: true,
+          moveToTrash: true,
+          cleanupReferences: true,
+          updateComposition: true,
+          preserveHistory: true,
+          deleteChildren: true,
+          forceDelete: false
+        });
+      }
+      
+      return false;
+    },
+    
+    deleteGroupAdvanced: (id: string, options: DeletionOptions = {}) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === id);
+      if (!group) return false;
+      
+      // Default options
+      const opts: Required<DeletionOptions> = {
+        skipConfirmation: options.skipConfirmation || false,
+        moveToTrash: options.moveToTrash !== false,
+        cleanupReferences: options.cleanupReferences !== false,
+        updateComposition: options.updateComposition !== false,
+        preserveHistory: options.preserveHistory !== false,
+        deleteChildren: options.deleteChildren !== false,
+        forceDelete: options.forceDelete || false
+      };
+      
+      // Check if group is locked and force delete is not enabled
+      if (!opts.forceDelete && (group.locked || group.locking.all)) {
+        console.warn(`🔒 Cannot delete locked group: ${group.name}`);
+        return false;
+      }
+      
+      // Delete child layers if requested
+      if (opts.deleteChildren) {
+        group.layerIds.forEach(layerId => {
+          get().deleteLayerAdvanced(layerId, {
+            skipConfirmation: true,
+            moveToTrash: opts.moveToTrash,
+            cleanupReferences: opts.cleanupReferences,
+            updateComposition: false, // Will update after group deletion
+            preserveHistory: false, // Will save history after group deletion
+            deleteChildren: false,
+            forceDelete: opts.forceDelete
+          });
+        });
+      }
+      
+      // Move to trash or permanent deletion
+      if (opts.moveToTrash) {
+        set(state => ({
+          groups: state.groups.filter(g => g.id !== id),
+          deletedGroups: [...state.deletedGroups, group]
+        }));
+      } else {
+        set(state => ({
+          groups: state.groups.filter(g => g.id !== id)
+        }));
+      }
+      
+      // Update composition
+      if (opts.updateComposition) {
+        const { composeLayers } = useApp.getState();
+        composeLayers();
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'group-deleted-v2', groupId: id } }));
+          console.log('🔄 Triggered texture update after group deletion (V2)');
+        }, 50);
+      }
+      
+      // Save history
+      if (opts.preserveHistory) {
+        get().saveHistorySnapshot(`Delete Group: ${group.name}`);
+      }
+      
+      console.log(`🗑️ Deleted group: ${group.name} (${opts.moveToTrash ? 'moved to trash' : 'permanent'})`);
+      return true;
+    },
+    
+    deleteGroupWithConfirmation: async (id: string, message?: string) => {
+      const state = get();
+      const group = state.groups.find(g => g.id === id);
+      if (!group) return false;
+      
+      const defaultMessage = `Are you sure you want to delete "${group.name}" and all its contents?`;
+      const confirmed = window.confirm(message || defaultMessage);
+      
+      if (confirmed) {
+        return get().deleteGroupAdvanced(id, {
+          skipConfirmation: true,
+          moveToTrash: true,
+          cleanupReferences: true,
+          updateComposition: true,
+          preserveHistory: true,
+          deleteChildren: true,
+          forceDelete: false
+        });
+      }
+      
+      return false;
+    },
+    
+    deleteAllLayers: (options: DeletionOptions = {}) => {
+      const state = get();
+      let deletedCount = 0;
+      
+      // Delete all layers
+      state.layers.forEach(layer => {
+        if (get().deleteLayerAdvanced(layer.id, {
+          ...options,
+          skipConfirmation: true,
+          updateComposition: false // Will update after all deletions
+        })) {
+          deletedCount++;
+        }
+      });
+      
+      // Update composition once after all deletions
+      if (options.updateComposition !== false) {
+        const { composeLayers } = useApp.getState();
+        composeLayers();
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'all-layers-deleted-v2' } }));
+          console.log('🔄 Triggered texture update after all layers deletion (V2)');
+        }, 50);
+      }
+      
+      get().saveHistorySnapshot(`Delete All Layers: ${deletedCount} layers`);
+      console.log(`🗑️ Deleted all layers: ${deletedCount} layers`);
+      return deletedCount;
+    },
+    
+    deleteEmptyGroups: () => {
+      const state = get();
+      let deletedCount = 0;
+      
+      state.groups.forEach(group => {
+        if (group.layerIds.length === 0) {
+          if (get().deleteGroupAdvanced(group.id, {
+            skipConfirmation: true,
+            moveToTrash: true,
+            cleanupReferences: true,
+            updateComposition: false,
+            preserveHistory: false,
+            deleteChildren: false,
+            forceDelete: false
+          })) {
+            deletedCount++;
+          }
+        }
+      });
+      
+      // Update composition once after all deletions
+      if (deletedCount > 0) {
+        const { composeLayers } = useApp.getState();
+        composeLayers();
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'empty-groups-deleted-v2' } }));
+          console.log('🔄 Triggered texture update after empty groups deletion (V2)');
+        }, 50);
+      }
+      
+      get().saveHistorySnapshot(`Delete Empty Groups: ${deletedCount} groups`);
+      console.log(`🗑️ Deleted empty groups: ${deletedCount} groups`);
+      return deletedCount;
+    },
+    
+    restoreDeletedLayer: (layerData: AdvancedLayer) => {
+      const state = get();
+      const restoredLayer: AdvancedLayer = {
+        ...layerData,
+        id: `layer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        order: state.layerOrder.length,
+        selected: false
+      };
+      
+      set(state => ({
+        layers: [...state.layers, restoredLayer],
+        layerOrder: [...state.layerOrder, restoredLayer.id],
+        deletedLayers: state.deletedLayers.filter(l => l.id !== layerData.id)
+      }));
+      
+      // Generate thumbnail for restored layer
+      setTimeout(() => {
+        get().generateLayerThumbnail(restoredLayer.id);
+      }, 100);
+      
+      get().saveHistorySnapshot(`Restore Deleted Layer: ${restoredLayer.name}`);
+      console.log(`♻️ Restored deleted layer: ${restoredLayer.name}`);
+      return restoredLayer.id;
+    },
+    
+    restoreDeletedGroup: (groupData: LayerGroup) => {
+      const state = get();
+      const restoredGroup: LayerGroup = {
+        ...groupData,
+        id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        order: state.layerOrder.length
+      };
+      
+      set(state => ({
+        groups: [...state.groups, restoredGroup],
+        deletedGroups: state.deletedGroups.filter(g => g.id !== groupData.id)
+      }));
+      
+      get().saveHistorySnapshot(`Restore Deleted Group: ${restoredGroup.name}`);
+      console.log(`♻️ Restored deleted group: ${restoredGroup.name}`);
+      return restoredGroup.id;
     },
     
     // Missing effects operations

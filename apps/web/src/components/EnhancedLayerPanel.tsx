@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../App';
-import { useAdvancedLayerStoreV2, type AdvancedLayer, type LayerGroup, type BlendMode, type LayerType, type LayerLocking, type DuplicationOptions } from '../core/AdvancedLayerSystemV2';
+import { useAdvancedLayerStoreV2, type AdvancedLayer, type LayerGroup, type BlendMode, type LayerType, type LayerLocking, type DuplicationOptions, type DeletionOptions } from '../core/AdvancedLayerSystemV2';
 import { Section } from './Section';
 
 interface LayerItemProps {
@@ -39,6 +39,10 @@ interface LayerItemProps {
   onDuplicateWithOffset: (offsetX: number, offsetY: number) => void;
   onDuplicateToGroup: (groupId: string) => void;
   onDuplicateWithEffects: (includeEffects: boolean, includeMasks: boolean) => void;
+  // Enhanced deletion props
+  onDeleteAdvanced: (options: DeletionOptions) => void;
+  onDeleteWithConfirmation: () => Promise<boolean>;
+  onForceDelete: () => void;
 }
 
 const LayerItem: React.FC<LayerItemProps> = ({
@@ -71,7 +75,11 @@ const LayerItem: React.FC<LayerItemProps> = ({
   onDuplicateAdvanced,
   onDuplicateWithOffset,
   onDuplicateToGroup,
-  onDuplicateWithEffects
+  onDuplicateWithEffects,
+  // Enhanced deletion props
+  onDeleteAdvanced,
+  onDeleteWithConfirmation,
+  onForceDelete
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [tempName, setTempName] = useState(layer.name);
@@ -79,6 +87,7 @@ const LayerItem: React.FC<LayerItemProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [showLockMenu, setShowLockMenu] = useState(false);
   const [showDuplicationMenu, setShowDuplicationMenu] = useState(false);
+  const [showDeletionMenu, setShowDeletionMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -478,21 +487,94 @@ const LayerItem: React.FC<LayerItemProps> = ({
                 </div>
               )}
             </div>
-            <button
-              className="btn"
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              style={{ 
-                padding: '2px', 
-                width: '16px', 
-                height: '16px', 
-                fontSize: '10px',
-                background: 'var(--danger)',
-                color: 'white'
-              }}
-              title="Delete"
-            >
-              🗑️
-            </button>
+            
+            {/* Enhanced Deletion Menu */}
+            <div style={{ position: 'relative' }}>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); setShowDeletionMenu(!showDeletionMenu); }}
+                style={{ 
+                  padding: '2px', 
+                  width: '16px', 
+                  height: '16px', 
+                  fontSize: '10px',
+                  background: layer.locked || layer.locking.all ? 'var(--warning)' : 'var(--danger)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px'
+                }}
+                title="Delete options"
+              >
+                🗑️
+              </button>
+              
+              {/* Deletion Menu */}
+              {showDeletionMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '0',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  padding: '4px',
+                  zIndex: 1000,
+                  minWidth: '160px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                }}>
+                  <button
+                    className="btn"
+                    onClick={(e) => { e.stopPropagation(); onDelete(); setShowDeletionMenu(false); }}
+                    style={{ 
+                      display: 'block',
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text)',
+                      textAlign: 'left'
+                    }}
+                  >
+                    🗑️ Delete to Trash
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={async (e) => { e.stopPropagation(); await onDeleteWithConfirmation(); setShowDeletionMenu(false); }}
+                    style={{ 
+                      display: 'block',
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text)',
+                      textAlign: 'left'
+                    }}
+                  >
+                    ⚠️ Delete with Confirmation
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={(e) => { e.stopPropagation(); onDeleteAdvanced({ moveToTrash: false, forceDelete: true }); setShowDeletionMenu(false); }}
+                    style={{ 
+                      display: 'block',
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--danger)',
+                      textAlign: 'left',
+                      borderTop: '1px solid var(--border)',
+                      marginTop: '2px'
+                    }}
+                  >
+                    💀 Permanent Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1078,7 +1160,17 @@ export const EnhancedLayerPanel: React.FC = () => {
     duplicateSelectedLayers,
     duplicateLayerWithOffset,
     duplicateLayerToGroup,
-    duplicateLayerWithEffects
+    duplicateLayerWithEffects,
+    // Enhanced deletion methods
+    deleteLayerAdvanced,
+    deleteSelectedLayers,
+    deleteLayerWithConfirmation,
+    deleteGroupAdvanced,
+    deleteGroupWithConfirmation,
+    deleteAllLayers,
+    deleteEmptyGroups,
+    restoreDeletedLayer,
+    restoreDeletedGroup
   } = useAdvancedLayerStoreV2();
 
   const [showLayerMenu, setShowLayerMenu] = useState(false);
@@ -1188,6 +1280,34 @@ export const EnhancedLayerPanel: React.FC = () => {
         >
           📋 Duplicate Selected ({selectedLayerIds.length})
         </button>
+        <button 
+          className="btn" 
+          onClick={() => deleteSelectedLayers()}
+          disabled={selectedLayerIds.length === 0}
+          style={{ 
+            padding: '6px 12px', 
+            fontSize: '11px',
+            opacity: selectedLayerIds.length === 0 ? 0.5 : 1,
+            background: selectedLayerIds.length > 0 ? 'var(--danger)' : 'var(--bg-secondary)',
+            color: selectedLayerIds.length > 0 ? 'white' : 'var(--text)'
+          }}
+          title={`Delete ${selectedLayerIds.length} selected layer${selectedLayerIds.length !== 1 ? 's' : ''}`}
+        >
+          🗑️ Delete Selected ({selectedLayerIds.length})
+        </button>
+        <button 
+          className="btn" 
+          onClick={() => deleteEmptyGroups()}
+          style={{ 
+            padding: '6px 12px', 
+            fontSize: '11px',
+            background: 'var(--warning)',
+            color: 'white'
+          }}
+          title="Delete all empty groups"
+        >
+          🧹 Clean Empty Groups
+        </button>
       </div>
 
       {/* Layer List */}
@@ -1212,6 +1332,10 @@ export const EnhancedLayerPanel: React.FC = () => {
                 onDuplicateWithOffset={(offsetX, offsetY) => duplicateLayerWithOffset(layer.id, offsetX, offsetY)}
                 onDuplicateToGroup={(groupId) => duplicateLayerToGroup(layer.id, groupId)}
                 onDuplicateWithEffects={(includeEffects, includeMasks) => duplicateLayerWithEffects(layer.id, includeEffects, includeMasks)}
+                // Enhanced deletion props
+                onDeleteAdvanced={(options) => deleteLayerAdvanced(layer.id, options)}
+                onDeleteWithConfirmation={() => deleteLayerWithConfirmation(layer.id)}
+                onForceDelete={() => deleteLayerAdvanced(layer.id, { forceDelete: true, moveToTrash: false })}
                 onMoveUp={() => moveLayerUp(layer.id)}
                 onMoveDown={() => moveLayerDown(layer.id)}
                 onSetOpacity={(opacity) => setLayerOpacity(layer.id, opacity)}
@@ -1279,6 +1403,10 @@ export const EnhancedLayerPanel: React.FC = () => {
                       onDuplicateWithOffset={(offsetX, offsetY) => duplicateLayerWithOffset(childLayer.id, offsetX, offsetY)}
                       onDuplicateToGroup={(groupId) => duplicateLayerToGroup(childLayer.id, groupId)}
                       onDuplicateWithEffects={(includeEffects, includeMasks) => duplicateLayerWithEffects(childLayer.id, includeEffects, includeMasks)}
+                      // Enhanced deletion props
+                      onDeleteAdvanced={(options) => deleteLayerAdvanced(childLayer.id, options)}
+                      onDeleteWithConfirmation={() => deleteLayerWithConfirmation(childLayer.id)}
+                      onForceDelete={() => deleteLayerAdvanced(childLayer.id, { forceDelete: true, moveToTrash: false })}
                       onMoveUp={() => moveLayerUp(childLayer.id)}
                       onMoveDown={() => moveLayerDown(childLayer.id)}
                       onSetOpacity={(opacity) => setLayerOpacity(childLayer.id, opacity)}
