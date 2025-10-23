@@ -88,6 +88,8 @@ const LayerItem: React.FC<LayerItemProps> = ({
   const [showLockMenu, setShowLockMenu] = useState(false);
   const [showDuplicationMenu, setShowDuplicationMenu] = useState(false);
   const [showDeletionMenu, setShowDeletionMenu] = useState(false);
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -96,6 +98,20 @@ const LayerItem: React.FC<LayerItemProps> = ({
       inputRef.current.select();
     }
   }, [isRenaming]);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      if (showContextMenu) {
+        setShowContextMenu(false);
+      }
+    };
+
+    if (showContextMenu) {
+      document.addEventListener('click', handleGlobalClick);
+      return () => document.removeEventListener('click', handleGlobalClick);
+    }
+  }, [showContextMenu]);
 
   const handleRename = () => {
     if (tempName.trim() && tempName !== layer.name) {
@@ -110,6 +126,28 @@ const LayerItem: React.FC<LayerItemProps> = ({
     } else if (e.key === 'Escape') {
       setTempName(layer.name);
       setIsRenaming(false);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
+
+  const closeContextMenu = () => {
+    setShowContextMenu(false);
+  };
+
+  const handleLayerClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (e.ctrlKey || e.metaKey) {
+      // Multi-select with Ctrl/Cmd
+      onSelect();
+    } else {
+      // Single select
+      onSelect();
     }
   };
 
@@ -182,7 +220,7 @@ const LayerItem: React.FC<LayerItemProps> = ({
         opacity: isDragging ? 0.5 : 1,
         transform: isDragging ? 'scale(0.95)' : 'scale(1)'
       }}
-      onClick={onSelect}
+      onClick={handleLayerClick}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(false)}
       draggable
@@ -190,6 +228,7 @@ const LayerItem: React.FC<LayerItemProps> = ({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDrop={handleDrop}
+      onContextMenu={handleContextMenu}
     >
       {/* Layer Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -382,24 +421,23 @@ const LayerItem: React.FC<LayerItemProps> = ({
         </div>
 
         {/* Quick Actions */}
-        {showControls && (
-          <div style={{ display: 'flex', gap: '2px' }}>
-            <button
-              className="btn"
-              onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
-              style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
-              title="Move up"
-            >
-              ↑
-            </button>
-            <button
-              className="btn"
-              onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
-              style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
-              title="Move down"
-            >
-              ↓
-            </button>
+        <div style={{ display: 'flex', gap: '2px' }}>
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
+            style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
+            title="Move up (higher in stack)"
+          >
+            ↑
+          </button>
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
+            style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
+            title="Move down (lower in stack)"
+          >
+            ↓
+          </button>
             <button
               className="btn"
               onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
@@ -574,10 +612,152 @@ const LayerItem: React.FC<LayerItemProps> = ({
                   </button>
                 </div>
               )}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
+    </div>
+
+    {/* Right-Click Context Menu */}
+    {showContextMenu && (
+      <div
+        style={{
+          position: 'fixed',
+          left: contextMenuPosition.x,
+          top: contextMenuPosition.y,
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border)',
+          borderRadius: '6px',
+          padding: '8px',
+          zIndex: 10000,
+          minWidth: '180px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+        }}
+        onClick={closeContextMenu}
+      >
+        <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', color: 'var(--accent)' }}>
+          {layer.name}
+        </div>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onToggleVisibility(); closeContextMenu(); }}
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 8px',
+              fontSize: '11px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text)',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            {layer.visible ? '👁️' : '🙈'} {layer.visible ? 'Hide Layer' : 'Show Layer'}
+          </button>
+          
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onToggleLock(); closeContextMenu(); }}
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 8px',
+              fontSize: '11px',
+              background: 'transparent',
+              border: 'none',
+              color: layer.locked ? 'var(--warning)' : 'var(--text)',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            {layer.locked ? '🔒' : '🔓'} {layer.locked ? 'Unlock Layer' : 'Lock Layer'}
+          </button>
+          
+          <div style={{ height: '1px', background: 'var(--border)', margin: '4px 0' }}></div>
+          
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onDuplicate(); closeContextMenu(); }}
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 8px',
+              fontSize: '11px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text)',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            📋 Duplicate Layer
+          </button>
+          
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onMoveUp(); closeContextMenu(); }}
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 8px',
+              fontSize: '11px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text)',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            ↑ Move Up
+          </button>
+          
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); onMoveDown(); closeContextMenu(); }}
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 8px',
+              fontSize: '11px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text)',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            ↓ Move Down
+          </button>
+          
+          <div style={{ height: '1px', background: 'var(--border)', margin: '4px 0' }}></div>
+          
+          <button
+            className="btn"
+            onClick={async (e) => { e.stopPropagation(); await onDeleteWithConfirmation(); closeContextMenu(); }}
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 8px',
+              fontSize: '11px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--danger)',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            🗑️ Delete Layer
+          </button>
+        </div>
+      </div>
+    )}
 
       {/* Layer Properties */}
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '10px' }}>
@@ -1177,9 +1357,9 @@ export const EnhancedLayerPanel: React.FC = () => {
   const [showEffectMenu, setShowEffectMenu] = useState<string | null>(null);
   const [showStyleMenu, setShowStyleMenu] = useState<string | null>(null);
 
-  // Convert Map to Array for rendering
-  const layersArray = Array.from(layers.values());
-  const groupsArray = Array.from(groups.values());
+  // Layers and groups are already arrays
+  const layersArray = layers;
+  const groupsArray = groups;
 
   const handleCreateLayer = (type: LayerType) => {
     const layerId = createLayer(type);
