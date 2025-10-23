@@ -5466,12 +5466,13 @@ const canvasDimensions = {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
           const currentU = uv.x;
-          const currentV = uv.y; // CRITICAL FIX: Don't flip V - UV coordinates are already correct
+          const currentV = 1 - uv.y; // CRITICAL FIX: Use same flipped coordinates as hitbox detection
           
           const dragStart = (window as any).__imageDragStart;
           const deltaU = currentU - dragStart.u;
           const deltaV = currentV - dragStart.v;
           
+          // CRITICAL FIX: Use direct delta calculation since both coordinates are in same system
           const newU = dragStart.imgU + deltaU;
           const newV = dragStart.imgV + deltaV;
           

@@ -3672,7 +3672,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           // Size linking and flip properties
                           sizeLinked: true,
                           horizontalFlip: false,
-                          verticalFlip: false,
+                          verticalFlip: true, // CRITICAL FIX: Enable vertical flip to correct image orientation
                           // Blending properties
                           blendMode: 'source-over'
                         });
