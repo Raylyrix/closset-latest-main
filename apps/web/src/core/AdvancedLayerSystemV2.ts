@@ -2326,23 +2326,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
-            // ANIMATION 4: ULTRA-VIBRANT GLOW EFFECT - MAXIMUM VISIBILITY
-            // Calculate multi-layer glow animation based on time
-            const now = Date.now();
-            const glowSpeed = 2.0; // Faster glow cycles for more dynamic effect
-            const glowPhase = (now * glowSpeed * 0.001) % (Math.PI * 2);
-            
-            // Create ULTRA-VIBRANT glow layers with maximum visibility
-            const glowLayers = [
-              { color: '#FF0000', width: 15, alpha: 0.6, offset: 0 }, // Bright red outer glow
-              { color: '#00FF00', width: 12, alpha: 0.7, offset: Math.PI / 4 }, // Bright green
-              { color: '#0000FF', width: 10, alpha: 0.8, offset: Math.PI / 2 }, // Bright blue
-              { color: '#FFFF00', width: 8, alpha: 0.9, offset: Math.PI * 3 / 4 }, // Bright yellow
-              { color: '#FF00FF', width: 6, alpha: 1.0, offset: Math.PI }, // Bright magenta
-              { color: '#00FFFF', width: 4, alpha: 1.0, offset: Math.PI * 5 / 4 } // Bright cyan
-            ];
-            
-            // Draw base border with ULTRA-VIBRANT glow
+            // ULTRA-VIBRANT STATIC BORDER - NO ANIMATION, MAXIMUM VISIBILITY
+            // Draw base border with ULTRA-VIBRANT static colors
             ctx.save();
             ctx.strokeStyle = '#FF0000'; // Bright red base for maximum visibility
             ctx.lineWidth = 4;
@@ -2353,18 +2338,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.stroke();
             ctx.restore();
             
-            // Draw multi-layer glow effect with ULTRA-VIBRANT colors
-            for (const layer of glowLayers) {
-              const layerPhase = (glowPhase + layer.offset) % (Math.PI * 2);
-              const layerIntensity = (Math.sin(layerPhase) + 1) / 2; // 0 to 1
-              
+            // Draw static multi-layer glow effect with ULTRA-VIBRANT colors (no animation)
+            const staticGlowLayers = [
+              { color: '#FF0000', width: 15, alpha: 0.6 }, // Bright red outer glow
+              { color: '#00FF00', width: 12, alpha: 0.7 }, // Bright green
+              { color: '#0000FF', width: 10, alpha: 0.8 }, // Bright blue
+              { color: '#FFFF00', width: 8, alpha: 0.9 }, // Bright yellow
+              { color: '#FF00FF', width: 6, alpha: 1.0 }, // Bright magenta
+              { color: '#00FFFF', width: 4, alpha: 1.0 } // Bright cyan
+            ];
+            
+            for (const layer of staticGlowLayers) {
               ctx.save();
               ctx.strokeStyle = layer.color;
               ctx.lineWidth = layer.width;
-              ctx.globalAlpha = layer.alpha * layerIntensity;
+              ctx.globalAlpha = layer.alpha; // Static alpha, no animation
               ctx.setLineDash([]); // Solid line for glow
               
-              // Draw glow border
+              // Draw static glow border
               ctx.beginPath();
               ctx.rect(borderX, borderY, borderWidth, borderHeight);
               ctx.stroke();
@@ -2404,7 +2395,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw ULTRA-VIBRANT multi-layer glow resize handles
+            // Draw ULTRA-VIBRANT static resize handles (no animation)
             for (const handle of handles) {
               // Draw base handle with ULTRA-VIBRANT colors
               ctx.save();
@@ -2416,12 +2407,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
               ctx.restore();
               
-              // Draw ULTRA-VIBRANT multi-layer glow effect on handles
+              // Draw ULTRA-VIBRANT static glow effect on handles (no animation)
               const handleCenterX = handle.x + handleSize / 2;
               const handleCenterY = handle.y + handleSize / 2;
-              const handleGlowPhase = (glowPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
               
-              // Draw multiple ULTRA-VIBRANT glow layers for handles
+              // Draw multiple ULTRA-VIBRANT static glow layers for handles
               const handleGlowLayers = [
                 { color: '#FF0000', size: handleSize + 12, alpha: 0.5 }, // Bright red
                 { color: '#00FF00', size: handleSize + 10, alpha: 0.6 }, // Bright green
@@ -2432,11 +2422,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ];
               
               for (const glowLayer of handleGlowLayers) {
-                const layerIntensity = (Math.sin(handleGlowPhase + glowLayer.size * 0.1) + 1) / 2;
-                
                 ctx.save();
                 ctx.fillStyle = glowLayer.color;
-                ctx.globalAlpha = glowLayer.alpha * layerIntensity;
+                ctx.globalAlpha = glowLayer.alpha; // Static alpha, no animation
                 ctx.fillRect(
                   handleCenterX - glowLayer.size / 2,
                   handleCenterY - glowLayer.size / 2,
