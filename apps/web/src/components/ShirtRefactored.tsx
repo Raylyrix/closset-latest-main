@@ -3546,7 +3546,10 @@ export function ShirtRefactored({
   // This function calculates image bounds once and uses them everywhere
   // No more separate calculations for hitbox, borderbox, and resize anchors!
   const getImageBounds = useCallback((imageEl: any) => {
-    const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize().width;
+    // CRITICAL FIX: Use the actual composed canvas size, not the performance manager's optimal size
+    const appState = useApp.getState();
+    const composedCanvas = appState.composedCanvas;
+    const canvasSize = composedCanvas ? composedCanvas.width : unifiedPerformanceManager.getOptimalCanvasSize().width;
     
     // CRITICAL FIX: Use the actual pixel coordinates that are used for rendering
     // These are already calculated and stored in the image element
