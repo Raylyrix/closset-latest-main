@@ -2182,8 +2182,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           if (!imageEl.visible) continue;
           
           ctx.save();
-          ctx.globalAlpha = imageEl.opacity;
-          ctx.globalCompositeOperation = imageEl.blendMode;
+          // CRITICAL FIX: Use image opacity but ensure it's visible
+          ctx.globalAlpha = imageEl.opacity || 1.0;
+          // CRITICAL FIX: Use source-over to prevent affecting base texture
+          ctx.globalCompositeOperation = 'source-over';
           
           // Apply rotation if needed
           if (imageEl.rotation !== 0) {
@@ -2222,6 +2224,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             
             // Try to draw immediately if image is cached/loaded
             if (img.complete && img.naturalWidth > 0) {
+              console.log('🎨 Drawing image with coordinates:', {
+                x: imageEl.x,
+                y: imageY,
+                width: imageEl.width,
+                height: imageEl.height,
+                opacity: ctx.globalAlpha,
+                blendMode: ctx.globalCompositeOperation
+              });
               ctx.drawImage(img, imageEl.x, imageY, imageEl.width, imageEl.height);
               console.log('🎨 Image drawn immediately (cached) with HIGH QUALITY:', imageEl.name);
             } else {
