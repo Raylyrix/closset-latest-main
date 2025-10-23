@@ -222,6 +222,8 @@ export interface AdvancedLayer {
   order: number; // For z-index management
   selected: boolean; // For selection state
   bounds?: { x: number; y: number; width: number; height: number }; // For selection bounds
+  thumbnail?: string; // Base64 thumbnail for layer preview
+  thumbnailCanvas?: HTMLCanvasElement; // Canvas for generating thumbnails
 }
 
 // Layer Group
@@ -289,6 +291,17 @@ interface AdvancedLayerStoreV2 {
   moveLayerToTop: (id: string) => void;
   moveLayerToBottom: (id: string) => void;
   reorderLayers: (newOrder: string[]) => void;
+  
+  // Drag & Drop
+  dragLayerStart: (layerId: string) => void;
+  dragLayerOver: (layerId: string, targetLayerId: string) => void;
+  dragLayerEnd: (layerId: string, targetLayerId: string) => void;
+  dropLayer: (layerId: string, targetLayerId: string, position: 'above' | 'below') => void;
+  
+  // Thumbnails
+  generateLayerThumbnail: (layerId: string) => string | null;
+  updateLayerThumbnail: (layerId: string) => void;
+  getLayerThumbnail: (layerId: string) => string | null;
   
   // Groups
   createGroup: (name?: string) => string;
@@ -556,6 +569,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       // Save history snapshot
       get().saveHistorySnapshot(`Create Layer: ${layerName}`);
+      
+      // Generate thumbnail for the new layer
+      setTimeout(() => {
+        get().generateLayerThumbnail(newLayer.id);
+      }, 100);
       
       console.log(`🎨 Created new ${type} layer: ${layerName}`, newLayer);
       return newLayer.id;
@@ -872,6 +890,193 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }));
       
       console.log(`🔄 Reordered layers:`, newOrder);
+    },
+    
+    // Drag & Drop Implementation
+    dragLayerStart: (layerId: string) => {
+      console.log(`🎯 Drag started for layer: ${layerId}`);
+      // Store the dragged layer ID globally for drag operations
+      (window as any).__draggedLayerId = layerId;
+    },
+    
+    dragLayerOver: (layerId: string, targetLayerId: string) => {
+      console.log(`🎯 Drag over layer: ${layerId} -> ${targetLayerId}`);
+      // Visual feedback could be added here (highlighting drop zones)
+    },
+    
+    dragLayerEnd: (layerId: string, targetLayerId: string) => {
+      console.log(`🎯 Drag ended for layer: ${layerId}`);
+      // Clean up drag state
+      delete (window as any).__draggedLayerId;
+    },
+    
+    dropLayer: (layerId: string, targetLayerId: string, position: 'above' | 'below') => {
+      const state = get();
+      const draggedIndex = state.layerOrder.indexOf(layerId);
+      const targetIndex = state.layerOrder.indexOf(targetLayerId);
+      
+      if (draggedIndex === -1 || targetIndex === -1) {
+        console.warn('Invalid layer IDs for drop operation');
+        return;
+      }
+      
+      // Don't drop on itself
+      if (layerId === targetLayerId) {
+        console.log('Cannot drop layer on itself');
+        return;
+      }
+      
+      const newOrder = [...state.layerOrder];
+      const draggedLayer = newOrder.splice(draggedIndex, 1)[0];
+      
+      // Calculate new position
+      let newIndex = targetIndex;
+      if (position === 'below') {
+        newIndex = targetIndex + 1;
+      }
+      
+      // Adjust for the removed element
+      if (draggedIndex < targetIndex) {
+        newIndex -= 1;
+      }
+      
+      newOrder.splice(newIndex, 0, draggedLayer);
+      
+      // Update the layer order
+      get().reorderLayers(newOrder);
+      
+      // Force composition update
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      setTimeout(() => {
+        const textureEvent = new CustomEvent('forceTextureUpdate', {
+          detail: { source: 'layer-drag-drop-v2', layerId, targetLayerId }
+        });
+        window.dispatchEvent(textureEvent);
+        console.log('🔄 Triggered texture update after layer drag & drop (V2)');
+      }, 50);
+      
+      console.log(`🎯 Dropped layer ${layerId} ${position} ${targetLayerId}`);
+    },
+    
+    // Thumbnail Implementation
+    generateLayerThumbnail: (layerId: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === layerId);
+      if (!layer) return null;
+      
+      try {
+        // Create thumbnail canvas
+        const thumbnailSize = 64; // 64x64 thumbnail
+        const thumbnailCanvas = document.createElement('canvas');
+        thumbnailCanvas.width = thumbnailSize;
+        thumbnailCanvas.height = thumbnailSize;
+        const ctx = thumbnailCanvas.getContext('2d');
+        
+        if (!ctx) return null;
+        
+        // Set high quality rendering
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        
+        // Generate thumbnail based on layer type
+        if (layer.type === 'image' && layer.content.imageElements) {
+          // For image layers, create a preview of the images
+          ctx.fillStyle = '#f0f0f0';
+          ctx.fillRect(0, 0, thumbnailSize, thumbnailSize);
+          
+          // Draw a simple representation of images
+          layer.content.imageElements.forEach((imageEl, index) => {
+            if (!imageEl.visible) return;
+            
+            // Calculate thumbnail position (simplified)
+            const thumbX = (imageEl.x / 4096) * thumbnailSize;
+            const thumbY = (imageEl.y / 4096) * thumbnailSize;
+            const thumbWidth = Math.max(8, (imageEl.width / 4096) * thumbnailSize);
+            const thumbHeight = Math.max(8, (imageEl.height / 4096) * thumbnailSize);
+            
+            // Draw image placeholder
+            ctx.fillStyle = `hsl(${index * 60}, 70%, 60%)`;
+            ctx.fillRect(thumbX, thumbY, thumbWidth, thumbHeight);
+            
+            // Add border
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(thumbX, thumbY, thumbWidth, thumbHeight);
+          });
+        } else if (layer.type === 'text' && layer.content.textElements) {
+          // For text layers, show text preview
+          ctx.fillStyle = '#f0f0f0';
+          ctx.fillRect(0, 0, thumbnailSize, thumbnailSize);
+          
+          layer.content.textElements.forEach((textEl, index) => {
+            ctx.fillStyle = textEl.color || '#000';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Show first few characters
+            const previewText = textEl.text.substring(0, 8);
+            ctx.fillText(previewText, thumbnailSize / 2, thumbnailSize / 2 + (index * 12));
+          });
+        } else if (layer.type === 'paint' && layer.content.canvas) {
+          // For paint layers, show canvas preview
+          const sourceCanvas = layer.content.canvas;
+          const scale = thumbnailSize / Math.max(sourceCanvas.width, sourceCanvas.height);
+          const scaledWidth = sourceCanvas.width * scale;
+          const scaledHeight = sourceCanvas.height * scale;
+          
+          ctx.drawImage(sourceCanvas, 
+            (thumbnailSize - scaledWidth) / 2, 
+            (thumbnailSize - scaledHeight) / 2, 
+            scaledWidth, 
+            scaledHeight
+          );
+        } else {
+          // Default thumbnail for other layer types
+          ctx.fillStyle = '#e0e0e0';
+          ctx.fillRect(0, 0, thumbnailSize, thumbnailSize);
+          
+          // Add layer type indicator
+          ctx.fillStyle = '#666';
+          ctx.font = '10px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(layer.type.toUpperCase(), thumbnailSize / 2, thumbnailSize / 2);
+        }
+        
+        // Convert to base64
+        const thumbnailDataUrl = thumbnailCanvas.toDataURL('image/png');
+        
+        // Update layer with thumbnail
+        set(state => ({
+          layers: state.layers.map(l => 
+            l.id === layerId 
+              ? { ...l, thumbnail: thumbnailDataUrl, thumbnailCanvas }
+              : l
+          )
+        }));
+        
+        console.log(`🖼️ Generated thumbnail for layer: ${layerId}`);
+        return thumbnailDataUrl;
+        
+      } catch (error) {
+        console.error('Error generating layer thumbnail:', error);
+        return null;
+      }
+    },
+    
+    updateLayerThumbnail: (layerId: string) => {
+      console.log(`🖼️ Updating thumbnail for layer: ${layerId}`);
+      get().generateLayerThumbnail(layerId);
+    },
+    
+    getLayerThumbnail: (layerId: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === layerId);
+      return layer?.thumbnail || null;
     },
     
     // Groups (simplified for now)
@@ -1417,6 +1622,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         });
         window.dispatchEvent(textureEvent);
         console.log('🔄 Triggered composition and texture update after image placement (V2)');
+        
+        // Generate thumbnail for the layer after image is added
+        get().updateLayerThumbnail(imageLayerId);
       }, 10);
       
       return id;
