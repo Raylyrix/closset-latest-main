@@ -4437,7 +4437,9 @@ const canvasDimensions = {
                   top: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
                   bottom: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
                   left: { u: bounds.uvLeft - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 },
-                  right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 }
+                  right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 },
+                  // Rotation anchor (above the image)
+                  rotate: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize - 0.02 }
                 };
                 
                 // Check which anchor was clicked (corners first, then edges)
@@ -4455,19 +4457,33 @@ const canvasDimensions = {
                 }
                 
                 if (clickedAnchor) {
-                  console.log('🎨 Image tool: Clicked on resize anchor:', clickedAnchor);
-                  // Start resizing the image
-                  (window as any).__imageResizing = true;
-                  (window as any).__imageResizeStart = { 
-                    u: clickU, 
-                    v: clickV, 
-                    imgU: clickedImage.u, 
-                    imgV: clickedImage.v,
-                    imgWidth: clickedImage.uWidth || 0.25,
-                    imgHeight: clickedImage.uHeight || 0.25,
-                    imageId: clickedImage.id,
-                    anchor: clickedAnchor
-                  };
+                  if (clickedAnchor === 'rotate') {
+                    console.log('🎨 Image tool: Clicked on rotation anchor');
+                    // Start rotating the image
+                    (window as any).__imageRotating = true;
+                    (window as any).__imageRotateStart = { 
+                      u: clickU, 
+                      v: clickV, 
+                      imgU: clickedImage.u, 
+                      imgV: 1 - clickedImage.v, // CRITICAL FIX: Store image V in same flipped coordinate system as clickV
+                      imgRotation: clickedImage.rotation || 0,
+                      imageId: clickedImage.id
+                    };
+                  } else {
+                    console.log('🎨 Image tool: Clicked on resize anchor:', clickedAnchor);
+                    // Start resizing the image
+                    (window as any).__imageResizing = true;
+                    (window as any).__imageResizeStart = { 
+                      u: clickU, 
+                      v: clickV, 
+                      imgU: clickedImage.u, 
+                      imgV: 1 - clickedImage.v, // CRITICAL FIX: Store image V in same flipped coordinate system as clickV
+                      imgWidth: clickedImage.uWidth || 0.25,
+                      imgHeight: clickedImage.uHeight || 0.25,
+                      imageId: clickedImage.id,
+                      anchor: clickedAnchor
+                    };
+                  }
       } else {
                   // Start dragging the image
                   console.log('🎨 Image tool: Started dragging image');
@@ -4640,7 +4656,7 @@ const canvasDimensions = {
       lastMoveTime = now;
       
       // Update cursor for image tool when hovering over anchors
-      if ((activeTool as string) === 'image' && !(window as any).__imageDragging && !(window as any).__imageResizing) {
+      if ((activeTool as string) === 'image' && !(window as any).__imageDragging && !(window as any).__imageResizing && !(window as any).__imageRotating) {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
           const hoverU = uv.x;
@@ -4668,7 +4684,9 @@ const canvasDimensions = {
               top: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize/2, cursor: 'n-resize' },
               bottom: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvBottom - anchorSize/2, cursor: 's-resize' },
               left: { u: bounds.uvLeft - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2, cursor: 'w-resize' },
-              right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2, cursor: 'e-resize' }
+              right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2, cursor: 'e-resize' },
+              // Rotation anchor
+              rotate: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize - 0.02, cursor: 'grab' }
             };
             
             // Check if hovering over any anchor
@@ -5050,6 +5068,45 @@ const canvasDimensions = {
         }
       }
       
+      // Handle image rotation (separate from dragging and resizing)
+      if ((activeTool as string) === 'image' && (window as any).__imageRotating && (window as any).__imageRotateStart) {
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const currentU = uv.x;
+          const currentV = 1 - uv.y; // Flip V for texture space
+          
+          const rotateStart = (window as any).__imageRotateStart;
+          
+          // Calculate rotation angle based on mouse movement
+          const centerU = rotateStart.imgU;
+          const centerV = 1 - rotateStart.imgV; // Convert back to flipped coordinates for calculation
+          
+          const startAngle = Math.atan2(rotateStart.v - centerV, rotateStart.u - centerU);
+          const currentAngle = Math.atan2(currentV - centerV, currentU - centerU);
+          const deltaAngle = currentAngle - startAngle;
+          
+          const newRotation = rotateStart.imgRotation + (deltaAngle * 180 / Math.PI);
+          
+          // PHASE 2 FIX: Update image via V2 system
+          const { composeLayers } = useApp.getState();
+          if (rotateStart.imageId) {
+            const v2State = useAdvancedLayerStoreV2.getState();
+            v2State.updateImageElementFromApp(rotateStart.imageId, {
+              rotation: newRotation
+            });
+            
+            // CRITICAL FIX: Force immediate layer composition and texture update
+            console.log('🎨 Image rotating - Forcing immediate layer composition');
+            composeLayers(true); // Force layer composition
+            
+            // CRITICAL FIX: Trigger texture update with bypass throttling
+            console.log('🎨 Image rotating - Triggering texture update for visual feedback');
+            updateModelTexture(true, false); // Force update for real-time feedback
+          }
+        }
+        return;
+      }
+      
       // Handle image resizing (separate from dragging)
       if ((activeTool as string) === 'image' && (window as any).__imageResizing && (window as any).__imageResizeStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
@@ -5143,7 +5200,7 @@ const canvasDimensions = {
               uWidth: newWidth,
               uHeight: newHeight,
               u: Math.max(0, Math.min(1, newU)),
-              v: Math.max(0, Math.min(1, newV))
+              v: Math.max(0, Math.min(1, 1 - newV)) // CRITICAL FIX: Convert back to original UV coordinate system
             });
             
             // CRITICAL FIX: Force immediate layer composition and texture update
