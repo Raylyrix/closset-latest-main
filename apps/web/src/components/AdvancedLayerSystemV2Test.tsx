@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
-import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
+// import { useAutomaticLayerManager } from '../core/AutomaticLayerManager'; // REMOVED
 import { CANVAS_CONFIG } from '../constants/CanvasSizes';
 
 interface TestResult {
@@ -44,7 +44,7 @@ export function AdvancedLayerSystemV2Test() {
     composeLayers
   } = useAdvancedLayerStoreV2();
 
-  const { triggerBrushStart } = useAutomaticLayerManager(); // FIXED: createLayerForTool doesn't exist
+  const { triggerBrushStart } = { triggerBrushStart: () => console.log('Brush start - simplified system') }; // REMOVED
 
   const updateTestResult = (id: string, updates: Partial<TestResult>) => {
     setTestResults(prev => prev.map(test => 

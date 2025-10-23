@@ -8,7 +8,6 @@ import LZString from 'lz-string';
 import { unifiedPerformanceManager } from './utils/UnifiedPerformanceManager';
 import { canvasPool } from './utils/CanvasPool';
 import { useAdvancedLayerStoreV2, TextElement, AdvancedLayer } from './core/AdvancedLayerSystemV2';
-import { useAutomaticLayerManager } from './core/AutomaticLayerManager';
 import { createDisplacementCanvas, CANVAS_CONFIG } from './constants/CanvasSizes';
 import ShirtRefactored from './components/ShirtRefactored'; // Use new refactored component
 import { AdvancedLayerSystemV2Test } from './components/AdvancedLayerSystemV2Test';
@@ -37,15 +36,14 @@ import { AdvancedUVSystem } from './utils/AdvancedUVSystem';
 import { AdvancedPuffGenerator } from './utils/AdvancedPuffGenerator';
 import { AdvancedPuffErrorHandler } from './utils/AdvancedPuffErrorHandler';
 import './styles/AdvancedPuffPrint.css';
-import { Project as AdvProject, Layer as AdvLayer, createDefaultStyles, createDefaultTransform } from './types/layers';
 import { history } from './utils/history';
 
 // Import new domain stores for state management
 import { useModelStore, useToolStore, useProjectStore } from './stores/domainStores';
 
-const cloneProject = (proj: AdvProject | null): AdvProject | null => {
+const cloneProject = (proj: any | null): any | null => {
   if (!proj) return null;
-  return JSON.parse(JSON.stringify(proj)) as AdvProject;
+  return JSON.parse(JSON.stringify(proj));
 };
 
 type Tool =
@@ -563,22 +561,9 @@ interface AppState {
   addDecalFromFile: (file: File) => Promise<string>;
   forceRerender: () => void;
 
-  // Phase 1: Advanced Layer System (scaffold)
-  project: AdvProject | null;
-  selectedLayerV2: string | null;
-  setProject: (p: AdvProject | null) => void;
-  addLayerV2: (layer: AdvLayer, index?: number) => void;
-  updateLayerV2: (id: string, patch: Partial<AdvLayer>) => void;
-  reorderLayersV2: (from: number, to: number) => void;
-  selectLayerV2: (id: string | null) => void;
+  // Legacy layer system - REMOVED (using simplified AdvancedLayerSystemV2)
 
-  // Phase 2: Image layer operations (v2)
-  addImageV2: (fileOrUrl: File | string) => Promise<string>;
-  replaceImageV2: (layerId: string, fileOrUrl: File | string) => Promise<void>;
-  setImagePropsV2: (layerId: string, patch: Partial<{ opacity: number; blendMode: GlobalCompositeOperation; transform: Partial<{ x: number; y: number; scaleX: number; scaleY: number; rotation: number; skewX?: number; skewY?: number; }> }>) => void;
-  setClipMaskV2: (layerId: string, maskLayerId: string | null) => void;
-  convertToSmartV2: (layerId: string) => void;
-  rasterizeV2: (layerId: string) => void;
+  // Legacy image operations - REMOVED (using simplified AdvancedLayerSystemV2)
   
   // Browser caching methods
   saveProjectState: () => Promise<boolean>;
@@ -966,9 +951,7 @@ export const useApp = create<AppState>((set, get) => ({
   controlsDistance: 2,
   clickingOnModel: false,
 
-  // Phase 1: Advanced Layer System defaults
-  project: null,
-  selectedLayerV2: null,
+  // Legacy project state - REMOVED (using simplified AdvancedLayerSystemV2)
 
   // Vector paths state
   vectorPaths: [],
@@ -1096,39 +1079,7 @@ export const useApp = create<AppState>((set, get) => ({
     }));
   },
 
-  // Phase 1: Advanced Layer System methods (scaffold)
-  setProject: (p) => set({ project: p }),
-  addLayerV2: (layer, index) => {
-    set(state => {
-      const proj: AdvProject = state.project ?? { layerOrder: [], layers: {}, assets: { images: {}, canvases: {}, smart: {} }, selection: { ids: [] }, version: 1 } as AdvProject;
-      if (!proj.layers[layer.id]) {
-        const order = proj.layerOrder.slice();
-        if (typeof index === 'number' && index >= 0 && index <= order.length) order.splice(index, 0, layer.id); else order.push(layer.id);
-        const layers = { ...proj.layers, [layer.id]: layer } as any;
-        return { project: { ...proj, layers, layerOrder: order } } as any;
-      }
-      return { project: proj } as any;
-    });
-  },
-  updateLayerV2: (id, patch) => {
-    set(state => {
-      const proj = state.project; if (!proj || !proj.layers[id]) return {} as any;
-      const updated = { ...(proj.layers[id] as any), ...patch } as AdvLayer;
-      return { project: { ...proj, layers: { ...proj.layers, [id]: updated } } } as any;
-    });
-  },
-  reorderLayersV2: (from, to) => {
-    set(state => {
-      const proj = state.project; if (!proj) return {} as any;
-      const order = proj.layerOrder.slice();
-      const fromIdx = Math.max(0, Math.min(from, order.length - 1));
-      const [moved] = order.splice(fromIdx, 1);
-      const toIdx = Math.max(0, Math.min(to, order.length));
-      order.splice(toIdx, 0, moved);
-      return { project: { ...proj, layerOrder: order } } as any;
-    });
-  },
-  selectLayerV2: (id) => set({ selectedLayerV2: id }),
+  // Legacy layer system implementations - REMOVED (using simplified AdvancedLayerSystemV2)
 
   // Vector methods
   startVectorPath: () => {
@@ -1629,145 +1580,9 @@ try {
     return id;
   },
 
-  // Phase 2: Image layer operations (v2) - with history integration
-  addImageV2: async (fileOrUrl: File | string) => {
-    const oldProject = cloneProject(get().project);
-    const result = await (async () => {
-    const projInit = () => ({ layerOrder: [], layers: {}, assets: { images: {}, canvases: {}, smart: {} }, selection: { ids: [] }, version: 1 } as AdvProject);
-    const id = Math.random().toString(36).slice(2);
-    let imageKey = Math.random().toString(36).slice(2);
-    let w = 1024, h = 1024, src: string = '';
-    try {
-      if (typeof fileOrUrl === 'string') {
-        src = fileOrUrl;
-        // Best-effort to get dimensions
-        const img = new Image();
-        const dim = await new Promise<{ w: number; h: number }>((resolve) => { img.onload = () => resolve({ w: img.naturalWidth||w, h: img.naturalHeight||h }); img.src = src; });
-        w = dim.w || w; h = dim.h || h;
-      } else {
-        const bmp = await createImageBitmap(fileOrUrl);
-        w = bmp.width; h = bmp.height;
-        src = URL.createObjectURL(fileOrUrl);
-      }
-    } catch {}
-    set(state => {
-      const proj = state.project ?? projInit();
-      proj.assets.images[imageKey] = src;
-      const layer: AdvLayer = {
-        id,
-        name: `Image ${id.slice(0,4)}`,
-        visible: true,
-        locked: false,
-        transform: createDefaultTransform(),
-        styles: createDefaultStyles(),
-        type: 'image',
-        imageId: imageKey,
-        naturalSize: { w, h },
-      } as any;
-      return { project: { ...proj, layers: { ...proj.layers, [id]: layer }, layerOrder: [...proj.layerOrder, id] } } as any;
-    });
-      return id;
-    })();
-    
-    // Add to history
-    const newProject = cloneProject(get().project);
-    if (JSON.stringify(newProject) !== JSON.stringify(oldProject)) {
-      history.push({
-        label: 'Add Image Layer',
-        apply: () => set({ project: cloneProject(newProject) }),
-        revert: () => set({ project: cloneProject(oldProject) })
-      });
-    }
-    
-    return result;
-  },
+  // Legacy image operations - REMOVED (using simplified AdvancedLayerSystemV2)
 
-  replaceImageV2: async (layerId: string, fileOrUrl: File | string) => {
-    let imageKey = Math.random().toString(36).slice(2);
-    let src = '';
-    try {
-      if (typeof fileOrUrl === 'string') src = fileOrUrl; else src = URL.createObjectURL(fileOrUrl);
-    } catch {}
-    set(state => {
-      const proj = state.project; if (!proj || !proj.layers[layerId]) return {} as any;
-      proj.assets.images[imageKey] = src;
-      const layer = proj.layers[layerId] as any;
-      const patched = { ...layer, imageId: imageKey };
-      return { project: { ...proj, layers: { ...proj.layers, [layerId]: patched } } } as any;
-    });
-  },
-  setImagePropsV2: (layerId, patch) => {
-    const oldProject = cloneProject(get().project);
-    let changed = false;
-    set(state => {
-      const proj = state.project; if (!proj || !proj.layers[layerId]) return {} as any;
-      const layer = proj.layers[layerId] as any;
-      const styles = { ...layer.styles };
-      if (patch.blendMode) styles.blendMode = patch.blendMode;
-      const transform = { ...layer.transform, ...(patch.transform || {}) };
-      const hasOpacityChange = patch.opacity != null;
-      const updated = {
-        ...layer,
-        transform,
-        styles,
-        ...(hasOpacityChange ? { transform: { ...transform, opacity: patch.opacity } } : {})
-      };
-      changed = JSON.stringify(updated) !== JSON.stringify(layer);
-      if (!changed) return {} as any;
-      return { project: { ...proj, layers: { ...proj.layers, [layerId]: updated } } } as any;
-    });
-    if (!changed) return;
-    const newProject = cloneProject(get().project);
-    if (JSON.stringify(newProject) !== JSON.stringify(oldProject)) {
-      history.push({
-        label: 'Update Image Properties',
-        apply: () => set({ project: cloneProject(newProject) }),
-        revert: () => set({ project: cloneProject(oldProject) })
-      });
-    }
-  },
-  setClipMaskV2: (layerId, maskLayerId) => {
-    const oldProject = cloneProject(get().project);
-    let changed = false;
-    set(state => {
-      const proj = state.project; if (!proj || !proj.layers[layerId]) return {} as any;
-      const layer = proj.layers[layerId] as any;
-      const currentMask = layer.mask?.layerId ?? null;
-      const nextMask = maskLayerId ?? null;
-      if (currentMask === nextMask) return {} as any;
-      changed = true;
-      const updated: any = { ...layer, mask: nextMask ? { layerId: nextMask, mode: 'clip' } : undefined };
-      return { project: { ...proj, layers: { ...proj.layers, [layerId]: updated } } } as any;
-    });
-    if (!changed) return;
-    const newProject = cloneProject(get().project);
-    if (JSON.stringify(newProject) !== JSON.stringify(oldProject)) {
-      history.push({
-        label: 'Set Clip Mask',
-        apply: () => set({ project: cloneProject(newProject) }),
-        revert: () => set({ project: cloneProject(oldProject) })
-      });
-    }
-  },
-  convertToSmartV2: (layerId) => {
-    set(state => {
-      const proj = state.project; if (!proj || !proj.layers[layerId]) return {} as any;
-      const srcId = 'smart_' + Math.random().toString(36).slice(2);
-      const layer = proj.layers[layerId] as any;
-      const updated = { ...layer, isSmartObject: true, sourceRef: srcId };
-      proj.assets.smart[srcId] = { snapshot: undefined };
-      return { project: { ...proj, layers: { ...proj.layers, [layerId]: updated } } } as any;
-    });
-  },
-  rasterizeV2: (layerId) => {
-    // Placeholder: marking as rasterized; full implementation renders to a bitmap and replaces content
-    set(state => {
-      const proj = state.project; if (!proj || !proj.layers[layerId]) return {} as any;
-      const layer = proj.layers[layerId] as any;
-      const updated = { ...layer, rasterized: true };
-      return { project: { ...proj, layers: { ...proj.layers, [layerId]: updated } } } as any;
-    });
-  },
+  // Legacy image operations implementations - REMOVED (using simplified AdvancedLayerSystemV2)
 
   updateTextElement: (id: string, patch: Partial<TextElement>) => {
     console.log('🎨 updateTextElement called - delegating to V2 system');
@@ -3589,18 +3404,7 @@ export function App() {
           {useApp(s => s.vectorMode) && (
             <VectorEditorOverlay wrapRef={wrapRef} />
           )}
-          {useApp(s => s.selectedLayerV2) && (
-            <TransformGizmo 
-              selectedElements={[{ id: useApp.getState().selectedLayerV2!, type: 'layer', bounds: { x: 0, y: 0, width: 100, height: 100 } }]}
-              onTransform={(transform: any) => {
-                const { selectedLayerV2, updateLayerV2 } = useApp.getState();
-                if (selectedLayerV2) {
-                  updateLayerV2(selectedLayerV2, { transform: { ...transform } });
-                }
-              }}
-              visible={true}
-            />
-          )}
+          {/* Legacy TransformGizmo - REMOVED (using simplified AdvancedLayerSystemV2) */}
           <CursorManager wrapRef={wrapRef} drawingActive={drawingActive} />
           <ToolRouter active={true} />
           {/* UnifiedPuffPrintSystem disabled - using ShirtRefactored puff system instead */}

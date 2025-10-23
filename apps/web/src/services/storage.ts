@@ -1,5 +1,5 @@
 import localforage from 'localforage';
-import { Project } from '../types/layers';
+// import { Project } from '../types/layers'; // REMOVED
 
 const PROJECT_KEY = (id: string) => `closset:project:${id}`;
 const ASSET_KEY = (id: string) => `closset:asset:${id}`;
