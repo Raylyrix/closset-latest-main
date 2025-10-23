@@ -4476,7 +4476,7 @@ const canvasDimensions = {
                     u: clickU, 
                     v: clickV, 
                     imgU: clickedImage.u, 
-                    imgV: clickedImage.v,
+                    imgV: 1 - clickedImage.v, // CRITICAL FIX: Store image V in same flipped coordinate system as clickV
                     imageId: clickedImage.id
                   };
                 }
@@ -5474,7 +5474,7 @@ const canvasDimensions = {
           
           // CRITICAL FIX: Use direct delta calculation since both coordinates are in same system
           const newU = dragStart.imgU + deltaU;
-          const newV = dragStart.imgV + deltaV;
+          const newV = 1 - (dragStart.imgV + deltaV); // Convert back to original UV coordinate system
           
           // PHASE 2 FIX: Update image position via V2 system
           const { composeLayers } = useApp.getState();
