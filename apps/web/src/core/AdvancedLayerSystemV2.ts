@@ -5,8 +5,8 @@ import { useApp } from '../App';
 import { convertUVToPixel, getCanvasDimensions } from '../utils/CoordinateUtils';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 
-// Layer Types
-export type LayerType = 'paint' | 'puff' | 'vector' | 'text' | 'image' | 'embroidery' | 'adjustment' | 'group' | 'pixel' | 'smart-object' | 'shape' | 'background' | 'raster' | 'procedural' | 'fill' | 'ai-smart';
+// Layer Types - SIMPLIFIED: Only what we actually use
+export type LayerType = 'paint' | 'text' | 'image' | 'group' | 'adjustment';
 
 // Blend Modes (Photoshop-like)
 export type BlendMode = 
@@ -189,19 +189,18 @@ export interface LayerHistoryState {
   maxSnapshots: number;
 }
 
-// Layer content (varies by type)
+// Layer content (simplified - only what we actually use)
 export interface LayerContent {
   canvas?: HTMLCanvasElement; // For paint layers
   text?: string; // For text layers
   imageData?: ImageData; // For image layers
-  imageElements?: ImageElement[]; // ✅ NEW: For imported images
-  vectorData?: any; // For vector layers
-  puffData?: any; // For puff layers
-  embroideryData?: any; // For embroidery layers
+  imageElements?: ImageElement[]; // For imported images
   brushStrokes?: BrushStroke[]; // For paint layers
   textElements?: TextElement[]; // For text layers
+  puffElements?: PuffElement[]; // For puff print elements
+  adjustmentData?: any; // For adjustment layers
+  children?: string[]; // For group layers
   displacementCanvas?: HTMLCanvasElement; // For displacement mapping
-  puffElements?: PuffElement[]; // ✅ NEW: For puff print elements
 }
 
 // Main Layer interface
@@ -377,9 +376,6 @@ interface AdvancedLayerStoreV2 {
   groupLayers: (layerIds: string[]) => string;
   ungroupLayers: (groupId: string) => void;
   createAdjustmentLayer: (name?: string) => string;
-  createProceduralLayer: (name?: string) => string;
-  createFillLayer: (name?: string) => string;
-  createAILayer: (name?: string) => string;
   mergeDown: (layerId: string) => void;
   mergeLayers: (layerIds: string[]) => void;
   flattenAll: () => void;
@@ -433,21 +429,10 @@ interface AdvancedLayerStoreV2 {
 const generateLayerName = (type: LayerType, existingLayers: AdvancedLayer[]): string => {
   const typeNames: Record<LayerType, string> = {
     paint: 'Paint Layer',
-    puff: 'Puff Layer',
-    vector: 'Vector Layer',
     text: 'Text Layer',
     image: 'Image Layer',
-    embroidery: 'Embroidery Layer',
-    adjustment: 'Adjustment Layer',
     group: 'Group',
-    pixel: 'Pixel Layer',
-    'smart-object': 'Smart Object',
-    shape: 'Shape Layer',
-    background: 'Background Layer',
-    raster: 'Raster Layer',
-    procedural: 'Procedural Layer',
-    fill: 'Fill Layer',
-    'ai-smart': 'AI Smart Layer'
+    adjustment: 'Adjustment Layer'
   };
   
   const baseName = typeNames[type];
@@ -500,17 +485,10 @@ const createDefaultContent = (type: LayerType): LayerContent => {
         imageData: undefined,
         imageElements: [] // ✅ FIX: Initialize image elements array
       };
-    case 'vector':
-      return { vectorData: null };
-    case 'puff':
-      return { 
-        puffData: null,
-        puffElements: [] // ✅ FIX: Initialize puff elements array
-      };
-    case 'embroidery':
-      return { embroideryData: null };
     case 'adjustment':
-      return {};
+      return { adjustmentData: null };
+    case 'group':
+      return { children: [] };
     default:
       return {};
   }
@@ -1340,31 +1318,15 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const id = imageData.id || Math.random().toString(36).slice(2);
       const state = get();
       
-      // Ensure we have a valid layer ID
-      let targetLayerId = layerId || state.activeLayerId || 'image';
+      // CRITICAL FIX: Always create a new image layer for each image
+      console.log('🎨 Creating new image layer for imported image');
+      const imageLayerId = get().createLayer('image', imageData.name || 'Imported Image');
       
-      // If the target layer doesn't exist, create a default image layer
-      if (!state.layers.find(l => l.id === targetLayerId)) {
-        console.log('🎨 Creating default image layer for image element');
-        const imageLayerId = get().createLayer('image', 'Image Layer');
-        targetLayerId = imageLayerId;
-        
-        // CRITICAL FIX: Also create layer in main App state for UI synchronization
-        const appState = useApp.getState();
-        if (appState.addLayer) {
-          console.log('🎨 Synchronizing image layer with main App state');
-          // The addLayer function in App.tsx takes a name string, not an object
-          appState.addLayer('Image Layer');
-          
-          // CRITICAL: Force layer panel update
-          setTimeout(() => {
-            const textureEvent = new CustomEvent('forceTextureUpdate', {
-              detail: { source: 'image-layer-creation', layerId: imageLayerId }
-            });
-            window.dispatchEvent(textureEvent);
-            console.log('🔄 Triggered texture update after image layer creation');
-          }, 100);
-        }
+      // CRITICAL FIX: Also create layer in main App state for UI synchronization
+      const appState = useApp.getState();
+      if (appState.addLayer) {
+        console.log('🎨 Synchronizing image layer with main App state');
+        appState.addLayer(imageData.name || 'Imported Image');
       }
       
       // CRITICAL FIX: Convert UV coordinates to pixel coordinates for proper rendering
@@ -1406,14 +1368,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         verticalFlip: imageData.verticalFlip || false,
         // Blending properties
         blendMode: imageData.blendMode || 'source-over',
-        layerId: targetLayerId,
+        layerId: imageLayerId,
         timestamp: Date.now()
       };
       
       // Add image element to the layer
       set(state => ({
         layers: state.layers.map(layer => 
-          layer.id === targetLayerId 
+          layer.id === imageLayerId 
             ? {
                 ...layer,
                 content: {
@@ -1431,11 +1393,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         uv: { u: imageData.u, v: imageData.v, uWidth: imageData.uWidth, uHeight: imageData.uHeight },
         pixel: { x: pixelX, y: pixelY, width: pixelWidth, height: pixelHeight },
         canvasSize: canvasSize,
-        layerId: targetLayerId,
+        layerId: imageLayerId,
         allLayers: get().layers.map(l => ({ id: l.id, name: l.name, type: l.type, visible: l.visible })),
-        layerCreationTriggered: targetLayerId !== layerId,
+        layerCreationTriggered: true,
         originalLayerId: layerId,
-        finalLayerId: targetLayerId
+        finalLayerId: imageLayerId
       });
       
       // PHASE 4 FIX: Trigger composition and texture update (same as text tool)
@@ -1598,7 +1560,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       // If the target layer doesn't exist, create a default puff layer
       if (!state.layers.find(l => l.id === targetLayerId)) {
         console.log('🎨 Creating default puff layer for puff element');
-        const puffLayerId = get().createLayer('puff', 'Puff Layer');
+        const puffLayerId = get().createLayer('paint', 'Puff Layer');
         targetLayerId = puffLayerId;
       }
       
@@ -2550,17 +2512,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       return get().createLayer('adjustment', name);
     },
     
-    createProceduralLayer: (name?: string) => {
-      return get().createLayer('procedural', name);
-    },
-    
-    createFillLayer: (name?: string) => {
-      return get().createLayer('fill', name);
-    },
-    
-    createAILayer: (name?: string) => {
-      return get().createLayer('ai-smart', name);
-    },
     
     mergeDown: (layerId: string) => {
       const state = get();

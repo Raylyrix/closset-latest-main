@@ -6,7 +6,6 @@ import { useApp } from '../App';
 // import { layerIntegration } from '../services/LayerIntegration';
 // import { useAdvancedLayerStore } from '../core/AdvancedLayerSystem';
 import { useAdvancedLayerStoreV2, AdvancedLayer, LayerGroup, BlendMode, LayerEffect, LayerMask } from '../core/AdvancedLayerSystemV2';
-import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
 import { useLayerSelectionSystem } from '../core/LayerSelectionSystem';
 import { EnhancedTextSettings } from './EnhancedTextSettings';
 
@@ -142,24 +141,12 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     generateLayerName: generateAdvancedLayerName
   } = useAdvancedLayerStoreV2();
 
-  // Automatic Layer Manager
-  const {
-    enableAutoCreation,
-    disableAutoCreation,
-    triggerBrushStart,
-    triggerBrushEnd,
-    triggerTextCreated,
-    triggerShapeCreated,
-    triggerImageImported,
-    triggerPuffApplied,
-    triggerEmbroideryApplied,
-    triggerVectorCreated,
-    isEnabled: autoCreationEnabled,
-    eventHistory,
-    layers: autoManagerLayers,
-    activeLayerId: autoManagerActiveLayerId,
-    selectedLayerIds: autoManagerSelectedLayerIds
-  } = useAutomaticLayerManager();
+  // Automatic Layer Manager - REMOVED (simplified system)
+  const autoCreationEnabled = false;
+  const eventHistory: any[] = [];
+  const autoManagerLayers: any[] = [];
+  const autoManagerActiveLayerId = null;
+  const autoManagerSelectedLayerIds: string[] = [];
 
   // Selection System
   const {
@@ -4731,7 +4718,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 <button
                   onClick={() => {
                     const { createLayer } = useAdvancedLayerStoreV2.getState();
-                    createLayer('puff', 'New Puff Layer');
+                    createLayer('paint', 'New Puff Layer');
                   }}
                   style={{
                     padding: '4px 8px',
@@ -4749,7 +4736,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 <button
                   onClick={() => {
                     const { createLayer } = useAdvancedLayerStoreV2.getState();
-                    createLayer('vector', 'New Vector Layer');
+                    createLayer('paint', 'New Vector Layer');
                   }}
                   style={{
                     padding: '4px 8px',
@@ -4767,7 +4754,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 <button
                   onClick={() => {
                     const { createLayer } = useAdvancedLayerStoreV2.getState();
-                    createLayer('embroidery', 'New Embroidery Layer');
+                    createLayer('paint', 'New Embroidery Layer');
                   }}
                   style={{
                     padding: '4px 8px',
@@ -4899,7 +4886,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               </div>
               <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                 <button
-                  onClick={() => autoCreationEnabled ? disableAutoCreation() : enableAutoCreation()}
+                  onClick={() => console.log('Auto-creation disabled in simplified system')}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: autoCreationEnabled ? '#28a745' : '#dc3545',
@@ -5023,7 +5010,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   📝 Text
                 </button>
                 <button
-                  onClick={() => createLayer('vector', generateAdvancedLayerName('vector'))}
+                  onClick={() => createLayer('paint', generateAdvancedLayerName('paint'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#20c997',
@@ -5037,7 +5024,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   🔷 Vector
                 </button>
                 <button
-                  onClick={() => createLayer('puff', generateAdvancedLayerName('puff'))}
+                  onClick={() => createLayer('paint', generateAdvancedLayerName('paint'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#fd7e14',
@@ -5051,7 +5038,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   ☁️ Puff
                 </button>
                 <button
-                  onClick={() => createLayer('embroidery', generateAdvancedLayerName('embroidery'))}
+                  onClick={() => createLayer('paint', generateAdvancedLayerName('paint'))}
                   style={{
                     padding: '4px 8px',
                     backgroundColor: '#e83e8c',
