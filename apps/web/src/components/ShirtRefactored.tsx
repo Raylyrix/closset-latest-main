@@ -3610,6 +3610,45 @@ export function ShirtRefactored({
     });
     console.log('🎨 ============================================================');
     
+    // 🌟 GLOBAL DESELECTION CHECK: Deselect image when clicking outside, regardless of active tool
+    const uv = e.uv as THREE.Vector2 | undefined;
+    if (uv) {
+      const clickU = uv.x;
+      const clickV = 1 - uv.y; // Flip V for texture space
+      
+      // Check if click is on any image
+      const v2State = useAdvancedLayerStoreV2.getState();
+      const imageElements = v2State.getAllImageElements();
+      let clickedOnImage = false;
+      
+      for (const img of imageElements) {
+        if (!img.visible) continue;
+        
+        const bounds = getImageBounds(img);
+        const isWithinBounds = (
+          clickU >= bounds.uvLeft &&
+          clickU <= bounds.uvRight &&
+          clickV >= bounds.uvTop &&
+          clickV <= bounds.uvBottom
+        );
+        
+        if (isWithinBounds) {
+          clickedOnImage = true;
+          break;
+        }
+      }
+      
+      // If clicked outside any image, deselect current image
+      if (!clickedOnImage) {
+        const { selectedImageId: currentSelectedId } = useApp.getState();
+        if (currentSelectedId) {
+          console.log('🎨 GLOBAL DESELECTION: Clicked outside image - deselecting current image');
+          const { setSelectedImageId } = useApp.getState();
+          setSelectedImageId(null);
+        }
+      }
+    }
+    
     // 🎯 CLICK-TO-SELECT FUNCTIONALITY
     // Check if we're in selection mode or if user wants to select elements
     if (activeTool === 'picker' || activeTool === 'universalSelect' || modifierKeys.ctrl) {
@@ -4510,14 +4549,9 @@ const canvasDimensions = {
               // PHASE 5 FIX: Simplified image tool - no click-to-place, just deselect
               console.log('🎨 Image tool: Clicked empty area - deselecting any selected image');
               
-              // If image is already selected, deselect it
-              const { selectedImageId: currentSelectedId } = useApp.getState();
-              if (currentSelectedId) {
-                console.log('🎨 Image tool: Deselecting current image');
-                setSelectedImageId(null);
-              } else {
-                console.log('🎨 Image tool: No image selected - import images via right panel');
-              }
+              // Note: Global deselection is now handled at the top of onPointerDown
+              // This ensures deselection works regardless of active tool
+              console.log('🎨 Image tool: Global deselection already handled');
             }
           }
         } else if (activeTool === 'shapes') {
