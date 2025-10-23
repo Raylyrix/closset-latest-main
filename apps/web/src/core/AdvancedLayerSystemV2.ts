@@ -2252,26 +2252,19 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
-            // ANIMATION 3: GRADIENT SWEEP EFFECT
-            // Calculate gradient sweep animation based on time
+            // ANIMATION 4: MULTI-LAYER GLOW EFFECT
+            // Calculate multi-layer glow animation based on time
             const now = Date.now();
-            const sweepSpeed = 2; // Complete sweep per second
-            const sweepPhase = (now * sweepSpeed * 0.001) % (Math.PI * 2);
+            const glowSpeed = 1.5; // Glow cycles per second
+            const glowPhase = (now * glowSpeed * 0.001) % (Math.PI * 2);
             
-            // Create gradient sweep effect
-            const gradient = ctx.createLinearGradient(
-              borderX + Math.cos(sweepPhase) * borderWidth,
-              borderY + Math.sin(sweepPhase) * borderHeight,
-              borderX + Math.cos(sweepPhase + Math.PI) * borderWidth,
-              borderY + Math.sin(sweepPhase + Math.PI) * borderHeight
-            );
-            
-            // Add gradient stops for sweep effect
-            gradient.addColorStop(0, 'rgba(0, 255, 0, 0)'); // Transparent
-            gradient.addColorStop(0.3, 'rgba(0, 255, 0, 0.3)'); // Fade in
-            gradient.addColorStop(0.5, 'rgba(0, 255, 255, 0.8)'); // Bright center
-            gradient.addColorStop(0.7, 'rgba(0, 255, 0, 0.3)'); // Fade out
-            gradient.addColorStop(1, 'rgba(0, 255, 0, 0)'); // Transparent
+            // Create multiple glow layers with different properties
+            const glowLayers = [
+              { color: '#00ff00', width: 8, alpha: 0.2, offset: 0 },
+              { color: '#00ff88', width: 6, alpha: 0.3, offset: Math.PI / 3 },
+              { color: '#00ffff', width: 4, alpha: 0.4, offset: Math.PI * 2 / 3 },
+              { color: '#88ff00', width: 2, alpha: 0.5, offset: Math.PI }
+            ];
             
             // Draw base border
             ctx.save();
@@ -2284,16 +2277,23 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.stroke();
             ctx.restore();
             
-            // Draw gradient sweep border
-            ctx.save();
-            ctx.strokeStyle = gradient;
-            ctx.lineWidth = 4;
-            ctx.setLineDash([]);
-            ctx.globalAlpha = 0.9;
-            ctx.beginPath();
-            ctx.rect(borderX, borderY, borderWidth, borderHeight);
-            ctx.stroke();
-            ctx.restore();
+            // Draw multi-layer glow effect
+            for (const layer of glowLayers) {
+              const layerPhase = (glowPhase + layer.offset) % (Math.PI * 2);
+              const layerIntensity = (Math.sin(layerPhase) + 1) / 2; // 0 to 1
+              
+              ctx.save();
+              ctx.strokeStyle = layer.color;
+              ctx.lineWidth = layer.width;
+              ctx.globalAlpha = layer.alpha * layerIntensity;
+              ctx.setLineDash([]); // Solid line for glow
+              
+              // Draw glow border
+              ctx.beginPath();
+              ctx.rect(borderX, borderY, borderWidth, borderHeight);
+              ctx.stroke();
+              ctx.restore();
+            }
             
             // Set up main border styling
             ctx.strokeStyle = '#00ff00'; // Green border for images (different from text blue)
@@ -2328,7 +2328,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw gradient sweep resize handles
+            // Draw multi-layer glow resize handles
             for (const handle of handles) {
               // Draw base handle
               ctx.save();
@@ -2340,24 +2340,32 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
               ctx.restore();
               
-              // Draw gradient sweep effect on handles
+              // Draw multi-layer glow effect on handles
               const handleCenterX = handle.x + handleSize / 2;
               const handleCenterY = handle.y + handleSize / 2;
-              const handleSweepPhase = (sweepPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
-              const handleGradient = ctx.createRadialGradient(
-                handleCenterX, handleCenterY, 0,
-                handleCenterX, handleCenterY, handleSize / 2
-              );
+              const handleGlowPhase = (glowPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
               
-              handleGradient.addColorStop(0, 'rgba(0, 255, 255, 0.8)');
-              handleGradient.addColorStop(0.5, 'rgba(0, 255, 0, 0.4)');
-              handleGradient.addColorStop(1, 'rgba(0, 255, 0, 0)');
+              // Draw multiple glow layers for handles
+              const handleGlowLayers = [
+                { color: '#00ff00', size: handleSize + 6, alpha: 0.2 },
+                { color: '#00ff88', size: handleSize + 4, alpha: 0.3 },
+                { color: '#00ffff', size: handleSize + 2, alpha: 0.4 }
+              ];
               
-              ctx.save();
-              ctx.fillStyle = handleGradient;
-              ctx.globalAlpha = 0.6;
-              ctx.fillRect(handle.x - 2, handle.y - 2, handleSize + 4, handleSize + 4);
-              ctx.restore();
+              for (const glowLayer of handleGlowLayers) {
+                const layerIntensity = (Math.sin(handleGlowPhase + glowLayer.size * 0.1) + 1) / 2;
+                
+                ctx.save();
+                ctx.fillStyle = glowLayer.color;
+                ctx.globalAlpha = glowLayer.alpha * layerIntensity;
+                ctx.fillRect(
+                  handleCenterX - glowLayer.size / 2,
+                  handleCenterY - glowLayer.size / 2,
+                  glowLayer.size,
+                  glowLayer.size
+                );
+                ctx.restore();
+              }
             }
             
             console.log(`🎨 Image selection border drawn with unified bounds:`, {
