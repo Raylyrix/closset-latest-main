@@ -203,6 +203,14 @@ export interface LayerContent {
   displacementCanvas?: HTMLCanvasElement; // For displacement mapping
 }
 
+// Layer locking types (Photoshop-like)
+export interface LayerLocking {
+  position: boolean;      // Lock position (can't move)
+  pixels: boolean;        // Lock pixels (can't paint/edit)
+  transparency: boolean;  // Lock transparency (can't change alpha)
+  all: boolean;          // Lock everything
+}
+
 // Main Layer interface
 export interface AdvancedLayer {
   id: string;
@@ -211,7 +219,8 @@ export interface AdvancedLayer {
   visible: boolean;
   opacity: number;
   blendMode: BlendMode;
-  locked: boolean;
+  locked: boolean;        // Legacy simple lock
+  locking: LayerLocking;  // Advanced locking system
   effects: LayerEffect[];
   mask?: LayerMask;
   transform: LayerTransform;
@@ -284,6 +293,20 @@ interface AdvancedLayerStoreV2 {
   setLayerBlendMode: (id: string, blendMode: BlendMode) => void;
   setLayerLocked: (id: string, locked: boolean) => void;
   setLayerTransform: (id: string, transform: Partial<LayerTransform>) => void;
+  
+  // Advanced Locking
+  setLayerLocking: (id: string, locking: Partial<LayerLocking>) => void;
+  toggleLayerPositionLock: (id: string) => void;
+  toggleLayerPixelsLock: (id: string) => void;
+  toggleLayerTransparencyLock: (id: string) => void;
+  toggleLayerAllLock: (id: string) => void;
+  isLayerPositionLocked: (id: string) => boolean;
+  isLayerPixelsLocked: (id: string) => boolean;
+  isLayerTransparencyLocked: (id: string) => boolean;
+  isLayerAllLocked: (id: string) => boolean;
+  canLayerMove: (id: string) => boolean;
+  canLayerEdit: (id: string) => boolean;
+  canLayerChangeOpacity: (id: string) => boolean;
   
   // Ordering
   moveLayerUp: (id: string) => void;
@@ -480,6 +503,13 @@ const createDefaultTransform = (): LayerTransform => ({
   skewY: 0
 });
 
+const createDefaultLocking = (): LayerLocking => ({
+  position: false,
+  pixels: false,
+  transparency: false,
+  all: false
+});
+
 const createDefaultContent = (type: LayerType): LayerContent => {
   switch (type) {
     case 'paint':
@@ -550,7 +580,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         visible: true,
         opacity: 1.0,
         blendMode: 'normal',
-        locked: false,
+        locked: false,        // Legacy simple lock
+        locking: createDefaultLocking(), // Advanced locking system
         effects: [],
         transform: createDefaultTransform(),
         content: createDefaultContent(type),
@@ -710,6 +741,12 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     setLayerOpacity: (id: string, opacity: number) => {
+      // Check if opacity can be changed (transparency lock)
+      if (!get().canLayerChangeOpacity(id)) {
+        console.warn(`🔒 Cannot change opacity for layer ${id} - transparency is locked`);
+        return;
+      }
+      
       set(state => ({
         layers: state.layers.map(layer =>
           layer.id === id ? { ...layer, opacity, updatedAt: new Date() } : layer
@@ -766,6 +803,17 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     setLayerTransform: (id: string, transform: Partial<LayerTransform>) => {
+      // Check if position can be changed (position lock)
+      if ((transform.x !== undefined || transform.y !== undefined) && !get().canLayerMove(id)) {
+        console.warn(`🔒 Cannot change position for layer ${id} - position is locked`);
+        // Remove position changes but allow other transform changes
+        const { x, y, ...allowedTransform } = transform;
+        if (Object.keys(allowedTransform).length === 0) {
+          return; // No allowed changes
+        }
+        transform = allowedTransform;
+      }
+      
       set(state => ({
         layers: state.layers.map(layer => 
           layer.id === id ? { 
@@ -777,6 +825,123 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }));
       
       console.log(`🔄 Set layer ${id} transform:`, transform);
+    },
+    
+    // Advanced Locking Implementation
+    setLayerLocking: (id: string, locking: Partial<LayerLocking>) => {
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === id ? {
+            ...layer,
+            locking: { ...layer.locking, ...locking },
+            // Update legacy locked property if all is set
+            locked: locking.all !== undefined ? locking.all : layer.locked,
+            updatedAt: new Date()
+          } : layer
+        )
+      }));
+      
+      console.log(`🔒 Set layer ${id} locking:`, locking);
+    },
+    
+    toggleLayerPositionLock: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return;
+      
+      const newPositionLock = !layer.locking.position;
+      get().setLayerLocking(id, { position: newPositionLock });
+      
+      console.log(`🔒 Toggled position lock for layer ${id}: ${newPositionLock}`);
+    },
+    
+    toggleLayerPixelsLock: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return;
+      
+      const newPixelsLock = !layer.locking.pixels;
+      get().setLayerLocking(id, { pixels: newPixelsLock });
+      
+      console.log(`🔒 Toggled pixels lock for layer ${id}: ${newPixelsLock}`);
+    },
+    
+    toggleLayerTransparencyLock: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return;
+      
+      const newTransparencyLock = !layer.locking.transparency;
+      get().setLayerLocking(id, { transparency: newTransparencyLock });
+      
+      console.log(`🔒 Toggled transparency lock for layer ${id}: ${newTransparencyLock}`);
+    },
+    
+    toggleLayerAllLock: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return;
+      
+      const newAllLock = !layer.locking.all;
+      get().setLayerLocking(id, { 
+        all: newAllLock,
+        position: newAllLock,
+        pixels: newAllLock,
+        transparency: newAllLock
+      });
+      
+      console.log(`🔒 Toggled all locks for layer ${id}: ${newAllLock}`);
+    },
+    
+    isLayerPositionLocked: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      return layer ? (layer.locking.all || layer.locking.position) : false;
+    },
+    
+    isLayerPixelsLocked: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      return layer ? (layer.locking.all || layer.locking.pixels) : false;
+    },
+    
+    isLayerTransparencyLocked: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      return layer ? (layer.locking.all || layer.locking.transparency) : false;
+    },
+    
+    isLayerAllLocked: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      return layer ? layer.locking.all : false;
+    },
+    
+    canLayerMove: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return false;
+      
+      // Can't move if position is locked or all is locked
+      return !(layer.locking.all || layer.locking.position);
+    },
+    
+    canLayerEdit: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return false;
+      
+      // Can't edit if pixels are locked or all is locked
+      return !(layer.locking.all || layer.locking.pixels);
+    },
+    
+    canLayerChangeOpacity: (id: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === id);
+      if (!layer) return false;
+      
+      // Can't change opacity if transparency is locked or all is locked
+      return !(layer.locking.all || layer.locking.transparency);
     },
     
     // Ordering
