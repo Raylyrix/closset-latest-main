@@ -3563,10 +3563,11 @@ export function ShirtRefactored({
     const centerY = pixelY + pixelHeight / 2;
     
     // Convert pixel coordinates back to UV for hitbox detection
+    // CRITICAL FIX: Apply the same Y-flipping as click coordinates (1 - uv.y)
     const uvLeft = pixelX / canvasSize;
     const uvRight = (pixelX + pixelWidth) / canvasSize;
-    const uvTop = pixelY / canvasSize;
-    const uvBottom = (pixelY + pixelHeight) / canvasSize;
+    const uvTop = 1 - (pixelY + pixelHeight) / canvasSize; // Flip Y to match click coordinates
+    const uvBottom = 1 - pixelY / canvasSize; // Flip Y to match click coordinates
     
     // Calculate bounds (top-left corner and dimensions)
     const bounds = {
