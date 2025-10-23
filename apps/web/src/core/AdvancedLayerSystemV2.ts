@@ -2210,20 +2210,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           // The UV coordinates are properly converted to pixel coordinates, no need for additional flipping
           const imageY = imageEl.y;
           
-          // CRITICAL FIX: Force immediate image rendering
+          // CRITICAL FIX: Force immediate image rendering with HIGH QUALITY settings
           if (imageEl.dataUrl) {
             // Create image element and draw immediately if possible
             const img = new Image();
             img.src = imageEl.dataUrl;
             
+            // CRITICAL: Enable high-quality image rendering
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            
             // Try to draw immediately if image is cached/loaded
             if (img.complete && img.naturalWidth > 0) {
               ctx.drawImage(img, imageEl.x, imageY, imageEl.width, imageEl.height);
-              console.log('🎨 Image drawn immediately (cached):', imageEl.name);
+              console.log('🎨 Image drawn immediately (cached) with HIGH QUALITY:', imageEl.name);
             } else {
               // For async loading, we need to trigger a re-composition
               img.onload = () => {
-                console.log('🎨 Image loaded, triggering re-composition:', imageEl.name);
+                console.log('🎨 Image loaded, triggering re-composition with HIGH QUALITY:', imageEl.name);
                 // Trigger a re-composition to draw the image
                 setTimeout(() => {
                   const appState = useApp.getState();
@@ -2247,11 +2251,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               };
             }
           } else if (imageEl.src) {
-            // Fallback to src URL
+            // Fallback to src URL with HIGH QUALITY settings
             const img = new Image();
             img.onload = () => {
+              // CRITICAL: Enable high-quality image rendering
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
               ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
-              console.log('🎨 Image drawn from src:', imageEl.name);
+              console.log('🎨 Image drawn from src with HIGH QUALITY:', imageEl.name);
             };
             img.onerror = () => {
               console.warn('🎨 Failed to load image from src:', imageEl.name);
@@ -2288,32 +2295,33 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
-            // ANIMATION 4: MULTI-LAYER GLOW EFFECT
+            // ANIMATION 4: MULTI-LAYER GLOW EFFECT - VIBRANT COLORS
             // Calculate multi-layer glow animation based on time
             const now = Date.now();
             const glowSpeed = 1.5; // Glow cycles per second
             const glowPhase = (now * glowSpeed * 0.001) % (Math.PI * 2);
             
-            // Create multiple glow layers with different properties
+            // Create multiple glow layers with VIBRANT colors for high visibility
             const glowLayers = [
-              { color: '#00ff00', width: 8, alpha: 0.2, offset: 0 },
-              { color: '#00ff88', width: 6, alpha: 0.3, offset: Math.PI / 3 },
-              { color: '#00ffff', width: 4, alpha: 0.4, offset: Math.PI * 2 / 3 },
-              { color: '#88ff00', width: 2, alpha: 0.5, offset: Math.PI }
+              { color: '#00FFFF', width: 10, alpha: 0.4, offset: 0 }, // Bright cyan outer glow
+              { color: '#FF00FF', width: 8, alpha: 0.5, offset: Math.PI / 3 }, // Bright magenta
+              { color: '#FFFF00', width: 6, alpha: 0.6, offset: Math.PI * 2 / 3 }, // Bright yellow
+              { color: '#FF0080', width: 4, alpha: 0.7, offset: Math.PI }, // Bright pink
+              { color: '#00FF80', width: 2, alpha: 0.8, offset: Math.PI * 4 / 3 } // Bright green
             ];
             
-            // Draw base border
+            // Draw base border with vibrant glow
             ctx.save();
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.globalAlpha = 0.6;
+            ctx.strokeStyle = '#00FFFF'; // Bright cyan base
+            ctx.lineWidth = 3;
+            ctx.setLineDash([8, 4]); // Longer dashes for visibility
+            ctx.globalAlpha = 0.8;
             ctx.beginPath();
             ctx.rect(borderX, borderY, borderWidth, borderHeight);
             ctx.stroke();
             ctx.restore();
             
-            // Draw multi-layer glow effect
+            // Draw multi-layer glow effect with vibrant colors
             for (const layer of glowLayers) {
               const layerPhase = (glowPhase + layer.offset) % (Math.PI * 2);
               const layerIntensity = (Math.sin(layerPhase) + 1) / 2; // 0 to 1
@@ -2331,11 +2339,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.restore();
             }
             
-            // Set up main border styling
-            ctx.strokeStyle = '#00ff00'; // Green border for images (different from text blue)
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]); // Dashed border pattern
-            ctx.globalAlpha = 0.8; // Fixed opacity for main border
+            // Set up main border styling with vibrant colors
+            ctx.strokeStyle = '#00FFFF'; // Bright cyan border for images
+            ctx.lineWidth = 3;
+            ctx.setLineDash([8, 4]); // Longer dashes for visibility
+            ctx.globalAlpha = 0.9; // High opacity for visibility
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
@@ -2364,28 +2372,29 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw multi-layer glow resize handles
+            // Draw vibrant multi-layer glow resize handles
             for (const handle of handles) {
-              // Draw base handle
+              // Draw base handle with vibrant colors
               ctx.save();
-              ctx.fillStyle = '#00ff00';
-              ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 1;
-              ctx.globalAlpha = 0.8;
+              ctx.fillStyle = '#00FFFF'; // Bright cyan
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 2;
+              ctx.globalAlpha = 0.9;
               ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
               ctx.restore();
               
-              // Draw multi-layer glow effect on handles
+              // Draw vibrant multi-layer glow effect on handles
               const handleCenterX = handle.x + handleSize / 2;
               const handleCenterY = handle.y + handleSize / 2;
               const handleGlowPhase = (glowPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
               
-              // Draw multiple glow layers for handles
+              // Draw multiple vibrant glow layers for handles
               const handleGlowLayers = [
-                { color: '#00ff00', size: handleSize + 6, alpha: 0.2 },
-                { color: '#00ff88', size: handleSize + 4, alpha: 0.3 },
-                { color: '#00ffff', size: handleSize + 2, alpha: 0.4 }
+                { color: '#00FFFF', size: handleSize + 8, alpha: 0.3 }, // Bright cyan
+                { color: '#FF00FF', size: handleSize + 6, alpha: 0.4 }, // Bright magenta
+                { color: '#FFFF00', size: handleSize + 4, alpha: 0.5 }, // Bright yellow
+                { color: '#FF0080', size: handleSize + 2, alpha: 0.6 } // Bright pink
               ];
               
               for (const glowLayer of handleGlowLayers) {

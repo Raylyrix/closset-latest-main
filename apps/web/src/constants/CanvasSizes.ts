@@ -86,11 +86,19 @@ export const CANVAS_CONFIG = {
   },
 } as const;
 
-// Helper function to create a canvas with standard size
+// Helper function to create a canvas with standard size and HIGH QUALITY settings
 export function createStandardCanvas(width: number = DEFAULT_CANVAS_SIZE, height: number = DEFAULT_CANVAS_SIZE): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
+  
+  // CRITICAL: Enable high-quality rendering for all canvases
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+  }
+  
   return canvas;
 }
 
