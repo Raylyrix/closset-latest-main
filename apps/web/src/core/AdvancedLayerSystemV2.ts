@@ -1813,26 +1813,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       return state.composedCanvas;
     }
     
-    // CRITICAL FIX: Continuous animation for selected images
-    // Check if there's a selected image that needs continuous animation
-    const appStateForAnimation = useApp.getState();
-    const hasSelectedImage = appStateForAnimation.selectedImageId;
-    
-    // If there's a selected image, ensure continuous redraw for animation
-    if (hasSelectedImage) {
-      // Schedule next animation frame
-      requestAnimationFrame(() => {
-        const currentState = get();
-        if (currentState.composeLayers) {
-          currentState.composeLayers();
-        }
-        // Also trigger texture update to make animation visible
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false);
-        }
-      });
-    }
-    
     const composeThrottle = 16; // 60fps max
     if ((state as any).lastComposeTime && (now - (state as any).lastComposeTime) < composeThrottle) {
       return state.composedCanvas;
@@ -2272,21 +2252,28 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
-            // ANIMATION 2: TRAVELING LIGHT EFFECT
-            // Calculate traveling light animation based on time
+            // ANIMATION 3: GRADIENT SWEEP EFFECT
+            // Calculate gradient sweep animation based on time
             const now = Date.now();
-            const lightSpeed = 1.5; // Complete circuit per second
-            const lightPhase = (now * lightSpeed * 0.001) % (Math.PI * 2);
+            const sweepSpeed = 2; // Complete sweep per second
+            const sweepPhase = (now * sweepSpeed * 0.001) % (Math.PI * 2);
             
-            // Calculate perimeter for light travel
-            const perimeter = 2 * (borderWidth + borderHeight);
-            const lightPosition = (lightPhase / (Math.PI * 2)) * perimeter;
+            // Create gradient sweep effect
+            const gradient = ctx.createLinearGradient(
+              borderX + Math.cos(sweepPhase) * borderWidth,
+              borderY + Math.sin(sweepPhase) * borderHeight,
+              borderX + Math.cos(sweepPhase + Math.PI) * borderWidth,
+              borderY + Math.sin(sweepPhase + Math.PI) * borderHeight
+            );
             
-            // Create traveling light effect
-            const lightLength = 40; // Length of the light ray
-            const lightWidth = 8; // Width of the light ray
+            // Add gradient stops for sweep effect
+            gradient.addColorStop(0, 'rgba(0, 255, 0, 0)'); // Transparent
+            gradient.addColorStop(0.3, 'rgba(0, 255, 0, 0.3)'); // Fade in
+            gradient.addColorStop(0.5, 'rgba(0, 255, 255, 0.8)'); // Bright center
+            gradient.addColorStop(0.7, 'rgba(0, 255, 0, 0.3)'); // Fade out
+            gradient.addColorStop(1, 'rgba(0, 255, 0, 0)'); // Transparent
             
-            // Draw base border with subtle glow
+            // Draw base border
             ctx.save();
             ctx.strokeStyle = '#00ff00';
             ctx.lineWidth = 2;
@@ -2297,46 +2284,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.stroke();
             ctx.restore();
             
-            // Draw traveling light ray
+            // Draw gradient sweep border
             ctx.save();
-            ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = lightWidth;
-            ctx.globalAlpha = 0.9;
+            ctx.strokeStyle = gradient;
+            ctx.lineWidth = 4;
             ctx.setLineDash([]);
-            
-            // Calculate light position along perimeter
-            let lightX, lightY, lightEndX, lightEndY;
-            
-            if (lightPosition < borderWidth) {
-              // Top edge
-              lightX = borderX + lightPosition;
-              lightY = borderY;
-              lightEndX = borderX + Math.min(lightPosition + lightLength, borderWidth);
-              lightEndY = borderY;
-            } else if (lightPosition < borderWidth + borderHeight) {
-              // Right edge
-              lightX = borderX + borderWidth;
-              lightY = borderY + (lightPosition - borderWidth);
-              lightEndX = borderX + borderWidth;
-              lightEndY = borderY + Math.min(lightPosition - borderWidth + lightLength, borderHeight);
-            } else if (lightPosition < 2 * borderWidth + borderHeight) {
-              // Bottom edge (right to left)
-              lightX = borderX + borderWidth - (lightPosition - borderWidth - borderHeight);
-              lightY = borderY + borderHeight;
-              lightEndX = borderX + Math.max(borderWidth - (lightPosition - borderWidth - borderHeight + lightLength), 0);
-              lightEndY = borderY + borderHeight;
-            } else {
-              // Left edge (bottom to top)
-              lightX = borderX;
-              lightY = borderY + borderHeight - (lightPosition - 2 * borderWidth - borderHeight);
-              lightEndX = borderX;
-              lightEndY = borderY + Math.max(borderHeight - (lightPosition - 2 * borderWidth - borderHeight + lightLength), 0);
-            }
-            
-            // Draw the light ray
+            ctx.globalAlpha = 0.9;
             ctx.beginPath();
-            ctx.moveTo(lightX, lightY);
-            ctx.lineTo(lightEndX, lightEndY);
+            ctx.rect(borderX, borderY, borderWidth, borderHeight);
             ctx.stroke();
             ctx.restore();
             
@@ -2373,7 +2328,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw traveling light resize handles
+            // Draw gradient sweep resize handles
             for (const handle of handles) {
               // Draw base handle
               ctx.save();
@@ -2385,19 +2340,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
               ctx.restore();
               
-              // Draw traveling light effect on handles
+              // Draw gradient sweep effect on handles
               const handleCenterX = handle.x + handleSize / 2;
               const handleCenterY = handle.y + handleSize / 2;
-              const handleLightPhase = (lightPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
-              const handleLightIntensity = (Math.sin(handleLightPhase) + 1) / 2;
+              const handleSweepPhase = (sweepPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
+              const handleGradient = ctx.createRadialGradient(
+                handleCenterX, handleCenterY, 0,
+                handleCenterX, handleCenterY, handleSize / 2
+              );
               
-              if (handleLightIntensity > 0.7) {
-                ctx.save();
-                ctx.fillStyle = '#00ffff';
-                ctx.globalAlpha = handleLightIntensity;
-                ctx.fillRect(handle.x - 2, handle.y - 2, handleSize + 4, handleSize + 4);
-                ctx.restore();
-              }
+              handleGradient.addColorStop(0, 'rgba(0, 255, 255, 0.8)');
+              handleGradient.addColorStop(0.5, 'rgba(0, 255, 0, 0.4)');
+              handleGradient.addColorStop(1, 'rgba(0, 255, 0, 0)');
+              
+              ctx.save();
+              ctx.fillStyle = handleGradient;
+              ctx.globalAlpha = 0.6;
+              ctx.fillRect(handle.x - 2, handle.y - 2, handleSize + 4, handleSize + 4);
+              ctx.restore();
             }
             
             console.log(`🎨 Image selection border drawn with unified bounds:`, {
