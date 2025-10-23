@@ -1813,6 +1813,30 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       return state.composedCanvas;
     }
     
+    // EFFICIENT IDLE ANIMATION: Lightweight timer for continuous animation
+    const appStateForAnimation = useApp.getState();
+    const hasSelectedImage = appStateForAnimation.selectedImageId;
+    
+    // If there's a selected image, schedule next animation with longer interval for performance
+    if (hasSelectedImage) {
+      // Use longer interval (100ms = 10fps) for better performance while still being smooth
+      setTimeout(() => {
+        const currentState = get();
+        const currentAppState = useApp.getState();
+        
+        // Only continue if image is still selected
+        if (currentAppState.selectedImageId && currentState.composeLayers) {
+          // Trigger composition and texture update
+          currentState.composeLayers();
+          
+          // Trigger texture update to make animation visible
+          if ((window as any).updateModelTexture) {
+            (window as any).updateModelTexture(true, false);
+          }
+        }
+      }, 100); // 10fps for smooth animation with good performance
+    }
+    
     const composeThrottle = 16; // 60fps max
     if ((state as any).lastComposeTime && (now - (state as any).lastComposeTime) < composeThrottle) {
       return state.composedCanvas;

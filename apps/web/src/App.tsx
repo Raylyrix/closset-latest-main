@@ -1800,6 +1800,18 @@ try {
   setSelectedImageId: (id: string | null) => {
     console.log('📷 Setting selected image:', id);
     set({ selectedImageId: id });
+    
+    // EFFICIENT ANIMATION: Start lightweight animation when image is selected
+    if (id) {
+      console.log('🎨 Starting efficient animation for selected image');
+      // Trigger initial composition to start animation loop
+      const v2State = useAdvancedLayerStoreV2.getState();
+      if (v2State.composeLayers) {
+        v2State.composeLayers();
+      }
+    } else {
+      console.log('🎨 Image deselected - animation will stop automatically');
+    }
   },
 
   // PHASE 2 FIX: Removed addImportedImage - images are now handled directly by V2 system
