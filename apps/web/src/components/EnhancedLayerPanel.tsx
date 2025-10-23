@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../App';
-import { useAdvancedLayerStoreV2, type AdvancedLayer, type LayerGroup, type BlendMode, type LayerType } from '../core/AdvancedLayerSystemV2';
+import { useAdvancedLayerStoreV2, type AdvancedLayer, type LayerGroup, type BlendMode, type LayerType, type LayerLocking } from '../core/AdvancedLayerSystemV2';
 import { Section } from './Section';
 
 interface LayerItemProps {
@@ -24,6 +24,16 @@ interface LayerItemProps {
   onAddEffect: () => void;
   onAddMask: () => void;
   onApplyStyle: () => void;
+  // New props for enhanced features
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDragEnd: () => void;
+  onDrop: (position: 'above' | 'below') => void;
+  onTogglePositionLock: () => void;
+  onTogglePixelsLock: () => void;
+  onToggleTransparencyLock: () => void;
+  onToggleAllLock: () => void;
+  thumbnail?: string;
 }
 
 const LayerItem: React.FC<LayerItemProps> = ({
@@ -41,11 +51,23 @@ const LayerItem: React.FC<LayerItemProps> = ({
   onSetBlendMode,
   onAddEffect,
   onAddMask,
-  onApplyStyle
+  onApplyStyle,
+  // New props for enhanced features
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  onTogglePositionLock,
+  onTogglePixelsLock,
+  onToggleTransparencyLock,
+  onToggleAllLock,
+  thumbnail
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [tempName, setTempName] = useState(layer.name);
   const [showControls, setShowControls] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showLockMenu, setShowLockMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -71,15 +93,43 @@ const LayerItem: React.FC<LayerItemProps> = ({
     }
   };
 
+  // Drag & Drop handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', layer.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragging(true);
+    onDragStart();
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    onDragOver();
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    onDragEnd();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedLayerId = e.dataTransfer.getData('text/plain');
+    if (draggedLayerId !== layer.id) {
+      // Determine drop position based on mouse position
+      const rect = e.currentTarget.getBoundingClientRect();
+      const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+      onDrop(position);
+    }
+  };
+
   const getLayerIcon = () => {
     switch (layer.type) {
-      case 'pixel': return '🖼️';
-      case 'smart-object': return '📦';
+      case 'paint': return '🎨';
+      case 'image': return '🖼️';
       case 'text': return '📝';
-      case 'shape': return '🔷';
-      case 'adjustment': return '🎛️';
       case 'group': return '📁';
-      case 'background': return '🏞️';
+      case 'adjustment': return '🎛️';
       default: return '📄';
     }
   };
@@ -100,7 +150,7 @@ const LayerItem: React.FC<LayerItemProps> = ({
 
   return (
     <div 
-      className={`layer-item ${isActive ? 'active' : ''}`}
+      className={`layer-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
       style={{
         padding: '8px',
         marginBottom: '4px',
@@ -108,14 +158,48 @@ const LayerItem: React.FC<LayerItemProps> = ({
         borderRadius: '6px',
         border: isActive ? '2px solid var(--accent-bright)' : '2px solid transparent',
         cursor: 'pointer',
-        transition: 'all 0.2s ease'
+        transition: 'all 0.2s ease',
+        opacity: isDragging ? 0.5 : 1,
+        transform: isDragging ? 'scale(0.95)' : 'scale(1)'
       }}
       onClick={onSelect}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(false)}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDrop={handleDrop}
     >
       {/* Layer Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+        {/* Thumbnail */}
+        <div style={{ 
+          width: '32px', 
+          height: '32px', 
+          borderRadius: '4px',
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden'
+        }}>
+          {thumbnail ? (
+            <img 
+              src={thumbnail} 
+              alt={layer.name}
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover' 
+              }}
+            />
+          ) : (
+            <span style={{ fontSize: '16px' }}>{getLayerIcon()}</span>
+          )}
+        </div>
+
         {/* Visibility Toggle */}
         <button
           className="btn"
@@ -133,22 +217,109 @@ const LayerItem: React.FC<LayerItemProps> = ({
           {layer.visible ? '👁️' : '🙈'}
         </button>
 
-        {/* Lock Toggle */}
-        <button
-          className="btn"
-          onClick={(e) => { e.stopPropagation(); onToggleLock(); }}
-          style={{ 
-            padding: '4px', 
-            width: '20px', 
-            height: '20px',
-            background: 'transparent',
-            border: 'none',
-            color: layer.locked ? 'var(--warning)' : 'var(--muted)'
-          }}
-          title={layer.locked ? 'Unlock layer' : 'Lock layer'}
-        >
-          {layer.locked ? '🔒' : '🔓'}
-        </button>
+        {/* Advanced Lock Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            className="btn"
+            onClick={(e) => { e.stopPropagation(); setShowLockMenu(!showLockMenu); }}
+            style={{ 
+              padding: '4px', 
+              width: '20px', 
+              height: '20px',
+              background: 'transparent',
+              border: 'none',
+              color: layer.locking.all ? 'var(--warning)' : 
+                     (layer.locking.position || layer.locking.pixels || layer.locking.transparency) ? 'var(--accent)' : 'var(--muted)'
+            }}
+            title="Layer locks"
+          >
+            {layer.locking.all ? '🔒' : 
+             (layer.locking.position || layer.locking.pixels || layer.locking.transparency) ? '🔐' : '🔓'}
+          </button>
+          
+          {/* Lock Menu */}
+          {showLockMenu && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: '0',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: '4px',
+              padding: '4px',
+              zIndex: 1000,
+              minWidth: '120px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            }}>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onTogglePositionLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: layer.locking.position ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left'
+                }}
+              >
+                {layer.locking.position ? '🔒' : '🔓'} Position
+              </button>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onTogglePixelsLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: layer.locking.pixels ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left'
+                }}
+              >
+                {layer.locking.pixels ? '🔒' : '🔓'} Pixels
+              </button>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onToggleTransparencyLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: layer.locking.transparency ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left'
+                }}
+              >
+                {layer.locking.transparency ? '🔒' : '🔓'} Transparency
+              </button>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); onToggleAllLock(); setShowLockMenu(false); }}
+                style={{ 
+                  display: 'block',
+                  width: '100%',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: layer.locking.all ? 'var(--warning)' : 'var(--text)',
+                  textAlign: 'left',
+                  borderTop: '1px solid var(--border)',
+                  marginTop: '2px'
+                }}
+              >
+                {layer.locking.all ? '🔒' : '🔓'} All
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Layer Icon and Name */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -527,8 +698,16 @@ export const EnhancedLayerPanel: React.FC = () => {
     toggleGroupVisibility,
     selectGroup,
     mergeLayers,
-    // flattenLayers, // FIXED: Property doesn't exist
-    // exportLayerAsImage // FIXED: Property doesn't exist
+    // New methods for enhanced features
+    dragLayerStart,
+    dragLayerOver,
+    dragLayerEnd,
+    dropLayer,
+    toggleLayerPositionLock,
+    toggleLayerPixelsLock,
+    toggleLayerTransparencyLock,
+    toggleLayerAllLock,
+    getLayerThumbnail
   } = useAdvancedLayerStoreV2();
 
   const [showLayerMenu, setShowLayerMenu] = useState(false);
@@ -590,10 +769,10 @@ export const EnhancedLayerPanel: React.FC = () => {
       <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', flexWrap: 'wrap' }}>
         <button 
           className="btn" 
-          onClick={() => handleCreateLayer('pixel')}
+          onClick={() => handleCreateLayer('paint')}
           style={{ padding: '6px 12px', fontSize: '11px' }}
         >
-          + Pixel
+          + Paint
         </button>
         <button 
           className="btn" 
@@ -604,10 +783,10 @@ export const EnhancedLayerPanel: React.FC = () => {
         </button>
         <button 
           className="btn" 
-          onClick={() => handleCreateLayer('shape')}
+          onClick={() => handleCreateLayer('image')}
           style={{ padding: '6px 12px', fontSize: '11px' }}
         >
-          + Shape
+          + Image
         </button>
         <button 
           className="btn" 
@@ -615,13 +794,6 @@ export const EnhancedLayerPanel: React.FC = () => {
           style={{ padding: '6px 12px', fontSize: '11px' }}
         >
           + Adjustment
-        </button>
-        <button 
-          className="btn" 
-          onClick={() => handleCreateLayer('smart-object')}
-          style={{ padding: '6px 12px', fontSize: '11px' }}
-        >
-          + Smart Object
         </button>
         <button 
           className="btn" 
@@ -657,6 +829,16 @@ export const EnhancedLayerPanel: React.FC = () => {
                 onAddEffect={() => setShowEffectMenu(layer.id)}
                 onAddMask={() => {/* TODO: Implement mask creation */}}
                 onApplyStyle={() => setShowStyleMenu(layer.id)}
+                // New props for enhanced features
+                onDragStart={() => dragLayerStart(layer.id)}
+                onDragOver={() => dragLayerOver(layer.id, layer.id)}
+                onDragEnd={() => dragLayerEnd(layer.id, layer.id)}
+                onDrop={(position) => dropLayer((window as any).__draggedLayerId, layer.id, position)}
+                onTogglePositionLock={() => toggleLayerPositionLock(layer.id)}
+                onTogglePixelsLock={() => toggleLayerPixelsLock(layer.id)}
+                onToggleTransparencyLock={() => toggleLayerTransparencyLock(layer.id)}
+                onToggleAllLock={() => toggleLayerAllLock(layer.id)}
+                thumbnail={getLayerThumbnail(layer.id) || undefined}
               />
             );
           }
@@ -696,6 +878,16 @@ export const EnhancedLayerPanel: React.FC = () => {
                       onAddEffect={() => setShowEffectMenu(childLayer.id)}
                       onAddMask={() => {/* TODO: Implement mask creation */}}
                       onApplyStyle={() => setShowStyleMenu(childLayer.id)}
+                      // New props for enhanced features
+                      onDragStart={() => dragLayerStart(childLayer.id)}
+                      onDragOver={() => dragLayerOver(childLayer.id, childLayer.id)}
+                      onDragEnd={() => dragLayerEnd(childLayer.id, childLayer.id)}
+                      onDrop={(position) => dropLayer((window as any).__draggedLayerId, childLayer.id, position)}
+                      onTogglePositionLock={() => toggleLayerPositionLock(childLayer.id)}
+                      onTogglePixelsLock={() => toggleLayerPixelsLock(childLayer.id)}
+                      onToggleTransparencyLock={() => toggleLayerTransparencyLock(childLayer.id)}
+                      onToggleAllLock={() => toggleLayerAllLock(childLayer.id)}
+                      thumbnail={getLayerThumbnail(childLayer.id) || undefined}
                     />
                   );
                 })}
