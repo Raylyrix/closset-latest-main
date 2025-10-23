@@ -405,9 +405,6 @@ interface AdvancedLayerStoreV2 {
   // Layer composition
   composeLayers: () => HTMLCanvasElement | null;
   
-  // Animation control
-  startImageAnimation: () => void;
-  
   // Helper methods
   wrapText: (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => string[];
   
@@ -1806,19 +1803,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       };
     },
     
-  // Start continuous animation for selected image
-  startImageAnimation: () => {
-    const appState = useApp.getState();
-    if (appState.selectedImageId) {
-      console.log('🎨 Starting continuous animation for selected image');
-      // Trigger initial composition and animation
-      const state = get();
-      if (state.composeLayers) {
-        state.composeLayers();
-      }
-    }
-  },
-
   // Layer composition
   composeLayers: () => {
     const state = get();
@@ -1827,30 +1811,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     const now = Date.now();
     if (state.lastCompositionTime && now - state.lastCompositionTime < 16) { // ~60fps max
       return state.composedCanvas;
-    }
-    
-    // INTELLIGENT CONTINUOUS ANIMATION: Only when image is selected
-    const appStateForAnimation = useApp.getState();
-    const hasSelectedImage = appStateForAnimation.selectedImageId;
-    
-    // If there's a selected image, schedule continuous animation
-    if (hasSelectedImage) {
-      // Use requestAnimationFrame for smooth animation
-      requestAnimationFrame(() => {
-        const currentState = get();
-        const currentAppState = useApp.getState();
-        
-        // Only continue if image is still selected
-        if (currentAppState.selectedImageId && currentState.composeLayers) {
-          // Trigger composition and texture update
-          currentState.composeLayers();
-          
-          // Trigger texture update to make animation visible
-          if ((window as any).updateModelTexture) {
-            (window as any).updateModelTexture(true, false);
-          }
-        }
-      });
     }
     
     const composeThrottle = 16; // 60fps max
