@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../App';
-import { useAdvancedLayerStoreV2, type AdvancedLayer, type LayerGroup, type BlendMode, type LayerType, type LayerLocking } from '../core/AdvancedLayerSystemV2';
+import { useAdvancedLayerStoreV2, type AdvancedLayer, type LayerGroup, type BlendMode, type LayerType, type LayerLocking, type DuplicationOptions } from '../core/AdvancedLayerSystemV2';
 import { Section } from './Section';
 
 interface LayerItemProps {
@@ -34,6 +34,11 @@ interface LayerItemProps {
   onToggleTransparencyLock: () => void;
   onToggleAllLock: () => void;
   thumbnail?: string;
+  // Enhanced duplication props
+  onDuplicateAdvanced: (options: DuplicationOptions) => void;
+  onDuplicateWithOffset: (offsetX: number, offsetY: number) => void;
+  onDuplicateToGroup: (groupId: string) => void;
+  onDuplicateWithEffects: (includeEffects: boolean, includeMasks: boolean) => void;
 }
 
 const LayerItem: React.FC<LayerItemProps> = ({
@@ -61,13 +66,19 @@ const LayerItem: React.FC<LayerItemProps> = ({
   onTogglePixelsLock,
   onToggleTransparencyLock,
   onToggleAllLock,
-  thumbnail
+  thumbnail,
+  // Enhanced duplication props
+  onDuplicateAdvanced,
+  onDuplicateWithOffset,
+  onDuplicateToGroup,
+  onDuplicateWithEffects
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [tempName, setTempName] = useState(layer.name);
   const [showControls, setShowControls] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showLockMenu, setShowLockMenu] = useState(false);
+  const [showDuplicationMenu, setShowDuplicationMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -388,6 +399,85 @@ const LayerItem: React.FC<LayerItemProps> = ({
             >
               📋
             </button>
+            
+            {/* Enhanced Duplication Menu */}
+            <div style={{ position: 'relative' }}>
+              <button
+                className="btn"
+                onClick={(e) => { e.stopPropagation(); setShowDuplicationMenu(!showDuplicationMenu); }}
+                style={{ padding: '2px', width: '16px', height: '16px', fontSize: '10px' }}
+                title="Advanced duplicate options"
+              >
+                ⚙️
+              </button>
+              
+              {/* Duplication Menu */}
+              {showDuplicationMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '0',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  padding: '4px',
+                  zIndex: 1000,
+                  minWidth: '160px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                }}>
+                  <button
+                    className="btn"
+                    onClick={(e) => { e.stopPropagation(); onDuplicateWithOffset(10, 10); setShowDuplicationMenu(false); }}
+                    style={{ 
+                      display: 'block',
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text)',
+                      textAlign: 'left'
+                    }}
+                  >
+                    📋 Duplicate + Offset
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={(e) => { e.stopPropagation(); onDuplicateWithEffects(true, true); setShowDuplicationMenu(false); }}
+                    style={{ 
+                      display: 'block',
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text)',
+                      textAlign: 'left'
+                    }}
+                  >
+                    ✨ Duplicate + Effects
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={(e) => { e.stopPropagation(); onDuplicateAdvanced({ name: `${layer.name} Copy`, includeEffects: true, includeMasks: true }); setShowDuplicationMenu(false); }}
+                    style={{ 
+                      display: 'block',
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text)',
+                      textAlign: 'left',
+                      borderTop: '1px solid var(--border)',
+                      marginTop: '2px'
+                    }}
+                  >
+                    ⚙️ Advanced Duplicate
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               className="btn"
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
@@ -937,6 +1027,7 @@ export const EnhancedLayerPanel: React.FC = () => {
     layers, 
     groups, 
     layerOrder, 
+    selectedLayerIds,
     activeLayerId, 
     activeGroupId,
     createLayer,
@@ -981,7 +1072,13 @@ export const EnhancedLayerPanel: React.FC = () => {
     toggleGroupAllLock,
     getGroupThumbnail,
     duplicateGroup,
-    mergeGroup
+    mergeGroup,
+    // Enhanced duplication methods
+    duplicateLayerAdvanced,
+    duplicateSelectedLayers,
+    duplicateLayerWithOffset,
+    duplicateLayerToGroup,
+    duplicateLayerWithEffects
   } = useAdvancedLayerStoreV2();
 
   const [showLayerMenu, setShowLayerMenu] = useState(false);
@@ -1076,6 +1173,21 @@ export const EnhancedLayerPanel: React.FC = () => {
         >
           + Group
         </button>
+        <button 
+          className="btn" 
+          onClick={() => duplicateSelectedLayers()}
+          disabled={selectedLayerIds.length === 0}
+          style={{ 
+            padding: '6px 12px', 
+            fontSize: '11px',
+            opacity: selectedLayerIds.length === 0 ? 0.5 : 1,
+            background: selectedLayerIds.length > 0 ? 'var(--accent)' : 'var(--bg-secondary)',
+            color: selectedLayerIds.length > 0 ? 'white' : 'var(--text)'
+          }}
+          title={`Duplicate ${selectedLayerIds.length} selected layer${selectedLayerIds.length !== 1 ? 's' : ''}`}
+        >
+          📋 Duplicate Selected ({selectedLayerIds.length})
+        </button>
       </div>
 
       {/* Layer List */}
@@ -1096,6 +1208,10 @@ export const EnhancedLayerPanel: React.FC = () => {
                 onRename={(name) => renameLayer(layer.id, name)}
                 onDelete={() => deleteLayer(layer.id)}
                 onDuplicate={() => duplicateLayer(layer.id)}
+                onDuplicateAdvanced={(options) => duplicateLayerAdvanced(layer.id, options)}
+                onDuplicateWithOffset={(offsetX, offsetY) => duplicateLayerWithOffset(layer.id, offsetX, offsetY)}
+                onDuplicateToGroup={(groupId) => duplicateLayerToGroup(layer.id, groupId)}
+                onDuplicateWithEffects={(includeEffects, includeMasks) => duplicateLayerWithEffects(layer.id, includeEffects, includeMasks)}
                 onMoveUp={() => moveLayerUp(layer.id)}
                 onMoveDown={() => moveLayerDown(layer.id)}
                 onSetOpacity={(opacity) => setLayerOpacity(layer.id, opacity)}
@@ -1159,6 +1275,10 @@ export const EnhancedLayerPanel: React.FC = () => {
                       onRename={(name) => renameLayer(childLayer.id, name)}
                       onDelete={() => deleteLayer(childLayer.id)}
                       onDuplicate={() => duplicateLayer(childLayer.id)}
+                      onDuplicateAdvanced={(options) => duplicateLayerAdvanced(childLayer.id, options)}
+                      onDuplicateWithOffset={(offsetX, offsetY) => duplicateLayerWithOffset(childLayer.id, offsetX, offsetY)}
+                      onDuplicateToGroup={(groupId) => duplicateLayerToGroup(childLayer.id, groupId)}
+                      onDuplicateWithEffects={(includeEffects, includeMasks) => duplicateLayerWithEffects(childLayer.id, includeEffects, includeMasks)}
                       onMoveUp={() => moveLayerUp(childLayer.id)}
                       onMoveDown={() => moveLayerDown(childLayer.id)}
                       onSetOpacity={(opacity) => setLayerOpacity(childLayer.id, opacity)}

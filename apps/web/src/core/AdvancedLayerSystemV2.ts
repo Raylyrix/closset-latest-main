@@ -254,6 +254,20 @@ export interface LayerGroup {
   thumbnailCanvas?: HTMLCanvasElement; // Canvas for generating group thumbnails
 }
 
+// Duplication Options
+export interface DuplicationOptions {
+  name?: string; // Custom name for duplicated layer
+  offsetX?: number; // X offset for duplicated layer
+  offsetY?: number; // Y offset for duplicated layer
+  includeEffects?: boolean; // Include layer effects (default: true)
+  includeMasks?: boolean; // Include layer masks (default: true)
+  includeTransform?: boolean; // Include transform properties (default: true)
+  includeLocking?: boolean; // Include locking state (default: true)
+  targetGroupId?: string; // Add duplicated layer to specific group
+  preserveOpacity?: boolean; // Preserve original opacity (default: true)
+  preserveBlendMode?: boolean; // Preserve original blend mode (default: true)
+}
+
 // Store state
 interface AdvancedLayerStoreV2 {
   // Core data
@@ -420,6 +434,17 @@ interface AdvancedLayerStoreV2 {
   mergeDown: (layerId: string) => void;
   mergeLayers: (layerIds: string[]) => void;
   flattenAll: () => void;
+  
+  // Enhanced Duplication Operations
+  duplicateLayerAdvanced: (id: string, options?: DuplicationOptions) => string;
+  duplicateSelectedLayers: (options?: DuplicationOptions) => string[];
+  duplicateLayerWithOffset: (id: string, offsetX: number, offsetY: number) => string;
+  duplicateLayerToGroup: (id: string, groupId: string) => string;
+  duplicateLayerWithEffects: (id: string, includeEffects: boolean, includeMasks: boolean) => string;
+  
+  // Duplication Helper Methods
+  deepCopyLayerContent: (content: LayerContent, layerType: LayerType) => LayerContent;
+  cloneCanvas: (sourceCanvas: HTMLCanvasElement) => HTMLCanvasElement;
   
   // Missing group operations
   renameGroup: (groupId: string, name: string) => void;
@@ -668,23 +693,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       const originalLayer = state.layers.find(layer => layer.id === id);
       if (!originalLayer) return '';
       
-      const duplicatedLayer: AdvancedLayer = {
-        ...originalLayer,
-        id: `layer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      // Use enhanced duplication with default options
+      return get().duplicateLayerAdvanced(id, {
         name: `${originalLayer.name} Copy`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        order: state.layerOrder.length,
-        selected: false
-      };
-      
-      set(state => ({
-        layers: [...state.layers, duplicatedLayer],
-        layerOrder: [...state.layerOrder, duplicatedLayer.id]
-      }));
-      
-      console.log(`📋 Duplicated layer: ${originalLayer.name} -> ${duplicatedLayer.name}`);
-      return duplicatedLayer.id;
+        includeEffects: true,
+        includeMasks: true,
+        includeTransform: true,
+        includeLocking: true,
+        preserveOpacity: true,
+        preserveBlendMode: true
+      });
     },
     
     // Layer renaming
@@ -3495,6 +3513,162 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       get().saveHistorySnapshot(`Merge Group: ${groupId}`);
       console.log(`📁 Merged group ${groupId}`);
+    },
+    
+    // Enhanced Duplication Operations
+    duplicateLayerAdvanced: (id: string, options: DuplicationOptions = {}) => {
+      const state = get();
+      const originalLayer = state.layers.find(layer => layer.id === id);
+      if (!originalLayer) return '';
+      
+      // Default options
+      const opts: Required<DuplicationOptions> = {
+        name: options.name || `${originalLayer.name} Copy`,
+        offsetX: options.offsetX || 0,
+        offsetY: options.offsetY || 0,
+        includeEffects: options.includeEffects !== false,
+        includeMasks: options.includeMasks !== false,
+        includeTransform: options.includeTransform !== false,
+        includeLocking: options.includeLocking !== false,
+        targetGroupId: options.targetGroupId || '',
+        preserveOpacity: options.preserveOpacity !== false,
+        preserveBlendMode: options.preserveBlendMode !== false
+      };
+      
+      // Create duplicated layer with selective copying
+      const duplicatedLayer: AdvancedLayer = {
+        ...originalLayer,
+        id: `layer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: opts.name,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        order: state.layerOrder.length,
+        selected: false,
+        groupId: undefined, // Will be set later if targetGroupId is provided
+        
+        // Selective copying based on options
+        effects: opts.includeEffects ? [...originalLayer.effects] : [],
+        mask: opts.includeMasks ? originalLayer.mask : undefined,
+        transform: opts.includeTransform ? {
+          ...originalLayer.transform,
+          x: originalLayer.transform.x + opts.offsetX,
+          y: originalLayer.transform.y + opts.offsetY
+        } : createDefaultTransform(),
+        locking: opts.includeLocking ? { ...originalLayer.locking } : createDefaultLocking(),
+        opacity: opts.preserveOpacity ? originalLayer.opacity : 1.0,
+        blendMode: opts.preserveBlendMode ? originalLayer.blendMode : 'normal',
+        
+        // Deep copy content based on layer type
+        content: get().deepCopyLayerContent(originalLayer.content, originalLayer.type)
+      };
+      
+      set(state => ({
+        layers: [...state.layers, duplicatedLayer],
+        layerOrder: [...state.layerOrder, duplicatedLayer.id]
+      }));
+      
+      // Add to target group if specified
+      if (opts.targetGroupId) {
+        get().addToGroup(duplicatedLayer.id, opts.targetGroupId);
+      }
+      
+      // Generate thumbnail for duplicated layer
+      setTimeout(() => {
+        get().generateLayerThumbnail(duplicatedLayer.id);
+      }, 100);
+      
+      get().saveHistorySnapshot(`Duplicate Layer Advanced: ${originalLayer.name} -> ${opts.name}`);
+      console.log(`📋 Duplicated layer advanced: ${originalLayer.name} -> ${opts.name}`, opts);
+      return duplicatedLayer.id;
+    },
+    
+    duplicateSelectedLayers: (options: DuplicationOptions = {}) => {
+      const state = get();
+      const duplicatedIds: string[] = [];
+      
+      state.selectedLayerIds.forEach(layerId => {
+        const duplicatedId = get().duplicateLayerAdvanced(layerId, {
+          ...options,
+          name: options.name ? `${options.name} ${duplicatedIds.length + 1}` : undefined
+        });
+        if (duplicatedId) {
+          duplicatedIds.push(duplicatedId);
+        }
+      });
+      
+      get().saveHistorySnapshot(`Duplicate Selected Layers: ${state.selectedLayerIds.length} layers`);
+      console.log(`📋 Duplicated selected layers: ${duplicatedIds.length} layers`);
+      return duplicatedIds;
+    },
+    
+    duplicateLayerWithOffset: (id: string, offsetX: number, offsetY: number) => {
+      return get().duplicateLayerAdvanced(id, {
+        offsetX,
+        offsetY,
+        name: undefined // Will use default naming
+      });
+    },
+    
+    duplicateLayerToGroup: (id: string, groupId: string) => {
+      return get().duplicateLayerAdvanced(id, {
+        targetGroupId: groupId,
+        name: undefined // Will use default naming
+      });
+    },
+    
+    duplicateLayerWithEffects: (id: string, includeEffects: boolean, includeMasks: boolean) => {
+      return get().duplicateLayerAdvanced(id, {
+        includeEffects,
+        includeMasks,
+        name: undefined // Will use default naming
+      });
+    },
+    
+    // Helper method for deep copying layer content
+    deepCopyLayerContent: (content: LayerContent, layerType: LayerType): LayerContent => {
+      switch (layerType) {
+        case 'paint':
+          return {
+            ...content,
+            canvas: content.canvas ? get().cloneCanvas(content.canvas) : undefined
+          };
+        case 'image':
+          return {
+            ...content,
+            imageElements: content.imageElements ? content.imageElements.map(img => ({
+              ...img,
+              // Create new image element with copied properties
+              id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            })) : []
+          };
+        case 'text':
+          return {
+            ...content,
+            textElements: content.textElements ? content.textElements.map(text => ({
+              ...text,
+              // Create new text element with copied properties
+              id: `text_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            })) : []
+          };
+        default:
+          return { ...content };
+      }
+    },
+    
+    // Helper method for cloning canvas
+    cloneCanvas: (sourceCanvas: HTMLCanvasElement): HTMLCanvasElement => {
+      const clonedCanvas = document.createElement('canvas');
+      clonedCanvas.width = sourceCanvas.width;
+      clonedCanvas.height = sourceCanvas.height;
+      
+      const ctx = clonedCanvas.getContext('2d');
+      const sourceCtx = sourceCanvas.getContext('2d');
+      
+      if (ctx && sourceCtx) {
+        ctx.drawImage(sourceCanvas, 0, 0);
+      }
+      
+      return clonedCanvas;
     },
     
     // Missing effects operations
