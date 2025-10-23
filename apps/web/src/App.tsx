@@ -1800,6 +1800,18 @@ try {
   setSelectedImageId: (id: string | null) => {
     console.log('📷 Setting selected image:', id);
     set({ selectedImageId: id });
+    
+    // INTELLIGENT ANIMATION: Start continuous animation when image is selected
+    if (id) {
+      console.log('🎨 Starting continuous animation for selected image');
+      // Trigger animation in V2 layer system
+      const v2State = useAdvancedLayerStoreV2.getState();
+      if (v2State.startImageAnimation) {
+        v2State.startImageAnimation();
+      }
+    } else {
+      console.log('🎨 Image deselected - animation will stop automatically');
+    }
   },
 
   // PHASE 2 FIX: Removed addImportedImage - images are now handled directly by V2 system
