@@ -2243,40 +2243,79 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const borderWidth = selectedImageEl.width;
             const borderHeight = selectedImageEl.height;
             
-            // ANIMATION 1: PULSING GLOW EFFECT
-            // Calculate pulsing animation based on time
+            // ANIMATION 2: TRAVELING LIGHT EFFECT
+            // Calculate traveling light animation based on time
             const now = Date.now();
-            const pulseSpeed = 2; // Pulses per second
-            const pulsePhase = (now * pulseSpeed * 0.001) % (Math.PI * 2);
-            const pulseIntensity = (Math.sin(pulsePhase) + 1) / 2; // 0 to 1
+            const lightSpeed = 1.5; // Complete circuit per second
+            const lightPhase = (now * lightSpeed * 0.001) % (Math.PI * 2);
             
-            // Create pulsing glow effect with multiple layers
-            const glowLayers = [
-              { color: '#00ff00', width: 6, alpha: 0.3 * pulseIntensity },
-              { color: '#00ff88', width: 4, alpha: 0.5 * pulseIntensity },
-              { color: '#00ff00', width: 2, alpha: 0.8 * pulseIntensity }
-            ];
+            // Calculate perimeter for light travel
+            const perimeter = 2 * (borderWidth + borderHeight);
+            const lightPosition = (lightPhase / (Math.PI * 2)) * perimeter;
             
-            // Draw glowing layers (outer to inner)
-            for (const layer of glowLayers) {
-              ctx.save();
-              ctx.strokeStyle = layer.color;
-              ctx.lineWidth = layer.width;
-              ctx.globalAlpha = layer.alpha;
-              ctx.setLineDash([]); // Solid line for glow
-              
-              // Draw glow border
-              ctx.beginPath();
-              ctx.rect(borderX, borderY, borderWidth, borderHeight);
-              ctx.stroke();
-              ctx.restore();
+            // Create traveling light effect
+            const lightLength = 40; // Length of the light ray
+            const lightWidth = 8; // Width of the light ray
+            
+            // Draw base border with subtle glow
+            ctx.save();
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.rect(borderX, borderY, borderWidth, borderHeight);
+            ctx.stroke();
+            ctx.restore();
+            
+            // Draw traveling light ray
+            ctx.save();
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = lightWidth;
+            ctx.globalAlpha = 0.9;
+            ctx.setLineDash([]);
+            
+            // Calculate light position along perimeter
+            let lightX, lightY, lightEndX, lightEndY;
+            
+            if (lightPosition < borderWidth) {
+              // Top edge
+              lightX = borderX + lightPosition;
+              lightY = borderY;
+              lightEndX = borderX + Math.min(lightPosition + lightLength, borderWidth);
+              lightEndY = borderY;
+            } else if (lightPosition < borderWidth + borderHeight) {
+              // Right edge
+              lightX = borderX + borderWidth;
+              lightY = borderY + (lightPosition - borderWidth);
+              lightEndX = borderX + borderWidth;
+              lightEndY = borderY + Math.min(lightPosition - borderWidth + lightLength, borderHeight);
+            } else if (lightPosition < 2 * borderWidth + borderHeight) {
+              // Bottom edge (right to left)
+              lightX = borderX + borderWidth - (lightPosition - borderWidth - borderHeight);
+              lightY = borderY + borderHeight;
+              lightEndX = borderX + Math.max(borderWidth - (lightPosition - borderWidth - borderHeight + lightLength), 0);
+              lightEndY = borderY + borderHeight;
+            } else {
+              // Left edge (bottom to top)
+              lightX = borderX;
+              lightY = borderY + borderHeight - (lightPosition - 2 * borderWidth - borderHeight);
+              lightEndX = borderX;
+              lightEndY = borderY + Math.max(borderHeight - (lightPosition - 2 * borderWidth - borderHeight + lightLength), 0);
             }
+            
+            // Draw the light ray
+            ctx.beginPath();
+            ctx.moveTo(lightX, lightY);
+            ctx.lineTo(lightEndX, lightEndY);
+            ctx.stroke();
+            ctx.restore();
             
             // Set up main border styling
             ctx.strokeStyle = '#00ff00'; // Green border for images (different from text blue)
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]); // Dashed border pattern
-            ctx.globalAlpha = 0.8 + (0.2 * pulseIntensity); // Pulsing opacity
+            ctx.globalAlpha = 0.8; // Fixed opacity for main border
             
             // Apply rotation if needed (same as image rendering)
             if (selectedImageEl.rotation && selectedImageEl.rotation !== 0) {
@@ -2305,24 +2344,31 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               { x: borderX - handleSize/2, y: borderY + borderHeight/2 - handleSize/2 } // Left-center
             ];
             
-            // Draw pulsing resize handles
+            // Draw traveling light resize handles
             for (const handle of handles) {
-              // Draw glow effect for handles
-              ctx.save();
-              ctx.fillStyle = '#00ff00';
-              ctx.globalAlpha = 0.3 * pulseIntensity;
-              ctx.fillRect(handle.x - 2, handle.y - 2, handleSize + 4, handleSize + 4);
-              ctx.restore();
-              
-              // Draw main handle
+              // Draw base handle
               ctx.save();
               ctx.fillStyle = '#00ff00';
               ctx.strokeStyle = '#ffffff';
               ctx.lineWidth = 1;
-              ctx.globalAlpha = 0.8 + (0.2 * pulseIntensity);
+              ctx.globalAlpha = 0.8;
               ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
               ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
               ctx.restore();
+              
+              // Draw traveling light effect on handles
+              const handleCenterX = handle.x + handleSize / 2;
+              const handleCenterY = handle.y + handleSize / 2;
+              const handleLightPhase = (lightPhase + (handle.x + handle.y) * 0.01) % (Math.PI * 2);
+              const handleLightIntensity = (Math.sin(handleLightPhase) + 1) / 2;
+              
+              if (handleLightIntensity > 0.7) {
+                ctx.save();
+                ctx.fillStyle = '#00ffff';
+                ctx.globalAlpha = handleLightIntensity;
+                ctx.fillRect(handle.x - 2, handle.y - 2, handleSize + 4, handleSize + 4);
+                ctx.restore();
+              }
             }
             
             console.log(`🎨 Image selection border drawn with unified bounds:`, {
