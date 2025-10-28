@@ -2544,54 +2544,8 @@ export function Shirt() {
           break;
           
         case 'puffPrint':
-          // Puff tool - create actual puff effects with optimized performance
-          const puffSize = appState.puffBrushSize || 20;
-          const puffColor = appState.puffColor || '#ff69b4';
-          const puffOpacity = appState.puffBrushOpacity || 1.0;
-          
-          // Validate parameters early
-          if (!isFinite(puffSize) || puffSize <= 0 || 
-              !puffColor || puffColor === 'transparent') {
-            console.warn('Invalid puff parameters:', { puffSize, puffColor });
-            break;
-          }
-          
-          // Optimize rendering settings
-          ctx.lineJoin = 'round';
-          ctx.lineCap = 'round';
-          ctx.globalAlpha = puffOpacity;
-          
-          // Parse color once for performance
-          const r = parseInt(puffColor.slice(1, 3), 16) || 255;
-          const g = parseInt(puffColor.slice(3, 5), 16) || 0;
-          const b = parseInt(puffColor.slice(5, 7), 16) || 255;
-          
-          // Create puff texture along the path with optimized sampling
-          const stepSize = Math.max(1, Math.floor(puffSize / 4)); // Reduce sampling for performance
-          for (let i = 0; i < points.length; i += stepSize) {
-            const point = points[i];
-            
-            // Use validated coordinates
-            const x = point.x;
-            const y = point.y;
-            
-            if (!isFinite(x) || !isFinite(y)) {
-              continue; // Skip invalid points silently for performance
-            }
-            
-            // Create optimized radial gradient for puff effect
-            const gradient = ctx.createRadialGradient(x, y, 0, x, y, puffSize / 2);
-            
-            gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${puffOpacity})`);
-            gradient.addColorStop(0.4, `rgba(${r}, ${g}, ${b}, ${puffOpacity * 0.6})`);
-            gradient.addColorStop(0.8, `rgba(${r}, ${g}, ${b}, ${puffOpacity * 0.2})`);
-            gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-            
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(x, y, puffSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
+          // Puff tool - delegated to UnifiedPuffPrintSystem
+          console.log('🎈 Puff tool delegated to UnifiedPuffPrintSystem');
           break;
           
         case 'print':

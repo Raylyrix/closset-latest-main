@@ -44,7 +44,7 @@ export function AdvancedLayerSystemV2Test() {
     composeLayers
   } = useAdvancedLayerStoreV2();
 
-  const { triggerBrushStart } = { triggerBrushStart: () => console.log('Brush start - simplified system') }; // REMOVED
+
 
   const updateTestResult = (id: string, updates: Partial<TestResult>) => {
     setTestResults(prev => prev.map(test => 
@@ -254,7 +254,7 @@ export function AdvancedLayerSystemV2Test() {
     await runTest('Automatic Layer Manager Integration', async () => {
       const initialCount = layers.length;
       
-      const newLayer = triggerBrushStart({ size: 10, color: '#000000' }); // FIXED: createLayerForTool doesn't exist, use triggerBrushStart
+      const newLayer = createLayer('paint', 'Auto Layer'); // REMOVED: triggerBrushStart no longer exists
       
       if (layers.length !== initialCount + 1) {
         throw new Error(`Expected ${initialCount + 1} layers after automatic creation, got ${layers.length}`);

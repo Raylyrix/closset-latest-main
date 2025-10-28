@@ -599,9 +599,15 @@ export class PuffDisplacementEngine {
     
     // Release canvases to memory manager
     if (this.memoryManager) {
-      this.memoryManager.releaseCanvas(this.displacementCanvas);
-      this.memoryManager.releaseCanvas(this.normalCanvas);
-      this.memoryManager.releaseCanvas(this.heightCanvas);
+      if (this.displacementCanvas) {
+        this.memoryManager.releaseCanvas(this.displacementCanvas);
+      }
+      if (this.normalCanvas) {
+        this.memoryManager.releaseCanvas(this.normalCanvas);
+      }
+      if (this.heightCanvas) {
+        this.memoryManager.releaseCanvas(this.heightCanvas);
+      }
     }
     
     // Clear references

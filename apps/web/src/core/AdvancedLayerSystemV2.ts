@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import * as THREE from 'three';
 import { createLayerCanvas, createComposedCanvas, createDisplacementCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { useApp } from '../App';
 import { convertUVToPixel, getCanvasDimensions } from '../utils/CoordinateUtils';
@@ -50,6 +51,15 @@ export interface BrushStroke {
   size: number;
   opacity: number;
   timestamp: number;
+  gradient?: {
+    type: 'linear' | 'radial' | 'angular' | 'diamond';
+    angle: number;
+    stops: Array<{
+      id: string;
+      color: string;
+      position: number;
+    }>;
+  };
 }
 
 // Import text effects types
@@ -201,6 +211,29 @@ export interface LayerContent {
   adjustmentData?: any; // For adjustment layers
   children?: string[]; // For group layers
   displacementCanvas?: HTMLCanvasElement; // For displacement mapping
+  
+  // PHASE 1: Individual stroke data for stroke-specific layers
+  strokeData?: {
+    id: string;              // Unique stroke ID
+    points: Array<{ x: number; y: number }>; // Stroke path points
+    bounds: {                // Stroke bounding box
+      minX: number;
+      minY: number;
+      maxX: number;
+      maxY: number;
+      width: number;
+      height: number;
+    };
+    settings: {
+      size: number;
+      color: string;
+      opacity: number;
+      gradient?: any;
+    };
+    tool: string;           // 'brush', 'eraser', 'puffPrint', etc.
+    createdAt: Date;
+    isSelected: boolean;    // Selection state
+  };
 }
 
 // Layer locking types (Photoshop-like)
@@ -601,8 +634,15 @@ const createDefaultLocking = (): LayerLocking => ({
 const createDefaultContent = (type: LayerType): LayerContent => {
   switch (type) {
     case 'paint':
-      // CRITICAL FIX: Create actual canvas for paint layers with correct size
-      const canvas = createLayerCanvas();
+      // CRITICAL FIX: Use composed canvas dimensions for layer canvas to ensure perfect alignment
+      const appState = useApp.getState();
+      const composedCanvas = appState.composedCanvas;
+      const canvasSize = composedCanvas ? composedCanvas.width : 1024; // Fallback to 1024
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasSize;
+      canvas.height = canvasSize;
+      
       return { 
         canvas,
         brushStrokes: [], // ✅ FIX: Initialize brush strokes array
@@ -787,6 +827,8 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     setActiveLayer: (id: string) => {
+      const state = get();
+      
       set(state => ({
         activeLayerId: id,
         layers: state.layers.map(layer => ({
@@ -796,6 +838,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }));
       
       console.log(`🎯 Set active layer: ${id}`);
+      
+      // PHASE 2: If layer has strokeData, also select the stroke
+      const layer = state.layers.find((l: AdvancedLayer) => l.id === id);
+      if (layer?.content?.strokeData) {
+        // Delay execution to allow stroke selection module to load
+        setTimeout(() => {
+          try {
+            const strokeSelectionModule = (window as any).__strokeSelectionModule;
+            if (strokeSelectionModule?.useStrokeSelection) {
+              const { selectStroke } = strokeSelectionModule.useStrokeSelection.getState();
+              selectStroke(id);
+              console.log('🎯 Also selected stroke for layer:', id);
+            }
+          } catch (e) {
+            // Stroke selection system might not be available yet
+          }
+        }, 0);
+      }
     },
     
     // Properties
@@ -1132,7 +1192,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         layerOrder: newOrder,
         layers: state.layers.map(layer => ({
           ...layer,
-          order: newOrder.indexOf(layer.id)
+          order: newOrder.length - 1 - newOrder.indexOf(layer.id) // Reverse order for descending sort
         }))
       }));
       
@@ -1627,7 +1687,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
-      console.log(`🖌️ Added brush stroke to layer ${layerId}`);
+      // Added brush stroke to layer
     },
     
     removeBrushStroke: (layerId: string, strokeId: string) => {
@@ -1646,7 +1706,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         )
       }));
       
-      console.log(`🗑️ Removed brush stroke ${strokeId} from layer ${layerId}`);
+      // Removed brush stroke from layer
     },
     
     getBrushStrokes: (layerId: string) => {
@@ -2398,41 +2458,102 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         // Only apply layer opacity to the layer content, not the base texture
         ctx.save();
         ctx.globalAlpha = layer.opacity;
-        ctx.globalCompositeOperation = layer.blendMode === 'normal' ? 'source-over' : 'source-over';
+        // Apply blend mode
+        const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
+          'normal': 'source-over',
+          'multiply': 'multiply',
+          'screen': 'screen',
+          'overlay': 'overlay',
+          'soft-light': 'soft-light',
+          'hard-light': 'hard-light',
+          'color-dodge': 'color-dodge',
+          'color-burn': 'color-burn',
+          'darken': 'darken',
+          'lighten': 'lighten',
+          'difference': 'difference',
+          'exclusion': 'exclusion',
+          'hue': 'hue',
+          'saturation': 'saturation',
+          'color': 'color',
+          'luminosity': 'luminosity'
+        };
+        const compositeOp = blendModeMap[layer.blendMode] || 'source-over';
+        ctx.globalCompositeOperation = compositeOp;
+        console.log(`🎨 Layer ${layer.name} blend mode: ${layer.blendMode} -> ${compositeOp}`);
         
         // Draw layer canvas if it exists
         if (layer.content.canvas) {
           ctx.drawImage(layer.content.canvas, 0, 0);
         }
         
-        // Draw brush strokes
-        const brushStrokes = layer.content.brushStrokes || [];
-        for (const stroke of brushStrokes) {
-          if (stroke.points && stroke.points.length > 0) {
-            ctx.save();
-            ctx.strokeStyle = stroke.color;
-            ctx.lineWidth = stroke.size;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.globalAlpha = stroke.opacity;
+        // Apply layer effects
+        if (layer.effects && layer.effects.length > 0) {
+          console.log(`🎨 Applying ${layer.effects.length} effects to layer ${layer.name}`);
+          for (const effect of layer.effects) {
+            if (!effect.enabled) continue;
             
-            ctx.beginPath();
-            for (let i = 0; i < stroke.points.length; i++) {
-              const point = stroke.points[i];
-              if (i === 0) {
-                ctx.moveTo(point.x, point.y);
-              } else {
-                ctx.lineTo(point.x, point.y);
-              }
+            console.log(`🎨 Applying effect: ${effect.type}`, effect.properties);
+            ctx.save();
+            
+            // CRITICAL FIX: Reset blend mode to source-over for effects
+            // Effects should not inherit the layer's blend mode to avoid double rendering
+            ctx.globalCompositeOperation = 'source-over';
+            
+            switch (effect.type) {
+              case 'drop-shadow':
+                const shadowProps = effect.properties;
+                ctx.shadowColor = shadowProps.color || '#000000';
+                ctx.shadowBlur = shadowProps.blur || 5;
+                ctx.shadowOffsetX = shadowProps.offsetX || 2;
+                ctx.shadowOffsetY = shadowProps.offsetY || 2;
+                console.log(`🎨 Drop shadow: color=${ctx.shadowColor}, blur=${ctx.shadowBlur}, offset=(${ctx.shadowOffsetX}, ${ctx.shadowOffsetY})`);
+                // Re-draw the layer content with shadow
+                if (layer.content.canvas) {
+                  ctx.drawImage(layer.content.canvas, 0, 0);
+                }
+                break;
+                
+              case 'outer-glow':
+                const glowProps = effect.properties;
+                ctx.shadowColor = glowProps.color || '#FFFFFF';
+                ctx.shadowBlur = glowProps.radius || 10;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                console.log(`🎨 Outer glow: color=${ctx.shadowColor}, radius=${ctx.shadowBlur}`);
+                // Re-draw the layer content with glow
+                if (layer.content.canvas) {
+                  ctx.drawImage(layer.content.canvas, 0, 0);
+                }
+                break;
+                
+              case 'brightness':
+                const brightnessProps = effect.properties;
+                const brightness = brightnessProps.amount || 0;
+                console.log(`🎨 Brightness: amount=${brightness}`);
+                // Apply brightness filter
+                ctx.filter = `brightness(${1 + brightness / 100})`;
+                if (layer.content.canvas) {
+                  ctx.drawImage(layer.content.canvas, 0, 0);
+                }
+                break;
             }
-            ctx.stroke();
+            
             ctx.restore();
           }
         }
         
+        // CRITICAL: Removed brushStrokes rendering - using layer.canvas as single source of truth
+        // All strokes are rendered directly to layer.canvas during painting/application
+        // The brushStrokes array is kept for metadata but not used for rendering in composeLayers
+        // This prevents double rendering and ensures consistency
+        
+        // CRITICAL FIX: Reset canvas filter after all layer operations to prevent interference
+        // This must happen BEFORE restore to avoid affecting subsequent layers
+        ctx.filter = 'none';
+        
         // Draw text elements
         const textElements = layer.content.textElements || [];
-        console.log(`🎨 Rendering ${textElements.length} text elements for layer ${layer.id}`);
+        // Rendering text elements for layer
         
         for (const textEl of textElements) {
           console.log(`🎨 Rendering text element:`, {
@@ -2696,8 +2817,27 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           const imageOpacity = imageEl.opacity || 1.0;
           const combinedOpacity = layerOpacity * imageOpacity;
           ctx.globalAlpha = combinedOpacity;
-          // CRITICAL FIX: Use source-over to prevent affecting base texture
-          ctx.globalCompositeOperation = 'source-over';
+          // Apply blend mode
+          const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
+            'normal': 'source-over',
+            'multiply': 'multiply',
+            'screen': 'screen',
+            'overlay': 'overlay',
+            'soft-light': 'soft-light',
+            'hard-light': 'hard-light',
+            'color-dodge': 'color-dodge',
+            'color-burn': 'color-burn',
+            'darken': 'darken',
+            'lighten': 'lighten',
+            'difference': 'difference',
+            'exclusion': 'exclusion',
+            'hue': 'hue',
+            'saturation': 'saturation',
+            'color': 'color',
+            'luminosity': 'luminosity'
+          };
+          ctx.globalCompositeOperation = blendModeMap[layer.blendMode] || 'source-over';
+          console.log(`🎨 Image element blend mode: ${layer.blendMode} -> ${ctx.globalCompositeOperation}`);
           
           // Apply rotation if needed
           if (imageEl.rotation !== 0) {
@@ -2989,6 +3129,19 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }
       
       console.log('🎨 Composed layers using V2 system');
+      
+      // Apply layer masks to the final composition
+      for (const layer of sortedLayers) {
+        if (!layer.visible || !layer.mask || !layer.mask.enabled) continue;
+        
+        console.log(`🎨 Applying mask to layer ${layer.name}`, layer.mask);
+        ctx.save();
+        ctx.globalCompositeOperation = layer.mask.inverted ? 'destination-out' : 'destination-in';
+        if (layer.mask.canvas) {
+          ctx.drawImage(layer.mask.canvas, 0, 0);
+        }
+        ctx.restore();
+      }
       
       // Update the composed canvas in state
       set({ composedCanvas });
@@ -4268,6 +4421,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     }
   }))
 );
+
+// CRITICAL FIX: Expose layer store globally for brush engine integration
+if (typeof window !== 'undefined') {
+  (window as any).__layerStore = useAdvancedLayerStoreV2.getState();
+}
 
 // Export types - REMOVED: Conflicts with existing exports above
 // export type { LayerHistorySnapshot, LayerHistoryState, AdvancedLayer, LayerGroup, LayerEffect, LayerMask, LayerTransform, LayerContent, BrushStroke, TextElement };

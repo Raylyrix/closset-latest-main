@@ -1121,11 +1121,13 @@ export function MainLayout({ children }: MainLayoutProps) {
             </button>
 
           <button
+            data-apply-tool-button
             onClick={() => {
                     console.log('🎨 Apply Tool button clicked - applying tools to vector paths');
                     try {
                       const appState = useApp.getState();
                       const vectorPaths = appState.vectorPaths || [];
+                      const activeLayerId = appState.activeLayerId; // Get active layer ID for stroke saving
                       
                       if (vectorPaths.length === 0) {
                         console.log('⚠️ No vector paths to apply tools to');
@@ -1140,8 +1142,57 @@ export function MainLayout({ children }: MainLayoutProps) {
                       const currentTool = appState.activeTool;
                       console.log(`🎨 Applying ${currentTool} to ${vectorPaths.length} vector paths`);
                       
-                      // Apply tool to each vector path
-                      vectorPaths.forEach((path: any) => {
+                      // CRITICAL FIX: Validate paths before applying
+                      const validPaths = vectorPaths.filter((path: any) => {
+                        // Must have points
+                        const points = path.points || path.anchors || path.vertices || (Array.isArray(path) ? path : []);
+                        if (!points || points.length < 2) {
+                          console.warn('⚠️ Skipping path (needs 2+ points):', path.id, 'points:', points?.length || 0);
+                          return false;
+                        }
+                        if (!path.id) {
+                          console.warn('⚠️ Skipping path with no ID');
+                          return false;
+                        }
+                        return true;
+                      });
+                      
+                      if (validPaths.length === 0) {
+                        console.log('⚠️ No valid paths to apply tools to');
+                        return;
+                      }
+                      
+                      console.log(`🎨 Applying ${currentTool} to ${validPaths.length} valid paths out of ${vectorPaths.length} total`);
+                      
+                      // REMOVED: allNewBrushStrokes array - no longer needed
+                      // We render directly to layer.canvas, not to brushStrokes array
+                      
+                      // CRITICAL FIX: Get layer ONCE before the loop to avoid stale references
+                      // Get the layer and V2 layer once to ensure we're working with the same layer
+                      const layer = appState.getActiveLayer();
+                      const v2Store = (window as any).__layerStore;
+                      const v2State = v2Store?.getState();
+                      const v2ActiveLayerId = v2State?.activeLayerId;
+                      const v2Layer = v2ActiveLayerId ? v2State.layers.find((l: any) => l.id === v2ActiveLayerId) : null;
+                      
+                      if (!layer || !layer.canvas) {
+                        console.warn('⚠️ No active layer or canvas found');
+                        return;
+                      }
+                      
+                      console.log('🎨 Using layer:', layer.id, 'Canvas dimensions:', layer.canvas.width, 'x', layer.canvas.height);
+                      
+                      // CRITICAL FIX: Get canvas context for rendering
+                      // DO NOT clear the canvas - let strokes accumulate across multiple Applies
+                      // Each Apply adds to the layer, it doesn't replace previous strokes
+                      const ctx = layer.canvas.getContext('2d');
+                      if (!ctx) {
+                        console.warn('⚠️ Could not get canvas context from layer');
+                        return;
+                      }
+                      
+                      // Apply tool to each valid vector path
+                      validPaths.forEach((path: any) => {
                         console.log(`🎨 Applying ${currentTool} to path:`, path.id);
                         console.log('🎨 Path structure:', path);
                         
@@ -1159,8 +1210,9 @@ export function MainLayout({ children }: MainLayoutProps) {
                         
                         console.log('🎨 Points found:', points.length);
                         
-                        if (points.length === 0) {
-                          console.log('⚠️ No points found in path');
+                        // Should never be empty after validation, but double-check
+                        if (points.length < 2) {
+                          console.warn('⚠️ Path has insufficient points after validation');
                           return;
                         }
                         
@@ -1195,55 +1247,99 @@ export function MainLayout({ children }: MainLayoutProps) {
                         switch (currentTool) {
                           case 'brush':
                             console.log('🎨 Applying brush tool to', sampledPoints.length, 'points');
-                            // Apply continuous brush stroke along the path
-                            const layer = appState.getActiveLayer();
-                            if (layer && layer.canvas) {
-                              const ctx = layer.canvas.getContext('2d');
+                            const brushEngine = (window as any).__brushEngine;
+                            
+                            if (brushEngine && brushEngine.renderVectorPath && layer && layer.canvas) {
+                              console.log('🎨 Using brush engine for gradient-aware rendering');
+                              
+                              // CRITICAL FIX: Get composed canvas dimensions instead of layer canvas
+                              const composedCanvas = appState.composedCanvas;
+                              const canvasWidth = composedCanvas?.width || layer.canvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layer.canvas.height || 2048;
+                              
+                              // Create canvas coordinates for brush engine
+                              const canvasPoints = path.points.map((p: any) => ({
+                                x: Math.floor(p.u * canvasWidth),
+                                y: Math.floor(p.v * canvasHeight),
+                                u: p.u,
+                                v: p.v,
+                                pressure: 1,
+                                timestamp: Date.now(),
+                                distance: 0
+                              }));
+                              
+                              // CRITICAL FIX: Use path's own settings from creation time, not current settings
+                              // This ensures each path keeps its own color/gradient from when it was created
+                              const canvasPath = {
+                                ...path,
+                                points: canvasPoints,
+                                settings: {
+                                  ...path.settings, // Use path's own settings from creation time
+                                  // Only use current settings as fallback if path has no settings
+                                  color: path.settings?.color || appState.brushColor || '#000000',
+                                  size: path.settings?.size || appState.brushSize || 10,
+                                  opacity: path.settings?.opacity || appState.brushOpacity || 1.0,
+                                  // CRITICAL: Use path's gradient setting, NOT current gradient
+                                  gradient: path.settings?.gradient || undefined
+                                }
+                              };
+                              
+                              // CRITICAL FIX: Use the ctx we already got (don't get new one inside loop)
+                              // Canvas is already cleared before loop, so just render to it
                               if (ctx) {
-                                console.log('🎨 Drawing continuous brush stroke');
+                                // CRITICAL FIX: Render to layer canvas using brush engine
+                                brushEngine.renderVectorPath(canvasPath, ctx);
+                                console.log('🎨 Brush engine rendering completed');
                                 
-                                ctx.save();
-                                ctx.globalCompositeOperation = 'source-over';
-                                ctx.globalAlpha = appState.brushOpacity || 1.0;
-                                ctx.strokeStyle = appState.brushColor || '#000000';
-                                ctx.lineWidth = appState.brushSize || 5;
-                                ctx.lineCap = 'round';
-                                ctx.lineJoin = 'round';
-                                ctx.shadowColor = 'rgba(0,0,0,0.3)';
-                                ctx.shadowBlur = 4;
-                                ctx.shadowOffsetX = 2;
-                                ctx.shadowOffsetY = 2;
-                                
-                                // Draw continuous stroke
-                                ctx.beginPath();
-                                sampledPoints.forEach((point: any, index: number) => {
-                                  const x = Math.round(point.u * layer.canvas.width);
-                                  const y = Math.round(point.v * layer.canvas.height);
-                                  
-                                  if (index === 0) {
-                                    ctx.moveTo(x, y);
-              } else {
-                                    ctx.lineTo(x, y);
-                                  }
-                                  
-                                  console.log(`🎨 Drawing brush point ${index}:`, { x, y, u: point.u, v: point.v });
-                                });
-                                ctx.stroke();
-                                ctx.restore();
-                                
-                                console.log('🎨 Continuous brush stroke completed');
+                                // CRITICAL FIX: Strokes rendered to layer.canvas - no brushStrokes array needed
+                                console.log('🎨 Rendered path to layer canvas:', path.id);
                               } else {
-                                console.log('⚠️ No canvas context found for layer');
+                                console.warn('⚠️ Could not get canvas context from layer');
                               }
+                            } else if (layer && layer.canvas && ctx) {
+                              // CRITICAL FIX: Use the SAME ctx we already have (don't get new one)
+                              // Fallback to manual rendering without gradient
+                              console.log('🎨 Drawing continuous brush stroke (fallback mode)');
+                              
+                              ctx.save();
+                              ctx.globalCompositeOperation = 'source-over';
+                              ctx.globalAlpha = appState.brushOpacity || 1.0;
+                              ctx.strokeStyle = appState.brushColor || '#000000';
+                              ctx.lineWidth = appState.brushSize || 5;
+                              ctx.lineCap = 'round';
+                              ctx.lineJoin = 'round';
+                              ctx.shadowColor = 'rgba(0,0,0,0.3)';
+                              ctx.shadowBlur = 4;
+                              ctx.shadowOffsetX = 2;
+                              ctx.shadowOffsetY = 2;
+                              
+                              // Draw continuous stroke
+                              ctx.beginPath();
+                              sampledPoints.forEach((point: any, index: number) => {
+                                const x = Math.round(point.u * layer.canvas.width);
+                                const y = Math.round(point.v * layer.canvas.height);
+                                
+                                if (index === 0) {
+                                  ctx.moveTo(x, y);
+            } else {
+                                  ctx.lineTo(x, y);
+                                }
+                                
+                                console.log(`🎨 Drawing brush point ${index}:`, { x, y, u: point.u, v: point.v });
+                              });
+                              ctx.stroke();
+                              ctx.restore();
+                              
+                              console.log('🎨 Continuous brush stroke completed');
                             } else {
-                              console.log('⚠️ No active layer or canvas found');
+                              console.log('⚠️ No active layer or canvas found or ctx not available');
                             }
                             break;
                             
                           case 'puffPrint':
-                            console.log('🎨 REMOVED: Duplicate puff print implementation - using VectorToolbar instead');
+                            console.log('🎨 REMOVED: Duplicate puff print implementation - using UnifiedPuffPrintSystem instead');
                             // This implementation was causing conflicts with the main puff print system
-                            // The VectorToolbar.tsx now handles vector mode puff print correctly
+                            // The UnifiedPuffPrintSystem now handles all puff print operations correctly
                             break;
                             
                           case 'embroidery':
@@ -1297,12 +1393,26 @@ export function MainLayout({ children }: MainLayoutProps) {
                         }
                       });
                       
-                      // Commit changes and update model
+                      // CRITICAL FIX: layer.canvas is the single source of truth - no brushStrokes array needed
+                      // Strokes have already been rendered to layer.canvas, so we're done
+                      console.log('🎨 All strokes rendered to layer.canvas - ready to compose');
+                      
+                      // CRITICAL FIX: Save to history BEFORE clearing vector paths
+                      // This ensures undo/redo works properly
                       if (appState.commit) {
                         appState.commit();
                         console.log('✅ Changes committed to layer history');
                       }
                       
+                      // CRITICAL FIX: Clear vector paths AFTER committing to history
+                      useApp.setState({ 
+                        vectorPaths: [],        // Clear all paths - they're already applied to layer
+                        activePathId: null,     // Clear active path
+                        selectedAnchor: null    // Clear selection
+                      });
+                      console.log('✅ Cleared all vector paths - ready for new path creation');
+                      
+                      // Now recompose layers
                       if (appState.composeLayers) {
                         appState.composeLayers();
                         console.log('✅ All layers recomposed');
@@ -1347,77 +1457,24 @@ export function MainLayout({ children }: MainLayoutProps) {
                     const appState = useApp.getState();
                     
                     try {
-                      // Clear active layer canvas (brush strokes)
-                      const activeLayer = appState.getActiveLayer();
-                      if (activeLayer && activeLayer.canvas) {
-                        const ctx = activeLayer.canvas.getContext('2d');
-                        if (ctx) {
-                          ctx.clearRect(0, 0, activeLayer.canvas.width, activeLayer.canvas.height);
-                          console.log('✅ Active layer canvas cleared');
-                        }
-                      }
+                      // CRITICAL FIX: V2 layer system stores strokes in layer.content.brushStrokes[]
+                      // DO NOT clear layer canvases - they are managed by the V2 system
+                      // Instead, clear the vector paths and let the user re-apply if needed
                       
-                      // Clear puff canvas
-                      if (appState.puffCanvas) {
-                        const puffCtx = appState.puffCanvas.getContext('2d');
-                        if (puffCtx) {
-                          puffCtx.clearRect(0, 0, appState.puffCanvas.width, appState.puffCanvas.height);
-                          console.log('✅ Puff canvas cleared');
-                        }
-                      }
+                      console.log('🗑️ Clearing vector paths only - not clearing layer canvases (V2 system manages those)');
                       
-                      // Clear displacement canvas
-                      if (appState.displacementCanvas) {
-                        const dispCtx = appState.displacementCanvas.getContext('2d');
-                        if (dispCtx) {
-                          dispCtx.clearRect(0, 0, appState.displacementCanvas.width, appState.displacementCanvas.height);
-                          console.log('✅ Displacement canvas cleared');
-                        }
-                      }
+                      // CRITICAL FIX: Just clear vector paths, don't touch layer canvases
+                      // The V2 layer system will handle canvas management
+                      appState.vectorPaths = [];
+                      appState.activePathId = null;
                       
-                      // Clear embroidery canvas
-                      if (appState.embroideryCanvas) {
-                        const embCtx = appState.embroideryCanvas.getContext('2d');
-                        if (embCtx) {
-                          embCtx.clearRect(0, 0, appState.embroideryCanvas.width, appState.embroideryCanvas.height);
-                          console.log('✅ Embroidery canvas cleared');
-                        }
-                      }
+                      console.log('✅ Vector paths cleared');
                       
-                      // Clear all layer canvases
-                      if (appState.layers) {
-                        appState.layers.forEach((layer: any) => {
-                          if (layer.canvas) {
-                            const ctx = layer.canvas.getContext('2d');
-                            if (ctx) {
-                              ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
-                            }
-                          }
-                        });
-                        console.log('✅ All layer canvases cleared');
-                      }
-                      
-                      // Commit changes and recompose
-                      if (appState.commit) {
-                        appState.commit();
-                        console.log('✅ Changes committed');
-                      }
-                      
-                      if (appState.composeLayers) {
-                        appState.composeLayers();
-                        console.log('✅ Layers recomposed');
-                      }
-                      
-                      // Update 3D model to reflect cleared effects
+                      // Update model texture to clear preview
                       setTimeout(() => {
                         if ((window as any).updateModelTexture) {
-                          console.log('🎨 Updating model texture after clear');
+                          console.log('🎨 Updating model texture after clearing vector paths');
                           (window as any).updateModelTexture();
-                        }
-                        
-                        if ((window as any).updateModelWithPuffDisplacement) {
-                          console.log('🎨 Updating model displacement maps after clear');
-                          (window as any).updateModelWithPuffDisplacement();
                         }
                       }, 100);
                       

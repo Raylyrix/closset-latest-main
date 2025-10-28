@@ -42,7 +42,7 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
   onPointerLeave
 }) => {
   console.log('🎯 ShirtRenderer component mounted/rendered');
-  const { scene } = useThree();
+  const { scene, camera, size, gl } = useThree();
   const modelRef = useRef<THREE.Group>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +54,158 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
   const modelPosition = useApp(s => s.modelPosition);
   const modelRotation = useApp(s => s.modelRotation);
   const modelType = useApp(s => s.modelType);
+
+  // 🎯 CRITICAL FIX: UV Coordinate Calculation Functions
+  const calculateUVFromPointerEvent = useCallback((event: any) => {
+    if (!modelScene || !camera) {
+      console.warn('🎯 UV Calculation: Missing modelScene or camera');
+      return null;
+    }
+
+    try {
+      // Get the canvas element and its bounds from useThree
+      const canvas = gl.domElement as HTMLCanvasElement;
+      const rect = canvas.getBoundingClientRect();
+      
+      // Convert screen coordinates to normalized device coordinates (NDC)
+      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      console.log('🎯 UV Calculation: Screen coords -> NDC:', { 
+        clientX: event.clientX, 
+        clientY: event.clientY,
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        ndc: { x, y }
+      });
+
+      // Create raycaster and set from camera
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+      
+      // CRITICAL FIX: Collect all meshes from the modelScene for raycasting
+      const modelMeshes: THREE.Mesh[] = [];
+      modelScene.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          modelMeshes.push(child);
+        }
+      });
+      
+      console.log('🎯 UV Calculation: Found', modelMeshes.length, 'meshes in modelScene');
+      
+      // Intersect with model meshes specifically
+      const intersects = raycaster.intersectObjects(modelMeshes, true);
+      
+      if (intersects.length > 0) {
+        const intersection = intersects[0];
+        const uv = intersection.uv;
+        const point = intersection.point;
+        const face = intersection.face;
+        
+        if (uv && point && face) {
+          console.log('🎯 UV Calculation: SUCCESS - Found intersection:', {
+            uv: { x: uv.x, y: uv.y },
+            point: { x: point.x, y: point.y, z: point.z },
+            faceIndex: intersection.faceIndex,
+            object: intersection.object.name || 'unnamed',
+            distance: intersection.distance
+          });
+          
+          return {
+            uv: new THREE.Vector2(uv.x, uv.y),
+            point: point.clone(),
+            face: face,
+            faceIndex: intersection.faceIndex,
+            object: intersection.object,
+            intersections: intersects
+          };
+        }
+      }
+      
+      console.warn('🎯 UV Calculation: No valid intersection found with', modelMeshes.length, 'meshes');
+      return null;
+      
+    } catch (error) {
+      console.error('🎯 UV Calculation: Error during calculation:', error);
+      return null;
+    }
+  }, [modelScene, camera, gl.domElement]);
+
+  // 🎯 Enhanced Pointer Event Handlers with UV Calculation
+  const handlePointerDown = useCallback((event: any) => {
+    console.log('🎯 ShirtRenderer: handlePointerDown triggered');
+    
+    const uvData = calculateUVFromPointerEvent(event);
+    if (uvData) {
+      // Create enhanced event with UV coordinates
+      const enhancedEvent = {
+        ...event,
+        uv: uvData.uv,
+        point: uvData.point,
+        face: uvData.face,
+        faceIndex: uvData.faceIndex,
+        object: uvData.object,
+        intersections: uvData.intersections,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        nativeEvent: event.nativeEvent
+      };
+      
+      console.log('🎯 ShirtRenderer: Passing enhanced event to parent:', {
+        hasUV: !!enhancedEvent.uv,
+        uv: enhancedEvent.uv ? { x: enhancedEvent.uv.x, y: enhancedEvent.uv.y } : null,
+        hasPoint: !!enhancedEvent.point,
+        intersectionsCount: enhancedEvent.intersections?.length || 0
+      });
+      
+      onPointerDown?.(enhancedEvent);
+    } else {
+      console.warn('🎯 ShirtRenderer: No UV data available, skipping pointer down');
+    }
+  }, [calculateUVFromPointerEvent, onPointerDown]);
+
+  const handlePointerMove = useCallback((event: any) => {
+    const uvData = calculateUVFromPointerEvent(event);
+    if (uvData) {
+      const enhancedEvent = {
+        ...event,
+        uv: uvData.uv,
+        point: uvData.point,
+        face: uvData.face,
+        faceIndex: uvData.faceIndex,
+        object: uvData.object,
+        intersections: uvData.intersections,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        nativeEvent: event.nativeEvent
+      };
+      
+      onPointerMove?.(enhancedEvent);
+    }
+  }, [calculateUVFromPointerEvent, onPointerMove]);
+
+  const handlePointerUp = useCallback((event: any) => {
+    const uvData = calculateUVFromPointerEvent(event);
+    if (uvData) {
+      const enhancedEvent = {
+        ...event,
+        uv: uvData.uv,
+        point: uvData.point,
+        face: uvData.face,
+        faceIndex: uvData.faceIndex,
+        object: uvData.object,
+        intersections: uvData.intersections,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        nativeEvent: event.nativeEvent
+      };
+      
+      onPointerUp?.(enhancedEvent);
+    }
+  }, [calculateUVFromPointerEvent, onPointerUp]);
+
+  const handlePointerLeave = useCallback((event: any) => {
+    onPointerLeave?.(event);
+  }, [onPointerLeave]);
 
   // Model loading logic with memory leak fixes
   useEffect(() => {
@@ -239,10 +391,10 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
       >
         <primitive 
           object={modelScene} 
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerLeave}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerLeave}
         />
         {wireframe && (
           <primitive 
@@ -263,7 +415,7 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
         )}
       </group>
     );
-  }, [modelScene, modelPosition, modelRotation, modelScale, wireframe, showNormals, onPointerDown, onPointerMove, onPointerUp, onPointerLeave]);
+  }, [modelScene, modelPosition, modelRotation, modelScale, wireframe, showNormals, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave]);
 
   return (
     <>

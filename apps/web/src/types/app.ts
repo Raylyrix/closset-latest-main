@@ -67,6 +67,16 @@ export interface BrushTexture {
   rotation: number;
   opacity: number;
   blendMode: GlobalCompositeOperation;
+  
+  // Enhanced texture features
+  textureImage?: string | HTMLImageElement | HTMLCanvasElement; // Loaded texture
+  offsetX?: number; // Horizontal offset (0-1)
+  offsetY?: number; // Vertical offset (0-1)
+  repeatX?: boolean; // Horizontal tiling
+  repeatY?: boolean; // Vertical tiling
+  seamless?: boolean; // Seamless tiling enabled
+  textureAtlas?: boolean; // Use texture atlas
+  textureLayer?: number; // Layer for multi-layer textures
 }
 
 export interface BrushSettings {
@@ -79,6 +89,33 @@ export interface BrushSettings {
   angle: number;
   roundness: number;
   color: string; // Add missing color property
+  
+  // Smoothing Properties
+  smoothing?: number; // 0-1: How much smoothing to apply (default: 0.5)
+  smoothingMethod?: 'catmull-rom' | 'bezier' | 'simple'; // Smoothing algorithm
+  tension?: number; // 0-1: Catmull-Rom tension parameter (default: 0.5)
+  
+  // Stabilization Properties
+  stabilization?: number; // 0-1: How much stabilization to apply (default: 0.0, off)
+  stabilizationRadius?: number; // Maximum deviation allowed in pixels (default: 10)
+  stabilizationWindow?: number; // Number of recent points to average (default: 5)
+  
+  // Pressure Sensitivity
+  pressureCurve?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'sigmoid' | 'custom';
+  pressureMapSize?: number; // Map pressure to brush size (0.5-2.0, default: 1.0)
+  pressureMapOpacity?: number; // Map pressure to opacity (0.5-2.0, default: 1.0)
+  simulatePressureFromVelocity?: boolean; // Simulate pressure from mouse velocity
+  
+  // Gradient Support
+  gradient?: {
+    type: 'linear' | 'radial' | 'angular' | 'diamond';
+    angle: number;
+    stops: Array<{
+      id: string;
+      color: string;
+      position: number;
+    }>;
+  };
 
   // Advanced Properties
   dynamics: BrushDynamics;

@@ -1,15 +1,78 @@
 import { useCallback, useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { BrushPoint, BrushSettings, UVCoordinate } from '../types/app';
+import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
+import { CANVAS_CONFIG } from '../constants/CanvasSizes';
+import { ProfessionalToolSet, ToolDefinition, ToolConfig } from '../vector/ProfessionalToolSet';
 
+// Enhanced interfaces for the unified brush system
 interface BrushEngineState {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   brushCache: Map<string, HTMLCanvasElement>;
   strokeCache: Map<string, BrushPoint[]>;
+  performanceMetrics: {
+    fps: number;
+    frameTime: number;
+    memoryUsage: number;
+    lastUpdate: number;
+  };
+}
+
+interface BrushPreset {
+  id: string;
+  name: string;
+  category: 'basic' | 'artistic' | 'digital' | 'natural' | 'specialty' | 'custom';
+  description: string;
+  settings: BrushSettings;
+  tags: string[];
+  createdAt: number;
+  modifiedAt: number;
+}
+
+interface PuffSettings {
+  height: number;        // 0.1 - 5.0
+  softness: number;      // 0.0 - 1.0
+  color: string;         // Hex color
+  opacity: number;       // 0.0 - 1.0
+  brushSize: number;    // 5 - 200px
+  brushFlow: number;     // 0.0 - 1.0
+  brushSpacing: number; // 0.0 - 1.0
+  pattern: string;       // Pattern ID
+  patternScale: number;  // 0.1 - 3.0
+  patternRotation: number; // 0 - 360 degrees
+}
+
+// Vector tool interfaces
+interface VectorPoint {
+  x: number;
+  y: number;
+  u: number;
+  v: number;
+  pressure?: number;
+  timestamp?: number;
+}
+
+interface VectorPath {
+  id: string;
+  points: VectorPoint[];
+  closed: boolean;
+  tool: string;
+  settings: ToolConfig;
+  createdAt: number;
+  modifiedAt: number;
+}
+
+interface VectorToolState {
+  activeTool: string | null;
+  currentPath: VectorPath | null;
+  paths: VectorPath[];
+  selectedPaths: string[];
+  isDrawing: boolean;
 }
 
 interface BrushEngineAPI {
+  // Core rendering
   renderBrushStroke: (points: BrushPoint[], settings: BrushSettings, targetCtx?: CanvasRenderingContext2D) => void;
   createBrushStamp: (settings: BrushSettings) => HTMLCanvasElement;
   calculateBrushDynamics: (point: BrushPoint, settings: BrushSettings, index: number) => {
@@ -18,40 +81,348 @@ interface BrushEngineAPI {
     angle: number;
     spacing: number;
   };
+  
+  // Preset management
+  getPresets: () => BrushPreset[];
+  getPreset: (id: string) => BrushPreset | null;
+  addPreset: (preset: BrushPreset) => void;
+  updatePreset: (id: string, updates: Partial<BrushPreset>) => void;
+  deletePreset: (id: string) => boolean;
+  
+  // Performance
   getBrushCacheKey: (settings: BrushSettings) => string;
   clearCache: () => void;
+  getPerformanceMetrics: () => BrushEngineState['performanceMetrics'];
+  getPerformanceReport: () => { fps: number; frameTime: number; memoryUsage: number; cacheSize: number; brushCacheSize: number; strokeCacheSize: number; lastUpdate: number; performanceLevel: string };
+  optimizeForPerformance: () => void;
+  startPerformanceMonitoring: () => void;
+  stopPerformanceMonitoring: () => void;
+  
+  // 3D Integration
+  renderBrushToUV: (point: BrushPoint, settings: BrushSettings, uvCanvas: HTMLCanvasElement) => void;
+  screenToUV: (x: number, y: number, camera: THREE.Camera, scene: THREE.Scene) => { uv: THREE.Vector2; mesh: THREE.Mesh } | null;
+  
+  // Layer integration
+  addBrushStrokeToLayer: (layerId: string, stroke: { points: BrushPoint[]; settings: BrushSettings }) => void;
+  
+  // Puff tool support
+  renderPuffStroke: (points: BrushPoint[], puffSettings: PuffSettings, targetCtx?: CanvasRenderingContext2D) => void;
+  createPuffStamp: (puffSettings: PuffSettings) => HTMLCanvasElement;
+  
+  // Vector tool support
+  getVectorTools: () => ToolDefinition[];
+  getVectorTool: (id: string) => ToolDefinition | null;
+  setActiveVectorTool: (toolId: string) => boolean;
+  getActiveVectorTool: () => ToolDefinition | null;
+  createVectorPath: (toolId: string, startPoint: VectorPoint) => VectorPath;
+  addPointToVectorPath: (pathId: string, point: VectorPoint) => boolean;
+  closeVectorPath: (pathId: string) => boolean;
+  renderVectorPath: (path: VectorPath, targetCtx: CanvasRenderingContext2D) => void;
+  renderAllVectorPaths: (paths: VectorPath[], targetCtx: CanvasRenderingContext2D) => void;
+  getVectorToolState: () => VectorToolState;
+  updateVectorToolState: (updates: Partial<VectorToolState>) => void;
+  
+  // Cleanup
   dispose: () => void;
 }
 
 /**
- * useBrushEngine - Custom hook for advanced brush rendering logic
- * Handles all brush-related calculations and rendering operations
+ * useBrushEngine - Unified brush system with all advanced features
+ * Replaces all previous brush implementations with a single, comprehensive system
  */
 export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   const stateRef = useRef<BrushEngineState | null>(null);
+  const presetsRef = useRef<Map<string, BrushPreset>>(new Map());
+  const frameCountRef = useRef(0);
+  const lastFpsUpdateRef = useRef(Date.now());
+  
+  // Vector tool state
+  const vectorToolSetRef = useRef<ProfessionalToolSet | null>(null);
+  const vectorStateRef = useRef<VectorToolState>({
+    activeTool: null,
+    currentPath: null,
+    paths: [],
+    selectedPaths: [],
+    isDrawing: false
+  });
 
   // Initialize brush engine state
   const initializeEngine = useCallback(() => {
     if (stateRef.current) return stateRef.current;
 
-    const targetCanvas = canvas || document.createElement('canvas');
-    targetCanvas.width = 2048;
-    targetCanvas.height = 2048;
+    try {
+      const targetCanvas = canvas || document.createElement('canvas');
+      
+      // CRITICAL FIX: Use performance-managed canvas size instead of hardcoded 2048
+      const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+      targetCanvas.width = optimalSize.width;
+      targetCanvas.height = optimalSize.height;
 
-    const ctx = targetCanvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Failed to get 2D context from canvas');
+      const ctx = targetCanvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Failed to get 2D context from canvas');
+      }
+
+      stateRef.current = {
+        canvas: targetCanvas,
+        ctx,
+        brushCache: new Map(),
+        strokeCache: new Map(),
+        performanceMetrics: {
+          fps: 60,
+          frameTime: 16.67,
+          memoryUsage: 0,
+          lastUpdate: Date.now()
+        }
+      };
+
+      // Initialize vector tool set
+      if (!vectorToolSetRef.current) {
+        vectorToolSetRef.current = ProfessionalToolSet.getInstance();
+      }
+
+      return stateRef.current;
+    } catch (error) {
+      console.error('❌ Brush Engine Initialization Error:', error);
+      // Return a minimal fallback state
+      const fallbackCanvas = document.createElement('canvas');
+      fallbackCanvas.width = 1024;
+      fallbackCanvas.height = 1024;
+      const fallbackCtx = fallbackCanvas.getContext('2d');
+      
+      if (!fallbackCtx) {
+        throw new Error('Critical: Cannot create fallback canvas context');
+      }
+      
+      stateRef.current = {
+        canvas: fallbackCanvas,
+        ctx: fallbackCtx,
+        brushCache: new Map(),
+        strokeCache: new Map(),
+        performanceMetrics: {
+          fps: 30, // Reduced performance for fallback
+          frameTime: 33.33,
+          memoryUsage: 0,
+          lastUpdate: Date.now()
+        }
+      };
+
+      // Initialize vector tool set even in fallback mode
+      if (!vectorToolSetRef.current) {
+        vectorToolSetRef.current = ProfessionalToolSet.getInstance();
+      }
+      
+      console.warn('⚠️ Brush Engine using fallback configuration');
+      return stateRef.current;
     }
-
-    stateRef.current = {
-      canvas: targetCanvas,
-      ctx,
-      brushCache: new Map(),
-      strokeCache: new Map()
-    };
-
-    return stateRef.current;
   }, [canvas]);
+
+  // Enhanced performance optimization with adaptive strategies
+  const optimizeForPerformance = useCallback(() => {
+    const state = initializeEngine();
+    const metrics = state.performanceMetrics;
+    
+    // Adaptive cache management based on performance
+    if (metrics.fps < 30) {
+      // Performance is poor - aggressive optimization
+      console.warn('⚠️ Low FPS detected, applying aggressive optimization');
+      
+      // Clear least recently used cache entries
+      const brushCacheEntries = Array.from(state.brushCache.entries());
+      if (brushCacheEntries.length > 20) {
+        // Keep only the most recent 10 entries
+        const recentEntries = brushCacheEntries.slice(-10);
+        state.brushCache.clear();
+        recentEntries.forEach(([key, value]) => state.brushCache.set(key, value));
+      }
+      
+      // Clear stroke cache to free memory
+      state.strokeCache.clear();
+    } else if (metrics.fps < 45) {
+      // Moderate performance - conservative optimization
+      const brushCacheEntries = Array.from(state.brushCache.entries());
+      if (brushCacheEntries.length > 40) {
+        // Keep only the most recent 25 entries
+        const recentEntries = brushCacheEntries.slice(-25);
+        state.brushCache.clear();
+        recentEntries.forEach(([key, value]) => state.brushCache.set(key, value));
+      }
+    }
+    
+    // Memory management
+    if (metrics.memoryUsage > 50) {
+      // High memory usage - reduce cache sizes
+      const brushCacheEntries = Array.from(state.brushCache.entries());
+      if (brushCacheEntries.length > 30) {
+        // Keep only the most recent 15 entries
+        const recentEntries = brushCacheEntries.slice(-15);
+        state.brushCache.clear();
+        recentEntries.forEach(([key, value]) => state.brushCache.set(key, value));
+      }
+    }
+    
+    // Adaptive quality settings based on performance
+    if (metrics.fps < 25) {
+      // Very poor performance - reduce quality
+      console.warn('⚠️ Very low FPS, reducing brush quality');
+      // This could trigger UI notifications to reduce brush size or complexity
+    }
+  }, [initializeEngine]);
+
+  // Enhanced performance monitoring and optimization
+  const updatePerformanceMetrics = useCallback(() => {
+    const state = initializeEngine();
+    const now = Date.now();
+    frameCountRef.current++;
+    
+    // Update FPS every second
+    if (now - lastFpsUpdateRef.current >= 1000) {
+      const fps = Math.round((frameCountRef.current * 1000) / (now - lastFpsUpdateRef.current));
+      state.performanceMetrics.fps = fps;
+      state.performanceMetrics.frameTime = 1000 / fps;
+      state.performanceMetrics.lastUpdate = now;
+      
+      // Reset counters
+      frameCountRef.current = 0;
+      lastFpsUpdateRef.current = now;
+      
+      // Adaptive performance optimization
+      if (fps < 30) {
+        // Performance is poor - trigger optimization
+        optimizeForPerformance();
+      }
+    }
+    
+    // Estimate memory usage based on cache sizes
+    const brushCacheSize = state.brushCache.size;
+    const strokeCacheSize = state.strokeCache.size;
+    state.performanceMetrics.memoryUsage = (brushCacheSize + strokeCacheSize) * 0.1; // Rough estimate
+  }, [initializeEngine, optimizeForPerformance]);
+
+  // Initialize default presets
+  const initializePresets = useCallback(() => {
+    if (presetsRef.current.size > 0) return;
+
+    const defaultPresets: BrushPreset[] = [
+      {
+        id: 'hard_round',
+        name: 'Hard Round',
+        category: 'basic',
+        description: 'Classic hard-edged round brush',
+        settings: {
+          size: 20,
+          opacity: 1,
+          hardness: 1,
+          flow: 1,
+          spacing: 0.1,
+          shape: 'round',
+          angle: 0,
+          roundness: 1,
+          color: '#000000',
+          blendMode: 'source-over',
+          dynamics: {
+            sizePressure: true,
+            opacityPressure: true,
+            anglePressure: false,
+            spacingPressure: false,
+            velocitySize: false,
+            velocityOpacity: false
+          },
+          texture: {
+            enabled: false,
+            pattern: 'solid',
+            scale: 1,
+            rotation: 0,
+            opacity: 1,
+            blendMode: 'multiply'
+          }
+        },
+        tags: ['basic', 'round', 'hard'],
+        createdAt: Date.now(),
+        modifiedAt: Date.now()
+      },
+      {
+        id: 'watercolor_flat',
+        name: 'Watercolor Flat',
+        category: 'artistic',
+        description: 'Soft watercolor brush with edge variation',
+        settings: {
+          size: 30,
+          opacity: 0.6,
+          hardness: 0.3,
+          flow: 0.8,
+          spacing: 0.05,
+          shape: 'watercolor',
+          angle: 0,
+          roundness: 0.8,
+          color: '#4A90E2',
+          blendMode: 'multiply',
+          dynamics: {
+            sizePressure: true,
+            opacityPressure: true,
+            anglePressure: false,
+            spacingPressure: false,
+            velocitySize: true,
+            velocityOpacity: false
+          },
+          texture: {
+            enabled: true,
+            pattern: 'watercolor',
+            scale: 1.2,
+            rotation: 0,
+            opacity: 0.7,
+            blendMode: 'multiply'
+          }
+        },
+        tags: ['artistic', 'watercolor', 'soft', 'natural'],
+        createdAt: Date.now(),
+        modifiedAt: Date.now()
+      },
+      {
+        id: 'charcoal_soft',
+        name: 'Soft Charcoal',
+        category: 'natural',
+        description: 'Soft charcoal pencil with natural texture',
+        settings: {
+          size: 25,
+          opacity: 0.7,
+          hardness: 0.1,
+          flow: 0.9,
+          spacing: 0.02,
+          shape: 'charcoal',
+          angle: 0,
+          roundness: 0.6,
+          color: '#2C2C2C',
+          blendMode: 'multiply',
+          dynamics: {
+            sizePressure: true,
+            opacityPressure: true,
+            anglePressure: true,
+            spacingPressure: false,
+            velocitySize: true,
+            velocityOpacity: false
+          },
+          texture: {
+            enabled: true,
+            pattern: 'paper',
+            scale: 0.8,
+            rotation: 0,
+            opacity: 0.8,
+            blendMode: 'multiply'
+          }
+        },
+        tags: ['natural', 'charcoal', 'pencil', 'soft'],
+        createdAt: Date.now(),
+        modifiedAt: Date.now()
+      }
+    ];
+
+    defaultPresets.forEach(preset => {
+      presetsRef.current.set(preset.id, preset);
+    });
+  }, []);
+
+  // Update performance metrics (moved to enhanced version below)
 
   /**
    * Calculate dynamic brush properties based on input and settings
@@ -92,42 +463,166 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   /**
    * Create a brush stamp based on current settings
    */
-  const createBrushStamp = useCallback((settings: BrushSettings): HTMLCanvasElement => {
-    const state = initializeEngine();
-    const cacheKey = getBrushCacheKey(settings);
-
-    // Check cache first
-    if (state.brushCache.has(cacheKey)) {
-      return state.brushCache.get(cacheKey)!;
+  // Helper function to get color at a specific position for gradients
+  const getColorAtPosition = (settings: BrushSettings, x: number, y: number, centerX: number, centerY: number, radius: number): string => {
+    if (!settings.gradient) {
+      return settings.color;
     }
 
-    // Create new brush stamp
-    const stampSize = Math.ceil(settings.size * 2); // Increased size for better detail
-    const stampCanvas = document.createElement('canvas');
-    stampCanvas.width = stampSize;
-    stampCanvas.height = stampSize;
-    const stampCtx = stampCanvas.getContext('2d')!;
+    const gradient = settings.gradient;
+    const sortedStops = [...gradient.stops].sort((a, b) => a.position - b.position);
+    
+    // Calculate position based on gradient type
+    let position = 0;
+    
+    if (gradient.type === 'linear') {
+      // Linear gradient based on angle
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const angle = (gradient.angle * Math.PI) / 180;
+      const distance = dx * Math.cos(angle) + dy * Math.sin(angle);
+      position = (distance + radius) / (2 * radius);
+    } else if (gradient.type === 'radial') {
+      // Radial gradient from center
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      position = distance / radius;
+    }
+    
+    // Clamp position between 0 and 1
+    position = Math.max(0, Math.min(1, position));
+    
+    // Find the two stops to interpolate between
+    let stop1 = sortedStops[0];
+    let stop2 = sortedStops[sortedStops.length - 1];
+    
+    for (let i = 0; i < sortedStops.length - 1; i++) {
+      if (position >= sortedStops[i].position / 100 && position <= sortedStops[i + 1].position / 100) {
+        stop1 = sortedStops[i];
+        stop2 = sortedStops[i + 1];
+        break;
+      }
+    }
+    
+    // Interpolate between the two stops
+    const stop1Pos = stop1.position / 100;
+    const stop2Pos = stop2.position / 100;
+    const t = (position - stop1Pos) / (stop2Pos - stop1Pos);
+    
+    // Parse colors
+    const color1 = stop1.color;
+    const color2 = stop2.color;
+    
+    const r1 = parseInt(color1.slice(1, 3), 16);
+    const g1 = parseInt(color1.slice(3, 5), 16);
+    const b1 = parseInt(color1.slice(5, 7), 16);
+    
+    const r2 = parseInt(color2.slice(1, 3), 16);
+    const g2 = parseInt(color2.slice(3, 5), 16);
+    const b2 = parseInt(color2.slice(5, 7), 16);
+    
+    // Interpolate RGB values
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    
+    const finalColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    
+    return finalColor;
+  };
 
-    const centerX = stampSize / 2;
-    const centerY = stampSize / 2;
-    const radius = settings.size;
+  /**
+   * Generate cache key for brush settings
+   */
+  const getBrushCacheKey = useCallback((settings: BrushSettings): string => {
+    const gradientKey = settings.gradient ? JSON.stringify(settings.gradient) : 'none';
+    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}`;
+  }, []);
 
-    // Clear canvas
-    stampCtx.clearRect(0, 0, stampSize, stampSize);
+  const createBrushStamp = useCallback((settings: BrushSettings): HTMLCanvasElement => {
+    try {
+      const state = initializeEngine();
+      const cacheKey = getBrushCacheKey(settings);
 
-    // Create brush-specific stamp based on shape
-    createBrushSpecificStamp(stampCtx, settings, stampSize, centerX, centerY, radius);
+      // Check cache first with performance tracking
+      if (state.brushCache.has(cacheKey)) {
+        // Cache hit - update performance metrics
+        updatePerformanceMetrics();
+        return state.brushCache.get(cacheKey)!;
+      }
 
-    // Cache the result
-    state.brushCache.set(cacheKey, stampCanvas);
+      // Validate settings
+      if (!settings || typeof settings.size !== 'number' || settings.size <= 0) {
+        throw new Error(`Invalid brush settings: size must be a positive number, got ${settings?.size}`);
+      }
 
-    return stampCanvas;
-  }, [initializeEngine]);
+      // Performance optimization: Limit brush size for very large brushes
+      const maxBrushSize = 200; // Reasonable maximum
+      const optimizedSize = Math.min(settings.size, maxBrushSize);
+
+      // Create new brush stamp with optimized size
+      const stampSize = Math.ceil(optimizedSize * 2);
+      const stampCanvas = document.createElement('canvas');
+      stampCanvas.width = stampSize;
+      stampCanvas.height = stampSize;
+      const stampCtx = stampCanvas.getContext('2d');
+
+      if (!stampCtx) {
+        throw new Error('Failed to get 2D context for brush stamp canvas');
+      }
+
+      const centerX = stampSize / 2;
+      const centerY = stampSize / 2;
+      const radius = optimizedSize;
+
+      // Clear canvas
+      stampCtx.clearRect(0, 0, stampSize, stampSize);
+
+      // Create brush-specific stamp based on shape
+      createBrushSpecificStamp(stampCtx, { ...settings, size: optimizedSize }, stampSize, centerX, centerY, radius);
+
+      // Cache the result with size limit
+      if (state.brushCache.size < 100) { // Prevent unlimited cache growth
+        state.brushCache.set(cacheKey, stampCanvas);
+      } else {
+        // Remove oldest entries if cache is full
+        const entries = Array.from(state.brushCache.entries());
+        const oldestEntries = entries.slice(0, 20); // Remove 20 oldest
+        oldestEntries.forEach(([key]) => state.brushCache.delete(key));
+        state.brushCache.set(cacheKey, stampCanvas);
+      }
+
+      // Update performance metrics
+      updatePerformanceMetrics();
+
+      return stampCanvas;
+    } catch (error) {
+      console.error('❌ Brush Stamp Creation Error:', error);
+      
+      // Return a fallback brush stamp
+      const fallbackSize = 20;
+      const fallbackCanvas = document.createElement('canvas');
+      fallbackCanvas.width = fallbackSize;
+      fallbackCanvas.height = fallbackSize;
+      const fallbackCtx = fallbackCanvas.getContext('2d');
+      
+      if (fallbackCtx) {
+        fallbackCtx.fillStyle = settings?.color || '#000000';
+        fallbackCtx.beginPath();
+        fallbackCtx.arc(fallbackSize / 2, fallbackSize / 2, fallbackSize / 2, 0, Math.PI * 2);
+        fallbackCtx.fill();
+      }
+      
+      console.warn('⚠️ Using fallback brush stamp');
+      return fallbackCanvas;
+    }
+  }, [initializeEngine, getBrushCacheKey, updatePerformanceMetrics]);
 
   /**
    * Create brush-specific stamp with unique characteristics for each type
    */
-  const createBrushSpecificStamp = useCallback((
+  const createBrushSpecificStamp = (
     ctx: CanvasRenderingContext2D, 
     settings: BrushSettings, 
     size: number, 
@@ -216,7 +711,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
     
     // Put the image data back to canvas
     ctx.putImageData(imageData, 0, 0);
-  }, []);
+  };
 
   // Individual brush creation functions with unique characteristics
   const createRoundBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
@@ -238,8 +733,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
           alpha *= Math.max(0, falloff);
         }
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -265,8 +760,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const index = (y * size + x) * 4;
         const alpha = settings.opacity * 255;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -292,8 +787,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const index = (y * size + x) * 4;
         const alpha = settings.opacity * 255;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -323,8 +818,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const index = (y * size + x) * 4;
         const alpha = settings.opacity * 255;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -339,8 +834,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
 
   const createAirbrushBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
     // Create realistic airbrush with pressure variations and nozzle patterns
-    const nozzleCount = Math.floor(radius / 3) + 1; // Multiple nozzles for larger brushes
-    const pressureVariation = 0.3; // Simulate pressure variations
+    const nozzleCount = Math.floor(radius / 3) + 1;
+    const pressureVariation = 0.3;
     
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
@@ -357,7 +852,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         let totalAlpha = 0;
         for (let nozzle = 0; nozzle < nozzleCount; nozzle++) {
           const nozzleAngle = (nozzle / nozzleCount) * Math.PI * 2;
-          const nozzleDistance = (nozzle % 2 === 0) ? 0 : radius * 0.3; // Alternating pattern
+          const nozzleDistance = (nozzle % 2 === 0) ? 0 : radius * 0.3;
           
           const nozzleX = centerX + Math.cos(nozzleAngle) * nozzleDistance;
           const nozzleY = centerY + Math.sin(nozzleAngle) * nozzleDistance;
@@ -368,7 +863,6 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
           const nozzleNormDist = nozzleDist / (radius * 0.7);
           
           if (nozzleNormDist <= 1) {
-            // Add pressure variation and turbulence
             const pressure = 0.7 + Math.sin(x * 0.2 + y * 0.15 + nozzle) * pressureVariation;
             const turbulence = Math.sin(x * 0.1) * Math.cos(y * 0.1) + Math.sin(x * 0.05) * Math.sin(y * 0.05);
             const turbulenceFactor = 1 + turbulence * 0.2;
@@ -381,13 +875,13 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         
         // Add some random speckles for realistic airbrush texture
         const speckleChance = Math.random();
-        if (speckleChance < 0.1) { // 10% chance of speckle
+        if (speckleChance < 0.1) {
           const speckleIntensity = Math.random() * 0.5 + 0.5;
           totalAlpha += settings.opacity * 255 * speckleIntensity * 0.3;
         }
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -402,7 +896,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
 
   const createSprayBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
     // Create realistic spray can effect with scattered particles
-    const particleCount = Math.floor(radius * radius * 0.3); // More particles for larger brushes
+    const particleCount = Math.floor(radius * radius * 0.3);
     
     for (let i = 0; i < particleCount; i++) {
       // Generate random position within spray area
@@ -430,7 +924,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
             const alpha = settings.opacity * 255 * particleOpacity * falloff;
             
             // Parse brush color and apply it
-            const color = settings.color || '#000000';
+            const color = getColorAtPosition(settings, sprayX, sprayY, centerX, centerY, radius);
             const r = parseInt(color.slice(1, 3), 16);
             const g = parseInt(color.slice(3, 5), 16);
             const b = parseInt(color.slice(5, 7), 16);
@@ -441,30 +935,6 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
             data[index + 3] = Math.max(0, Math.min(255, alpha));
           }
         }
-      }
-    }
-    
-    // Add some overspray particles outside the main area
-    for (let i = 0; i < particleCount * 0.2; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = radius + Math.random() * radius * 0.5; // Overspray area
-      const sprayX = centerX + Math.cos(angle) * distance;
-      const sprayY = centerY + Math.sin(angle) * distance;
-      
-      if (sprayX >= 0 && sprayX < size && sprayY >= 0 && sprayY < size) {
-        const index = (Math.floor(sprayY) * size + Math.floor(sprayX)) * 4;
-        const alpha = settings.opacity * 255 * 0.1 * Math.random();
-        
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
-        const r = parseInt(color.slice(1, 3), 16);
-        const g = parseInt(color.slice(3, 5), 16);
-        const b = parseInt(color.slice(5, 7), 16);
-        
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
-        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
@@ -485,8 +955,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const textureFactor = 0.8 + textureNoise * 0.4;
         const alpha = settings.opacity * 255 * textureFactor * Math.exp(-normalizedDistance * normalizedDistance);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -547,8 +1017,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const textureVariation = 0.9 + paperTexture * 0.2;
         alpha *= textureVariation;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -607,8 +1077,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
           alpha += settings.opacity * 255 * globuleIntensity * 0.2;
         }
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -637,8 +1107,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const textureFactor = 0.85 + acrylicTexture * 0.3;
         const alpha = settings.opacity * 255 * textureFactor * Math.exp(-normalizedDistance * normalizedDistance * 0.9);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -665,8 +1135,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         // Matte gouache with flat coverage
         const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 0.7);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -693,8 +1163,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         // Sharp, precise ink brush
         const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 3);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -723,8 +1193,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const grainFactor = 0.7 + pencilGrain * 0.3;
         const alpha = settings.opacity * 255 * grainFactor * Math.exp(-normalizedDistance * normalizedDistance * 2);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -796,8 +1266,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
           }
         }
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -826,8 +1296,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const chalkFactor = 0.75 + pastelChalk * 0.5;
         const alpha = settings.opacity * 255 * chalkFactor * Math.exp(-normalizedDistance * normalizedDistance * 0.6);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -906,8 +1376,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
           totalAlpha += settings.opacity * 255 * streakIntensity * 0.2;
         }
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -934,8 +1404,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         // Marker with smooth, even coverage
         const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 1.2);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -977,8 +1447,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         
         const finalAlpha = alpha * streakFactor;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -1008,8 +1478,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const index = (y * size + x) * 4;
         const alpha = settings.opacity * 255;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -1035,8 +1505,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const index = (y * size + x) * 4;
         const alpha = settings.opacity * 255;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -1062,8 +1532,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const index = (y * size + x) * 4;
         const alpha = settings.opacity * 255;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -1111,8 +1581,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         
         const finalAlpha = alpha * variationFactor;
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -1141,8 +1611,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const directionFactor = 0.8 + smudgeDirection * 0.4;
         const alpha = settings.opacity * 255 * directionFactor * Math.exp(-normalizedDistance * normalizedDistance * 0.7);
         
-        // Parse brush color and apply it
-        const color = settings.color || '#000000';
+        // Get color (solid or gradient)
+        const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
@@ -1154,259 +1624,6 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
       }
     }
   };
-
-  /**
-   * Apply shape-specific modifications to brush stamp
-   */
-  const applyShapeToStamp = useCallback((ctx: CanvasRenderingContext2D, settings: BrushSettings, size: number) => {
-    const imageData = ctx.getImageData(0, 0, size, size);
-    const data = imageData.data;
-    const centerX = size / 2;
-    const centerY = size / 2;
-    const radius = settings.size;
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const dx = x - centerX;
-        const dy = y - centerY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const normalizedDistance = distance / radius;
-
-        if (normalizedDistance > 1) {
-          // Outside radius - make transparent
-          const index = (y * size + x) * 4;
-          data[index + 3] = 0; // Alpha
-          continue;
-        }
-
-        let alpha = data[(y * size + x) * 4 + 3];
-
-        // Apply shape-specific falloff
-        switch (settings.shape) {
-          case 'square':
-            // Sharp edges
-            alpha *= normalizedDistance <= 1 ? 1 : 0;
-            break;
-
-          case 'diamond':
-            // Diamond shape using rotated coordinates
-            const rotatedX = Math.abs(dx + dy) / Math.SQRT2;
-            const rotatedY = Math.abs(dx - dy) / Math.SQRT2;
-            const diamondDist = Math.max(rotatedX, rotatedY) / radius;
-            alpha *= diamondDist <= 1 ? 1 : 0;
-            break;
-
-          case 'triangle':
-            // Triangular shape
-            const angle = Math.atan2(dy, dx);
-            const segment = Math.floor((angle + Math.PI) / (Math.PI * 2) * 3);
-            const baseAngle = segment * Math.PI * 2 / 3;
-            const relativeAngle = Math.abs(angle - baseAngle);
-            const triangleDist = distance * Math.cos(relativeAngle) / radius;
-            alpha *= triangleDist <= 1 ? 1 : 0;
-            break;
-
-          case 'airbrush':
-            // Soft, random falloff with airbrush texture
-            const noise = (Math.sin(x * 0.1) + Math.sin(y * 0.1) + Math.sin(x * 0.05) * Math.sin(y * 0.05)) * 0.15;
-            alpha *= Math.exp(-normalizedDistance * normalizedDistance * (1 + noise));
-            break;
-
-          case 'spray':
-            // Random spray pattern with scattered dots
-            const sprayNoise = Math.sin(x * 0.3) * Math.cos(y * 0.3) + Math.sin(x * 0.7) * Math.sin(y * 0.7);
-            const sprayPattern = sprayNoise > 0.3 ? 1 : 0;
-            alpha *= sprayPattern * Math.exp(-normalizedDistance * normalizedDistance * 2);
-            break;
-
-          case 'texture':
-            // Textured brush with canvas-like grain
-            const textureNoise = Math.sin(x * 0.2) * Math.cos(y * 0.2) + Math.sin(x * 0.5) * Math.sin(y * 0.5);
-            alpha *= (0.8 + textureNoise * 0.4) * Math.exp(-normalizedDistance * normalizedDistance);
-            break;
-
-          case 'watercolor':
-            // Soft, flowing watercolor effect
-            const watercolorFlow = Math.sin(x * 0.08) * Math.cos(y * 0.08) + Math.sin(x * 0.15) * Math.sin(y * 0.15);
-            alpha *= Math.exp(-normalizedDistance * normalizedDistance * (1 + watercolorFlow * 0.3));
-            break;
-
-          case 'oil':
-            // Rich, thick oil paint effect
-            const oilThickness = Math.sin(x * 0.05) * Math.cos(y * 0.05);
-            alpha *= (0.9 + oilThickness * 0.2) * Math.exp(-normalizedDistance * normalizedDistance * 0.8);
-            break;
-
-          case 'acrylic':
-            // Quick-drying acrylic with slight texture
-            const acrylicTexture = Math.sin(x * 0.12) * Math.cos(y * 0.12);
-            alpha *= (0.85 + acrylicTexture * 0.3) * Math.exp(-normalizedDistance * normalizedDistance * 0.9);
-            break;
-
-          case 'gouache':
-            // Matte gouache with flat coverage
-            alpha *= Math.exp(-normalizedDistance * normalizedDistance * 0.7);
-            break;
-
-          case 'ink':
-            // Sharp, precise ink brush
-            const inkPrecision = Math.exp(-normalizedDistance * normalizedDistance * 3);
-            alpha *= inkPrecision;
-            break;
-
-          case 'pencil':
-            // Pencil with graphite texture
-            const pencilGrain = Math.sin(x * 0.4) * Math.cos(y * 0.4) + Math.sin(x * 0.8) * Math.sin(y * 0.8);
-            alpha *= (0.7 + pencilGrain * 0.3) * Math.exp(-normalizedDistance * normalizedDistance * 2);
-            break;
-
-          case 'charcoal':
-            // Charcoal with rough texture
-            const charcoalRoughness = Math.sin(x * 0.25) * Math.cos(y * 0.25) + Math.sin(x * 0.6) * Math.sin(y * 0.6);
-            alpha *= (0.8 + charcoalRoughness * 0.4) * Math.exp(-normalizedDistance * normalizedDistance * 1.5);
-            break;
-
-          case 'pastel':
-            // Soft pastel with chalky texture
-            const pastelChalk = Math.sin(x * 0.15) * Math.cos(y * 0.15);
-            alpha *= (0.75 + pastelChalk * 0.5) * Math.exp(-normalizedDistance * normalizedDistance * 0.6);
-            break;
-
-          case 'chalk':
-            // Chalk with powdery texture
-            const chalkPowder = Math.sin(x * 0.3) * Math.cos(y * 0.3) + Math.sin(x * 0.6) * Math.sin(y * 0.6);
-            alpha *= (0.6 + chalkPowder * 0.8) * Math.exp(-normalizedDistance * normalizedDistance * 0.5);
-            break;
-
-          case 'marker':
-            // Marker with smooth, even coverage
-            alpha *= Math.exp(-normalizedDistance * normalizedDistance * 1.2);
-            break;
-
-          case 'highlighter':
-            // Translucent highlighter effect
-            const highlighterGlow = Math.sin(x * 0.1) * Math.cos(y * 0.1);
-            alpha *= (0.4 + highlighterGlow * 0.2) * Math.exp(-normalizedDistance * normalizedDistance * 0.8);
-            break;
-
-          case 'calligraphy':
-            // Elliptical with angle for calligraphy
-            const angleRad = (settings.angle * Math.PI) / 180;
-            const cos = Math.cos(angleRad);
-            const sin = Math.sin(angleRad);
-            const rotatedDx = dx * cos - dy * sin;
-            const rotatedDy = dx * sin + dy * cos;
-            const ellipseDist = Math.sqrt(rotatedDx * rotatedDx + rotatedDy * rotatedDy * 2) / radius;
-            alpha *= ellipseDist <= 1 ? 1 : 0;
-            break;
-
-          case 'stencil':
-            // Sharp stencil edges with slight bleed
-            const stencilDist = Math.max(Math.abs(dx), Math.abs(dy)) / radius;
-            alpha *= stencilDist <= 0.95 ? 1 : Math.max(0, 1 - (stencilDist - 0.95) * 20);
-            break;
-
-          case 'stamp':
-            // Even stamp coverage with slight edge softening
-            const stampDist = normalizedDistance;
-            alpha *= stampDist <= 0.9 ? 1 : Math.max(0, 1 - (stampDist - 0.9) * 10);
-            break;
-
-          case 'blur':
-            // Blur effect with soft edges
-            alpha *= Math.exp(-normalizedDistance * normalizedDistance * 0.3);
-            break;
-
-          case 'smudge':
-            // Smudge with directional texture
-            const smudgeDirection = Math.sin(x * 0.2 + y * 0.1) * Math.cos(x * 0.1 - y * 0.2);
-            alpha *= (0.8 + smudgeDirection * 0.4) * Math.exp(-normalizedDistance * normalizedDistance * 0.7);
-            break;
-
-          default: // 'round'
-            // Standard round brush with hardness
-            const hardness = settings.hardness;
-            if (normalizedDistance > hardness) {
-              const falloff = 1 - (normalizedDistance - hardness) / (1 - hardness);
-              alpha *= Math.max(0, falloff);
-            }
-            break;
-        }
-
-        // Update alpha channel
-        data[(y * size + x) * 4 + 3] = Math.floor(alpha);
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }, []);
-
-  /**
-   * Apply texture pattern to brush stamp
-   */
-  const applyTextureToStamp = useCallback((ctx: CanvasRenderingContext2D, texture: BrushSettings['texture'], size: number) => {
-    if (!texture.pattern) return;
-
-    const imageData = ctx.getImageData(0, 0, size, size);
-    const data = imageData.data;
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const index = (y * size + x) * 4;
-        const alpha = data[index + 3] / 255;
-
-        if (alpha > 0) {
-          // Generate texture value based on pattern
-          let textureValue = 1;
-
-          switch (texture.pattern) {
-            case 'noise':
-              textureValue = (Math.sin(x * texture.scale * 0.1) + Math.sin(y * texture.scale * 0.1)) * 0.5 + 0.5;
-              break;
-            case 'dots':
-              const dotX = Math.sin(x * texture.scale * 0.05) * 0.5 + 0.5;
-              const dotY = Math.sin(y * texture.scale * 0.05) * 0.5 + 0.5;
-              textureValue = dotX * dotY;
-              break;
-            case 'stripes':
-              textureValue = Math.sin((x + y) * texture.scale * 0.02) * 0.5 + 0.5;
-              break;
-            default:
-              textureValue = 1;
-          }
-
-          // Apply texture rotation
-          if (texture.rotation !== 0) {
-            const angle = (texture.rotation * Math.PI) / 180;
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-            const centerX = size / 2;
-            const centerY = size / 2;
-            const dx = x - centerX;
-            const dy = y - centerY;
-            const rotatedX = dx * cos - dy * sin + centerX;
-            const rotatedY = dx * sin + dy * cos + centerY;
-
-            // Recalculate texture value at rotated position
-            textureValue = (Math.sin(rotatedX * texture.scale * 0.1) + Math.sin(rotatedY * texture.scale * 0.1)) * 0.5 + 0.5;
-          }
-
-          // Blend texture with alpha
-          const blendedAlpha = alpha * (textureValue * texture.opacity + (1 - texture.opacity));
-          data[index + 3] = Math.floor(blendedAlpha * 255);
-        }
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }, []);
-
-  /**
-   * Generate cache key for brush settings
-   */
-  const getBrushCacheKey = useCallback((settings: BrushSettings): string => {
-    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.shape}-${settings.angle}-${JSON.stringify(settings.texture)}`;
-  }, []);
 
   /**
    * Render a complete brush stroke
@@ -1435,8 +1652,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         angle: dynamics.angle
       });
 
-      // Position and draw the stamp - FIXED: Consistent positioning for both rotated and non-rotated stamps
-      // Always translate to the point position first, then apply rotation and draw centered
+      // Position and draw the stamp
       if (dynamics.angle !== 0) {
         ctx.save();
         ctx.translate(point.x, point.y);
@@ -1451,7 +1667,271 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
 
     // Restore context state
     ctx.restore();
-  }, [initializeEngine, calculateBrushDynamics, createBrushStamp]);
+    
+    // Update performance metrics
+    updatePerformanceMetrics();
+  }, [initializeEngine, calculateBrushDynamics, createBrushStamp, updatePerformanceMetrics]);
+
+  // Preset management functions
+  const getPresets = useCallback((): BrushPreset[] => {
+    initializePresets();
+    return Array.from(presetsRef.current.values());
+  }, [initializePresets]);
+
+  const getPreset = useCallback((id: string): BrushPreset | null => {
+    initializePresets();
+    return presetsRef.current.get(id) || null;
+  }, [initializePresets]);
+
+  const addPreset = useCallback((preset: BrushPreset): void => {
+    presetsRef.current.set(preset.id, { ...preset, modifiedAt: Date.now() });
+  }, []);
+
+  const updatePreset = useCallback((id: string, updates: Partial<BrushPreset>): BrushPreset | null => {
+    const preset = presetsRef.current.get(id);
+    if (!preset) return null;
+
+    const updatedPreset = {
+      ...preset,
+      ...updates,
+      modifiedAt: Date.now()
+    };
+
+    presetsRef.current.set(id, updatedPreset);
+    return updatedPreset;
+  }, []);
+
+  const deletePreset = useCallback((id: string): boolean => {
+    return presetsRef.current.delete(id);
+  }, []);
+
+  // Performance functions
+  const getPerformanceMetrics = useCallback(() => {
+    const state = initializeEngine();
+    return { ...state.performanceMetrics };
+  }, [initializeEngine]);
+
+  // Performance monitoring and optimization
+  const startPerformanceMonitoring = useCallback(() => {
+    const state = initializeEngine();
+    
+    // Start performance monitoring loop
+    const monitorPerformance = () => {
+      updatePerformanceMetrics();
+      
+      // Schedule next monitoring cycle
+      if (state.performanceMetrics.fps > 0) {
+        setTimeout(monitorPerformance, 1000); // Monitor every second
+      }
+    };
+    
+    monitorPerformance();
+  }, [initializeEngine, updatePerformanceMetrics]);
+
+  const stopPerformanceMonitoring = useCallback(() => {
+    // Performance monitoring will stop automatically when FPS drops to 0
+    // This is handled by the monitoring loop itself
+  }, []);
+
+  const getPerformanceReport = useCallback(() => {
+    const state = initializeEngine();
+    const metrics = state.performanceMetrics;
+    
+    return {
+      fps: metrics.fps,
+      frameTime: metrics.frameTime,
+      memoryUsage: metrics.memoryUsage,
+      cacheSize: state.brushCache.size + state.strokeCache.size,
+      brushCacheSize: state.brushCache.size,
+      strokeCacheSize: state.strokeCache.size,
+      lastUpdate: metrics.lastUpdate,
+      performanceLevel: metrics.fps >= 60 ? 'excellent' : 
+                       metrics.fps >= 45 ? 'good' : 
+                       metrics.fps >= 30 ? 'fair' : 'poor'
+    };
+  }, [initializeEngine]);
+
+  // 3D Integration functions
+  const screenToUV = useCallback((x: number, y: number, camera: THREE.Camera, scene: THREE.Scene): { uv: THREE.Vector2; mesh: THREE.Mesh } | null => {
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2(
+      (x / window.innerWidth) * 2 - 1,
+      -(y / window.innerHeight) * 2 + 1
+    );
+
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+
+    if (intersects.length > 0) {
+      const intersect = intersects[0];
+      const mesh = intersect.object as THREE.Mesh;
+      const uv = intersect.uv;
+
+      if (uv && mesh) {
+        return { uv, mesh };
+      }
+    }
+
+    return null;
+  }, []);
+
+  const renderBrushToUV = useCallback((point: BrushPoint, settings: BrushSettings, uvCanvas: HTMLCanvasElement) => {
+    try {
+      // Validate inputs
+      if (!point) {
+        console.warn('⚠️ renderBrushToUV: Invalid brush point');
+        return;
+      }
+      
+      if (!settings) {
+        console.warn('⚠️ renderBrushToUV: Invalid brush settings');
+        return;
+      }
+      
+      if (!uvCanvas) {
+        console.warn('⚠️ renderBrushToUV: Invalid UV canvas');
+        return;
+      }
+
+      if (!point.uv) {
+        console.warn('⚠️ renderBrushToUV: No UV coordinates in brush point');
+        return;
+      }
+
+      // Validate canvas context
+      const ctx = uvCanvas.getContext('2d');
+      if (!ctx) {
+        console.error('❌ renderBrushToUV: Failed to get 2D context from UV canvas');
+        return;
+      }
+
+      // Performance optimization: Skip rendering if brush size is too small
+      if (settings.size < 0.5) {
+        return; // Skip very small brushes for performance
+      }
+
+      // Create brush stamp with error handling
+      const brushStamp = createBrushStamp(settings);
+      if (!brushStamp) {
+        console.error('❌ renderBrushToUV: Failed to create brush stamp');
+        return;
+      }
+      
+      // CRITICAL FIX: Use the already-converted canvas coordinates directly
+      // Brush3DIntegrationNew now properly converts UV to canvas coordinates before calling this function
+      const canvasX = point.x;
+      const canvasY = point.y;
+
+      // Validate coordinates
+      if (typeof canvasX !== 'number' || typeof canvasY !== 'number' || 
+          !isFinite(canvasX) || !isFinite(canvasY)) {
+        console.warn('⚠️ renderBrushToUV: Invalid canvas coordinates:', { canvasX, canvasY });
+        return;
+      }
+
+      // Performance optimization: Batch canvas operations
+      ctx.save();
+      
+      // FIX: Apply blend mode with fallback (critical for blend modes to work)
+      ctx.globalCompositeOperation = settings.blendMode || 'source-over';
+      
+      // FIX: Apply opacity (flow should control how much paint is applied per stamp, not opacity)
+      const pressureMultiplier = point.pressure || 1;
+      // Flow should not reduce opacity, it controls paint buildup - remove flow multiplier from opacity
+      ctx.globalAlpha = (settings.opacity || 1) * pressureMultiplier;
+      
+      // Performance optimization: Use integer coordinates for better performance
+      const drawX = Math.round(canvasX - brushStamp.width / 2);
+      const drawY = Math.round(canvasY - brushStamp.height / 2);
+      
+      ctx.drawImage(brushStamp, drawX, drawY);
+      
+      ctx.restore();
+      
+      // Update performance metrics
+      updatePerformanceMetrics();
+    } catch (error) {
+      console.error('❌ renderBrushToUV Error:', error);
+      console.warn('⚠️ Brush rendering failed, skipping this stroke');
+    }
+  }, [createBrushStamp, updatePerformanceMetrics]);
+
+  // Layer integration function - FIXED: Proper dependency injection
+  const addBrushStrokeToLayer = useCallback((layerId: string, stroke: { points: BrushPoint[]; settings: BrushSettings }) => {
+    try {
+      // Validate inputs
+      if (!layerId || typeof layerId !== 'string') {
+        console.warn('⚠️ addBrushStrokeToLayer: Invalid layer ID:', layerId);
+        return;
+      }
+      
+      if (!stroke || !stroke.points || !Array.isArray(stroke.points)) {
+        console.warn('⚠️ addBrushStrokeToLayer: Invalid stroke data:', stroke);
+        return;
+      }
+      
+      if (!stroke.settings) {
+        console.warn('⚠️ addBrushStrokeToLayer: Invalid stroke settings');
+        return;
+      }
+
+      const strokeData = {
+        id: `stroke-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        points: stroke.points,
+        settings: stroke.settings,
+        timestamp: Date.now(),
+        layerId
+      };
+      
+      // Store in stroke cache
+      const state = initializeEngine();
+      state.strokeCache.set(strokeData.id, strokeData.points);
+      
+      // CRITICAL FIX: Properly integrate with layer system using Zustand store
+      try {
+        // Access the layer store directly
+        // Since we're in a useCallback, we can access it dynamically
+        const layerStore = (window as any).__layerStore;
+        
+        if (layerStore && layerStore.layers) {
+          // Convert BrushPoint[] to simple {x, y}[] for layer storage
+          const simplePoints = stroke.points.map(point => ({ x: point.x, y: point.y }));
+          
+          // Create layer-compatible brush stroke
+          const layerStroke = {
+            id: strokeData.id,
+            layerId: layerId,
+            points: simplePoints,
+            color: stroke.settings.color,
+            size: stroke.settings.size,
+            opacity: stroke.settings.opacity,
+            timestamp: strokeData.timestamp,
+            gradient: stroke.settings.gradient
+          };
+          
+          // Add brush stroke to the layer
+          const layer = layerStore.layers.find((l: any) => l.id === layerId);
+          if (layer && layer.content) {
+            if (!layer.content.brushStrokes) {
+              layer.content.brushStrokes = [];
+            }
+            layer.content.brushStrokes.push(layerStroke);
+            
+            // Force layer composition to update the composed canvas
+            if (layerStore.composeLayers) {
+              layerStore.composeLayers();
+            }
+          }
+        }
+      } catch (layerError) {
+        console.warn('⚠️ Failed to add brush stroke to layer system:', layerError);
+        // Continue execution - stroke is still cached for performance
+      }
+    } catch (error) {
+      console.error('❌ addBrushStrokeToLayer Error:', error);
+      console.warn('⚠️ Failed to add brush stroke to layer');
+    }
+  }, [initializeEngine]);
 
   /**
    * Clear all caches
@@ -1471,23 +1951,518 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
     stateRef.current = null;
   }, [clearCache]);
 
-  // Return the API
+  /**
+   * Create a puff stamp for puff tool rendering
+   */
+  const createPuffStamp = useCallback((puffSettings: PuffSettings): HTMLCanvasElement => {
+    const size = Math.max(32, puffSettings.brushSize);
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const radius = size / 2;
+    
+    // Create puff effect with gradient
+    const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    
+    // Parse color
+    const r = parseInt(puffSettings.color.slice(1, 3), 16) || 255;
+    const g = parseInt(puffSettings.color.slice(3, 5), 16) || 0;
+    const b = parseInt(puffSettings.color.slice(5, 7), 16) || 255;
+    
+    // Create puff gradient with softness
+    gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${puffSettings.opacity})`);
+    gradient.addColorStop(puffSettings.softness, `rgba(${r}, ${g}, ${b}, ${puffSettings.opacity * 0.6})`);
+    gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    return canvas;
+  }, []);
+
+  /**
+   * Render a puff stroke
+   */
+  const renderPuffStroke = useCallback((points: BrushPoint[], puffSettings: PuffSettings, targetCtx?: CanvasRenderingContext2D) => {
+    if (points.length === 0) return;
+
+    const ctx = targetCtx || initializeEngine().ctx;
+
+    // Save context state
+    ctx.save();
+
+    // Set blend mode for puff effect
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Process each point in the stroke
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      
+      // Create puff stamp
+      const puffStamp = createPuffStamp(puffSettings);
+      
+      // Draw the puff stamp centered at the point
+      ctx.drawImage(puffStamp, point.x - puffStamp.width / 2, point.y - puffStamp.height / 2);
+    }
+
+    // Restore context state
+    ctx.restore();
+    
+    // Update performance metrics
+    updatePerformanceMetrics();
+  }, [initializeEngine, createPuffStamp, updatePerformanceMetrics]);
+
+  // Initialize presets on first use
+  useEffect(() => {
+    initializePresets();
+  }, [initializePresets]);
+
+  // Return the comprehensive API
   const brushEngineAPI = useMemo(() => ({
+    // Core rendering
     renderBrushStroke,
     createBrushStamp,
     calculateBrushDynamics,
+    
+    // Preset management
+    getPresets,
+    getPreset,
+    addPreset,
+    updatePreset,
+    deletePreset,
+    
+    // Performance
     getBrushCacheKey,
     clearCache,
+    getPerformanceMetrics,
+    getPerformanceReport,
+    optimizeForPerformance,
+    startPerformanceMonitoring,
+    stopPerformanceMonitoring,
+    
+    // 3D Integration
+    renderBrushToUV,
+    screenToUV,
+    
+    // Layer integration
+    addBrushStrokeToLayer,
+    
+    // Puff tool support
+    renderPuffStroke,
+    createPuffStamp,
+    
+    // Vector tool support
+    getVectorTools: () => {
+      const toolSet = vectorToolSetRef.current;
+      if (!toolSet) return [];
+      return toolSet.getAllTools();
+    },
+    
+    getVectorTool: (id: string) => {
+      const toolSet = vectorToolSetRef.current;
+      if (!toolSet) return null;
+      return toolSet.getTool(id) || null;
+    },
+    
+    setActiveVectorTool: (toolId: string) => {
+      const toolSet = vectorToolSetRef.current;
+      if (!toolSet) return false;
+      
+      try {
+        const tool = toolSet.getTool(toolId);
+        if (!tool) return false;
+        
+        vectorStateRef.current.activeTool = toolId;
+        return true;
+      } catch (error) {
+        console.error('❌ Failed to set active vector tool:', error);
+        return false;
+      }
+    },
+    
+    getActiveVectorTool: () => {
+      const toolSet = vectorToolSetRef.current;
+      if (!toolSet || !vectorStateRef.current.activeTool) return null;
+      return toolSet.getTool(vectorStateRef.current.activeTool) || null;
+    },
+    
+    createVectorPath: (toolId: string, startPoint: VectorPoint) => {
+      const tool = vectorToolSetRef.current?.getTool(toolId);
+      if (!tool) {
+        throw new Error(`Vector tool '${toolId}' not found`);
+      }
+      
+      const path: VectorPath = {
+        id: `path-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        points: [startPoint],
+        closed: false,
+        tool: toolId,
+        settings: { ...tool.config },
+        createdAt: Date.now(),
+        modifiedAt: Date.now()
+      };
+      
+      vectorStateRef.current.currentPath = path;
+      vectorStateRef.current.isDrawing = true;
+      
+      return path;
+    },
+    
+    addPointToVectorPath: (pathId: string, point: VectorPoint) => {
+      const currentPath = vectorStateRef.current.currentPath;
+      if (!currentPath || currentPath.id !== pathId) {
+        return false;
+      }
+      
+      currentPath.points.push(point);
+      currentPath.modifiedAt = Date.now();
+      
+      return true;
+    },
+    
+    closeVectorPath: (pathId: string) => {
+      const currentPath = vectorStateRef.current.currentPath;
+      if (!currentPath || currentPath.id !== pathId) {
+        return false;
+      }
+      
+      currentPath.closed = true;
+      currentPath.modifiedAt = Date.now();
+      
+      // Move to completed paths
+      vectorStateRef.current.paths.push(currentPath);
+      vectorStateRef.current.currentPath = null;
+      vectorStateRef.current.isDrawing = false;
+      
+      return true;
+    },
+    
+    renderVectorPath: (path: VectorPath, targetCtx: CanvasRenderingContext2D) => {
+      if (!path.points.length) return;
+      
+      // CRITICAL FIX: Check if settings exist before accessing
+      if (!path.settings) {
+        console.warn('⚠️ renderVectorPath: Path has no settings, using defaults');
+        // Fallback: Draw simple path without brush engine
+        targetCtx.save();
+        targetCtx.strokeStyle = '#000000';
+        targetCtx.lineWidth = 2;
+        targetCtx.globalAlpha = 1.0;
+        targetCtx.lineCap = 'round';
+        targetCtx.lineJoin = 'round';
+        targetCtx.beginPath();
+        path.points.forEach((point, index) => {
+          if (index === 0) {
+            targetCtx.moveTo(point.x, point.y);
+          } else {
+            targetCtx.lineTo(point.x, point.y);
+          }
+        });
+        if (path.closed) {
+          targetCtx.closePath();
+        }
+        targetCtx.stroke();
+        targetCtx.restore();
+        return;
+      }
+      
+      const tool = vectorToolSetRef.current?.getTool(path.tool);
+      if (!tool) return;
+      
+      targetCtx.save();
+      
+      // Apply tool settings
+      targetCtx.strokeStyle = path.settings.color || '#000000';
+      targetCtx.lineWidth = path.settings.size || 2;
+      targetCtx.globalAlpha = path.settings.opacity || 1.0;
+      targetCtx.lineCap = 'round';
+      targetCtx.lineJoin = 'round';
+      
+      // FIXED: Use brush engine for textured strokes along the path
+      // If this is a brush tool path, render using brush stamps instead of simple lines
+      if (path.tool === 'brush' || path.tool === 'watercolor' || path.tool === 'pencil' || path.tool === 'marker') {
+        // Create brush settings from path settings
+        const brushSettings: BrushSettings = {
+          size: path.settings.size || 10,
+          opacity: path.settings.opacity || 1.0,
+          hardness: path.settings.hardness || 0.5,
+          flow: path.settings.flow || 0.8,
+          spacing: 0.3,
+          angle: 0,
+          roundness: 1,
+          color: path.settings.color || '#000000',
+          // CRITICAL FIX: Preserve gradient from path settings
+          gradient: path.settings.gradient || undefined,
+          blendMode: 'source-over' as any,
+          shape: 'round',
+          dynamics: {
+            sizePressure: false,
+            opacityPressure: false,
+            anglePressure: false,
+            spacingPressure: false,
+            velocitySize: false,
+            velocityOpacity: false
+          },
+          texture: {
+            enabled: false,
+            pattern: null,
+            scale: 1,
+            rotation: 0,
+            opacity: 1,
+            blendMode: 'multiply'
+          }
+        };
+        
+        // Render brush strokes along the path
+        // CRITICAL FIX: Sample points along the path to create continuous stroke
+        const brushStamps = createBrushStamp(brushSettings);
+        const spacing = brushSettings.spacing || 0.3;
+        const minSpacing = brushSettings.size * spacing;
+        
+        // Sample points between path anchors for continuous stroke
+        for (let i = 0; i < path.points.length; i++) {
+          const currentPoint = path.points[i];
+          const nextPoint = path.points[i + 1];
+          
+          // Extract x, y coordinates (handle both canvas and UV formats)
+          const currX = currentPoint.x ?? (currentPoint.u * (targetCtx.canvas.width || 2048));
+          const currY = currentPoint.y ?? (currentPoint.v * (targetCtx.canvas.height || 2048));
+          
+          // Draw stamp at current point
+          targetCtx.drawImage(
+            brushStamps,
+            currX - brushStamps.width / 2,
+            currY - brushStamps.height / 2
+          );
+          
+          // Draw stamps between current and next point if they're far apart
+          if (nextPoint) {
+            const nextX = nextPoint.x ?? (nextPoint.u * (targetCtx.canvas.width || 2048));
+            const nextY = nextPoint.y ?? (nextPoint.v * (targetCtx.canvas.height || 2048));
+            
+            const dx = nextX - currX;
+            const dy = nextY - currY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > minSpacing) {
+              const steps = Math.ceil(distance / minSpacing);
+              for (let j = 1; j < steps; j++) {
+                const t = j / steps;
+                const x = currX + t * dx;
+                const y = currY + t * dy;
+                
+                targetCtx.drawImage(
+                  brushStamps,
+                  x - brushStamps.width / 2,
+                  y - brushStamps.height / 2
+                );
+              }
+            }
+          }
+        }
+      } else {
+        // For non-brush paths, draw as connected line
+        targetCtx.beginPath();
+        path.points.forEach((point, index) => {
+          // Extract x, y coordinates (handle both canvas and UV formats)
+          const px = point.x ?? (point.u * (targetCtx.canvas.width || 2048));
+          const py = point.y ?? (point.v * (targetCtx.canvas.height || 2048));
+          
+          if (index === 0) {
+            targetCtx.moveTo(px, py);
+          } else {
+            targetCtx.lineTo(px, py);
+          }
+        });
+        
+        if (path.closed) {
+          targetCtx.closePath();
+        }
+        
+        targetCtx.stroke();
+      }
+      
+      targetCtx.restore();
+    },
+    
+    renderAllVectorPaths: (paths: VectorPath[], targetCtx: CanvasRenderingContext2D) => {
+      paths.forEach(path => {
+        if (!path.points.length) return;
+        
+        // CRITICAL FIX: Check if settings exist before accessing
+        if (!path.settings) {
+          console.warn('⚠️ renderAllVectorPaths: Path has no settings, skipping');
+          return;
+        }
+        
+        const tool = vectorToolSetRef.current?.getTool(path.tool);
+        if (!tool) return;
+        
+        targetCtx.save();
+        
+        // FIXED: Use the same improved rendering logic as renderVectorPath
+        // Apply tool settings
+        targetCtx.strokeStyle = path.settings.color || '#000000';
+        targetCtx.lineWidth = path.settings.size || 2;
+        targetCtx.globalAlpha = path.settings.opacity || 1.0;
+        targetCtx.lineCap = 'round';
+        targetCtx.lineJoin = 'round';
+        
+        // If this is a brush tool path, render using brush stamps
+        if (path.tool === 'brush' || path.tool === 'watercolor' || path.tool === 'pencil' || path.tool === 'marker') {
+          const brushSettings: BrushSettings = {
+            size: path.settings.size || 10,
+            opacity: path.settings.opacity || 1.0,
+            hardness: path.settings.hardness || 0.5,
+            flow: path.settings.flow || 0.8,
+            spacing: 0.3,
+            angle: 0,
+            roundness: 1,
+            color: path.settings.color || '#000000',
+            // CRITICAL FIX: Preserve gradient from path settings for renderAllVectorPaths
+            gradient: path.settings.gradient || undefined,
+            blendMode: 'source-over' as any,
+            shape: 'round',
+            dynamics: {
+              sizePressure: false,
+              opacityPressure: false,
+              anglePressure: false,
+              spacingPressure: false,
+              velocitySize: false,
+              velocityOpacity: false
+            },
+            texture: {
+              enabled: false,
+              pattern: null,
+              scale: 1,
+              rotation: 0,
+              opacity: 1,
+              blendMode: 'multiply'
+            }
+          };
+          
+          const brushStamps = createBrushStamp(brushSettings);
+          const spacing = brushSettings.spacing || 0.3;
+          const minSpacing = brushSettings.size * spacing;
+          
+          // CRITICAL FIX: Sample points along the path to create continuous stroke
+          // Sample points between path anchors for continuous stroke
+          for (let i = 0; i < path.points.length; i++) {
+            const currentPoint = path.points[i];
+            const nextPoint = path.points[i + 1];
+            
+            // Extract x, y coordinates (handle both canvas and UV formats)
+            const currX = currentPoint.x ?? (currentPoint.u * (targetCtx.canvas.width || 2048));
+            const currY = currentPoint.y ?? (currentPoint.v * (targetCtx.canvas.height || 2048));
+            
+            // Draw stamp at current point
+            targetCtx.drawImage(
+              brushStamps,
+              currX - brushStamps.width / 2,
+              currY - brushStamps.height / 2
+            );
+            
+            // Draw stamps between current and next point if they're far apart
+            if (nextPoint) {
+              const nextX = nextPoint.x ?? (nextPoint.u * (targetCtx.canvas.width || 2048));
+              const nextY = nextPoint.y ?? (nextPoint.v * (targetCtx.canvas.height || 2048));
+              
+              const dx = nextX - currX;
+              const dy = nextY - currY;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              
+              if (distance > minSpacing) {
+                const steps = Math.ceil(distance / minSpacing);
+                for (let j = 1; j < steps; j++) {
+                  const t = j / steps;
+                  const x = currX + t * dx;
+                  const y = currY + t * dy;
+                  
+                  targetCtx.drawImage(
+                    brushStamps,
+                    x - brushStamps.width / 2,
+                    y - brushStamps.height / 2
+                  );
+                }
+              }
+            }
+          }
+        } else {
+          // Draw the path
+          targetCtx.beginPath();
+          path.points.forEach((point, index) => {
+            // Extract x, y coordinates (handle both canvas and UV formats)
+            const px = point.x ?? (point.u * (targetCtx.canvas.width || 2048));
+            const py = point.y ?? (point.v * (targetCtx.canvas.height || 2048));
+            
+            if (index === 0) {
+              targetCtx.moveTo(px, py);
+            } else {
+              targetCtx.lineTo(px, py);
+            }
+          });
+          
+          if (path.closed) {
+            targetCtx.closePath();
+          }
+          
+          targetCtx.stroke();
+        }
+        
+        targetCtx.restore();
+      });
+    },
+    
+    getVectorToolState: () => ({ ...vectorStateRef.current }),
+    
+    updateVectorToolState: (updates: Partial<VectorToolState>) => {
+      vectorStateRef.current = { ...vectorStateRef.current, ...updates };
+    },
+    
+    // Cleanup
     dispose
-  }), [renderBrushStroke, createBrushStamp, calculateBrushDynamics, getBrushCacheKey, clearCache, dispose]);
+  }), [
+    renderBrushStroke,
+    createBrushStamp,
+    calculateBrushDynamics,
+    getPresets,
+    getPreset,
+    addPreset,
+    updatePreset,
+    deletePreset,
+    getBrushCacheKey,
+    clearCache,
+    getPerformanceMetrics,
+    getPerformanceReport,
+    optimizeForPerformance,
+    startPerformanceMonitoring,
+    stopPerformanceMonitoring,
+    renderBrushToUV,
+    screenToUV,
+    addBrushStrokeToLayer,
+    renderPuffStroke,
+    createPuffStamp,
+    dispose
+  ]);
 
   // Expose brush engine globally for use in other components
   useEffect(() => {
     (window as any).__brushEngine = brushEngineAPI;
+    // Brush engine exposed globally for debugging
     return () => {
       delete (window as any).__brushEngine;
+      // Brush engine removed from global scope
     };
   }, [brushEngineAPI]);
 
   return brushEngineAPI;
 }
+
+// Export types for use in other components
+export type { BrushPreset, BrushEngineAPI, PuffSettings };

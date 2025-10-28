@@ -11,6 +11,8 @@ import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { useApp } from '../App';
 import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
+import { useStrokeSelection } from '../core/StrokeSelectionSystem';
+import { StrokeSelectionCanvas } from './StrokeVisuals';
 import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { convertUVToPixel, convertPixelToUV, getCanvasDimensions } from '../utils/CoordinateUtils';
 
@@ -75,9 +77,9 @@ export function ShirtRefactored({
   const brushEngine = useBrushEngine();
   
   // Initialize automatic layer manager - REMOVED (simplified system)
-  const triggerBrushStart = () => console.log('Brush start - simplified system');
-  const triggerBrushEnd = () => console.log('Brush end - simplified system');
-  const triggerTextCreated = () => console.log('Text created - simplified system');
+  const triggerBrushStart = () => { /* Brush start - simplified system */ };
+  const triggerBrushEnd = () => { /* Brush end - simplified system */ };
+  const triggerTextCreated = () => { /* Text created - simplified system */ };
   
   // Initialize selection system
   const {
@@ -97,9 +99,20 @@ export function ShirtRefactored({
     alt: false
   });
   
+  // PHASE 1: Track individual stroke sessions
+  // This ref stores the current stroke being drawn
+  const strokeSessionRef = useRef<{
+    id: string;
+    layerId: string | null;
+    points: Array<{ x: number; y: number }>;
+    bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+    settings: any;
+    tool: string;
+  } | null>(null);
+  
   // Reduced logging frequency to prevent console spam
   if (Math.random() < 0.01) { // Only log 1% of the time
-    console.log('🎯 ShirtRefactored component mounting with props:', { showDebugInfo, enableBrushPainting });
+    // ShirtRefactored component mounting with props
   }
   
   const [modelData, setModelData] = useState<ModelData | null>(null);
@@ -133,9 +146,9 @@ export function ShirtRefactored({
 
   // Cleanup textures on component unmount to prevent memory leaks
   useEffect(() => {
-    console.log('🎯 ShirtRefactored: Component mounted, setting up cleanup');
+    // ShirtRefactored: Component mounted, setting up cleanup
     return () => {
-      console.log('🧠 ShirtRefactored: Cleaning up textures on unmount');
+      // ShirtRefactored: Cleaning up textures on unmount
       // Note: We don't dispose all textures here as other components might be using them
       // Only dispose the specific texture we created
       textureManager.disposeTexture('model-texture');
@@ -147,7 +160,7 @@ export function ShirtRefactored({
     const handleTextElementsChange = () => {
       // Force re-render when text elements change
       setForceUpdate(prev => prev + 1);
-      console.log('🔄 Text elements changed, forcing re-render');
+      // Text elements changed, forcing re-render
     };
     
     window.addEventListener('textElementsChanged', handleTextElementsChange);
@@ -163,6 +176,41 @@ export function ShirtRefactored({
         shift: e.shiftKey,
         alt: e.altKey
       }));
+      
+      // FIX #5: Delete key shortcut for stroke deletion
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const { selectedLayerId, deleteStroke } = useStrokeSelection.getState();
+        if (selectedLayerId) {
+          console.log('🗑️ Delete key pressed - deleting stroke:', selectedLayerId);
+          deleteStroke(selectedLayerId);
+          
+          // Update texture
+          if ((window as any).updateModelTexture) {
+            (window as any).updateModelTexture(false, false);
+          }
+          
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+      
+      // FIX #5: ESC key to end transform
+      if (e.key === 'Escape') {
+        const { transformMode, endTransform } = useStrokeSelection.getState();
+        if (transformMode) {
+          console.log('🚫 ESC pressed - ending transform');
+          endTransform();
+          
+          // Re-compose layers
+          const v2Store = useAdvancedLayerStoreV2.getState();
+          v2Store.composeLayers();
+          const { composeLayers } = useApp.getState();
+          composeLayers();
+          
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -200,10 +248,10 @@ export function ShirtRefactored({
   const lastTextPromptTimeRef = useRef(0); // Track last prompt time
   const userManuallyEnabledControlsRef = useRef(false); // Track when user manually enables controls
   const setControlsEnabled = useApp(s => s.setControlsEnabled);
-  console.log('🎯 ShirtRefactored: Brush tool state set up');
+  // ShirtRefactored: Brush tool state set up
   
   // Get all brush settings in a single useApp call to reduce re-renders
-  console.log('🎯 ShirtRefactored: Getting brush settings...');
+  // ShirtRefactored: Getting brush settings...
   const brushSettings = useApp(s => ({
     brushColor: s.brushColor,
     brushSize: s.brushSize,
@@ -217,20 +265,26 @@ export function ShirtRefactored({
     modelScene: s.modelScene
   }));
   
-  console.log('🎯 ShirtRefactored: Brush settings obtained:', brushSettings);
+  // ShirtRefactored: Brush settings obtained
   
   // Destructure brush settings for easier access
   const { brushColor, brushSize, brushOpacity, brushHardness, brushFlow, brushShape, brushSpacing, blendMode, getActiveLayer, modelScene } = brushSettings;
   
+  // CRITICAL FIX: Clear brush cache when brush shape or blend mode changes
+  // This ensures all brush types (Basic Shapes, Digital Brushes, Traditional Media, Drawing Tools, Special Effects)
+  // and all blend modes work correctly without stale cache data
+  useEffect(() => {
+    if (brushEngine) {
+      // Brush settings changed - clearing cache
+      brushEngine.clearCache();
+    }
+  }, [brushShape, blendMode, brushEngine]);
+  
   const modelScale = useModelStore(s => s.modelScale);
-  console.log('🎯 ShirtRefactored: Layer and model scene obtained:', { 
-    hasActiveLayer: !!brushSettings.getActiveLayer, 
-    hasModelScene: !!brushSettings.modelScene, 
-    modelScale 
-  });
+  // ShirtRefactored: Layer and model scene obtained
 
   // Create displacement map for puff print 3D effects
-  console.log('🎯 ShirtRefactored: About to define createDisplacementMap function...');
+  // ShirtRefactored: About to define createDisplacementMap function...
   const createDisplacementMap = useCallback((canvas: HTMLCanvasElement) => {
     // Use CanvasPool to prevent memory leaks
     const displacementCanvas = canvasPool.createTemporaryCanvas({ 
@@ -279,7 +333,7 @@ export function ShirtRefactored({
         dispData[i + 2] = displacementValue; // B
         dispData[i + 3] = 255;              // A
         
-        console.log('🎨 Displacement value:', displacementValue, 'height:', height, 'alpha:', alpha);
+        // Displacement value calculated
       } else {
         // No displacement for transparent areas (neutral gray = 128)
         dispData[i] = 128;     // R (neutral)
@@ -293,10 +347,10 @@ export function ShirtRefactored({
     return displacementCanvas;
   }, []);
 
-  console.log('🎯 ShirtRefactored: createDisplacementMap function defined successfully');
+  // ShirtRefactored: createDisplacementMap function defined successfully
 
   // Create normal map for puff print 3D effects
-  console.log('🎯 ShirtRefactored: About to define createNormalMap function...');
+  // ShirtRefactored: About to define createNormalMap function...
   const createNormalMap = useCallback((canvas: HTMLCanvasElement) => {
     const normalCanvas = document.createElement('canvas');
     normalCanvas.width = canvas.width;
@@ -350,10 +404,10 @@ export function ShirtRefactored({
     return normalCanvas;
   }, []);
 
-  console.log('🎯 ShirtRefactored: createNormalMap function defined successfully');
+  // ShirtRefactored: createNormalMap function defined successfully
 
   // Helper function to subdivide geometry for better displacement
-  console.log('🎯 ShirtRefactored: About to define subdivideGeometry function...');
+  // ShirtRefactored: About to define subdivideGeometry function...
   const subdivideGeometry = useCallback((geometry: THREE.BufferGeometry, subdivisions: number): THREE.BufferGeometry => {
     const positions = geometry.attributes.position.array;
     const normals = geometry.attributes.normal?.array;
@@ -449,22 +503,22 @@ export function ShirtRefactored({
     return newGeometry;
   }, []);
 
-  console.log('🎯 ShirtRefactored: subdivideGeometry function defined successfully');
+  // ShirtRefactored: subdivideGeometry function defined successfully
 
   // Create separate puff print displacement and normal maps (optimized to reuse canvases)
-  console.log('🎯 ShirtRefactored: About to define createPuffDisplacementMap function...');
+  // ShirtRefactored: About to define createPuffDisplacementMap function...
   const createPuffDisplacementMap = useCallback(() => {
     if (!modelScene) return null;
     
     // Use the new layered displacement system
     const composedDisplacementCanvas = useApp.getState().composeDisplacementMaps();
     if (composedDisplacementCanvas) {
-      console.log('🎨 Using layered displacement maps from composeDisplacementMaps()');
+      // Using layered displacement maps from composeDisplacementMaps()
       return composedDisplacementCanvas;
     }
     
     // Fallback to old single puffCanvas system for backward compatibility
-    console.log('🎨 Using fallback single puffCanvas system');
+    // Using fallback single puffCanvas system
     
     // Get or create displacement canvas (reuse if exists)
     let displacementCanvas = useApp.getState().displacementCanvas;
@@ -478,9 +532,10 @@ export function ShirtRefactored({
 
     // CRITICAL FIX: Use BLACK (0,0,0) as base for NO displacement, then use WHITE (255) for puff areas
     // This way, with bias 0, black = 0 displacement, white = max displacement
-    dispCtx.clearRect(0, 0, 2048, 2048);
+    const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize();
+    dispCtx.clearRect(0, 0, canvasSize.width, canvasSize.height);
     dispCtx.fillStyle = 'rgb(0, 0, 0)'; // Black = no displacement
-    dispCtx.fillRect(0, 0, 2048, 2048);
+    dispCtx.fillRect(0, 0, canvasSize.width, canvasSize.height);
     console.log('🎨 Displacement canvas filled with black (0) - represents zero displacement');
 
     // Get puff print data from a separate puff canvas
@@ -582,9 +637,10 @@ export function ShirtRefactored({
     if (!normalCtx) return null;
 
     // Clear and fill with default normal (pointing up)
-    normalCtx.clearRect(0, 0, 2048, 2048);
+    const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize();
+    normalCtx.clearRect(0, 0, canvasSize.width, canvasSize.height);
     normalCtx.fillStyle = 'rgb(128, 128, 255)';
-    normalCtx.fillRect(0, 0, 2048, 2048);
+    normalCtx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
     // Get puff print data from a separate puff canvas
     const puffCanvas = useApp.getState().puffCanvas;
@@ -592,22 +648,22 @@ export function ShirtRefactored({
       // Generate normal map from puff print data
       const imageData = puffCanvas.getContext('2d')?.getImageData(0, 0, puffCanvas.width, puffCanvas.height);
       if (imageData) {
-        const normalImageData = normalCtx.createImageData(2048, 2048);
+        const normalImageData = normalCtx.createImageData(canvasSize.width, canvasSize.height);
         const data = imageData.data;
         const normalData = normalImageData.data;
 
         // Generate normal vectors for 3D lighting
-        for (let y = 0; y < 2048; y++) {
-          for (let x = 0; x < 2048; x++) {
-            const idx = (y * 2048 + x) * 4;
+        for (let y = 0; y < canvasSize.height; y++) {
+          for (let x = 0; x < canvasSize.width; x++) {
+            const idx = (y * canvasSize.width + x) * 4;
             const alpha = data[idx + 3];
             
             if (alpha > 0) {
               // Calculate normal vector based on surrounding pixels
-              const left = x > 0 ? data[((y * 2048 + (x - 1)) * 4) + 3] : 0;
-              const right = x < 2047 ? data[((y * 2048 + (x + 1)) * 4) + 3] : 0;
-              const up = y > 0 ? data[(((y - 1) * 2048 + x) * 4) + 3] : 0;
-              const down = y < 2047 ? data[(((y + 1) * 2048 + x) * 4) + 3] : 0;
+              const left = x > 0 ? data[((y * canvasSize.width + (x - 1)) * 4) + 3] : 0;
+              const right = x < canvasSize.width - 1 ? data[((y * canvasSize.width + (x + 1)) * 4) + 3] : 0;
+              const up = y > 0 ? data[(((y - 1) * canvasSize.width + x) * 4) + 3] : 0;
+              const down = y < canvasSize.height - 1 ? data[(((y + 1) * canvasSize.width + x) * 4) + 3] : 0;
               
               // Calculate gradient
               const dx = (right - left) / 255;
@@ -1530,21 +1586,23 @@ export function ShirtRefactored({
     
     console.log('🎨 Rendering vector paths on composed canvas:', vectorPaths.length, 'paths');
     
+    // CRITICAL FIX: Use brush engine's renderVectorPath function for proper gradient support
+    const brushEngine = (window as any).__brushEngine;
+    
     // Render vector paths directly - they'll show on the texture
     vectorPaths.forEach((path: any) => {
       if (path.points.length === 0) return;
       
+      // CRITICAL FIX: Use THIN preview line to show path structure (not brush size)
       ctx.save();
       
-      // Draw path lines with maximum visibility
-      ctx.strokeStyle = '#FF00FF'; // Bright magenta
-      ctx.lineWidth = 6; // Thicker for visibility
+      // Use thin line rendering for preview - just to show the path structure
+      ctx.strokeStyle = '#00FF00'; // Bright green for visibility
+      ctx.lineWidth = 2; // FIXED: Thin preview line, not brush size
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.setLineDash([12, 6]); // Longer dashes
-      ctx.globalAlpha = 1.0;
-      ctx.shadowColor = '#FF00FF';
-      ctx.shadowBlur = 15;
+      ctx.globalAlpha = 0.5; // Semi-transparent for preview
+      
       ctx.beginPath();
       
       path.points.forEach((point: any, index: number) => {
@@ -1559,8 +1617,7 @@ export function ShirtRefactored({
       });
       
       ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.shadowBlur = 0;
+      ctx.restore();
       
       // Draw anchors with maximum visibility
       path.points.forEach((point: any, index: number) => {
@@ -1591,8 +1648,150 @@ export function ShirtRefactored({
     updateModelTexture();
   }, [vectorPaths, vectorMode, showAnchorPoints, updateModelTexture]);
   
+  // PHASE 2: Get selected layer ID for rendering
+  const { selectedLayerId } = useStrokeSelection();
+  
+  // PHASE 2: Render stroke selection border when stroke is selected
+  useEffect(() => {
+    console.log('🎯 Border useEffect triggered, selectedLayerId:', selectedLayerId);
+    
+    if (!selectedLayerId) {
+      // No selection - re-compose layers to remove any existing border
+      const { composeLayers } = useAdvancedLayerStoreV2.getState();
+      composeLayers();
+      updateModelTexture(true);
+      console.log('🎯 Deselected - cleared border');
+      return;
+    }
+    
+    let mounted = true;
+    let animationFrameId: number;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    
+    const drawBorder = () => {
+      if (!mounted) return;
+      
+      // CRITICAL FIX: Re-compose layers and update texture FIRST
+      // Then draw border on top of the rendered texture
+      const { composeLayers } = useAdvancedLayerStoreV2.getState();
+      composeLayers();
+      
+      // Update texture to show layers first
+      updateModelTexture(true);
+      
+      console.log('🎯 Composed layers and updated texture, waiting to draw border...');
+      
+      // Use requestAnimationFrame + delay to draw border AFTER texture update completes
+      animationFrameId = requestAnimationFrame(() => {
+        if (!mounted) return;
+        
+        timeoutId = setTimeout(() => {
+          if (!mounted) return;
+          
+          console.log('🎯 Attempting to draw border on model surface...');
+          
+          // Get selected stroke data
+          const { layers } = useAdvancedLayerStoreV2.getState();
+          const selectedStroke = layers.find((l: any) => l.id === selectedLayerId);
+          
+          if (!selectedStroke?.content?.strokeData?.points) {
+            console.warn('⚠️ Selected stroke has no points:', selectedStroke);
+            return;
+          }
+          
+          const points = selectedStroke.content.strokeData.points;
+          const settings = selectedStroke.content.strokeData.settings;
+          const brushSize = settings?.size || 20;
+          const outlineRadius = brushSize / 2 + 6;
+          
+          console.log('🎯 Drawing border tracing full stroke outline, points:', points.length, 'size:', brushSize);
+          
+          // Draw border directly on the 3D model by updating the composed canvas
+          const composedCanvas = useApp.getState().composedCanvas;
+          if (!composedCanvas) {
+            console.warn('⚠️ No composed canvas available');
+            return;
+          }
+          
+          const ctx = composedCanvas.getContext('2d');
+          if (!ctx) {
+            console.warn('⚠️ Could not get context');
+            return;
+          }
+          
+          // Draw green dashed border tracing the FULL stroke outline
+          ctx.save();
+          ctx.strokeStyle = '#00ff00';
+          ctx.lineWidth = 4;
+          ctx.setLineDash([10, 5]);
+          ctx.globalAlpha = 1.0;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          
+          // Create a continuous outline by drawing circles at each point and connecting them
+          if (points.length === 1) {
+            ctx.beginPath();
+            ctx.arc(points[0].x, points[0].y, outlineRadius, 0, Math.PI * 2);
+            ctx.stroke();
+          } else {
+            // Draw circles at each point
+            for (const p of points) {
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, outlineRadius, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+            
+            // Draw connecting lines between circles
+            for (let i = 0; i < points.length - 1; i++) {
+              const p = points[i];
+              const nextP = points[i + 1];
+              const dx = nextP.x - p.x;
+              const dy = nextP.y - p.y;
+              const angle = Math.atan2(dy, dx);
+              
+              const startX = p.x + Math.cos(angle) * outlineRadius;
+              const startY = p.y + Math.sin(angle) * outlineRadius;
+              const endX = nextP.x + Math.cos(angle + Math.PI) * outlineRadius;
+              const endY = nextP.y + Math.sin(angle + Math.PI) * outlineRadius;
+              
+              ctx.beginPath();
+              ctx.moveTo(startX, startY);
+              ctx.lineTo(endX, endY);
+              ctx.stroke();
+            }
+          }
+          
+          ctx.restore();
+          
+          console.log('✅ Border drawn, updating texture...');
+          
+          // Force texture update to show border (bypass throttling)
+          updateModelTexture(true);
+          
+          console.log('✅ Stroke selection border rendered for:', selectedLayerId);
+        }, 200); // Increased delay to ensure texture update completes
+      });
+    };
+    
+    // Start the draw process
+    drawBorder();
+    
+    // Cleanup function to prevent memory leaks
+    return () => {
+      mounted = false;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [selectedLayerId, updateModelTexture]);
+  
   // PERFORMANCE OPTIMIZATION: Aggressively optimized painting function
   const paintAtEvent = useCallback((e: any) => {
+    // CRITICAL FIX: Only create layer once per stroke, not for each paint event
+    // Check if we're already in a stroke session
     // PERFORMANCE: Disable all console logging in hot path for maximum performance
     // Only log critical errors
     
@@ -1653,49 +1852,94 @@ export function ShirtRefactored({
       return;
     }
     
-    // Enhanced layer management - get or create active layer for current tool using V2 system
+    // PHASE 1: Individual stroke layers - create layer for each stroke
     let layer;
-    try {
-      // Use AdvancedLayerSystemV2 directly
-      const { layers, activeLayerId, createLayer } = useAdvancedLayerStoreV2.getState();
-      
-      // Check if we have an active layer
-      if (activeLayerId) {
-        const activeLayer = layers.find(l => l.id === activeLayerId);
-        if (activeLayer && activeLayer.visible) {
-          layer = {
-            id: activeLayer.id,
-            name: activeLayer.name,
-            canvas: activeLayer.content.canvas || document.createElement('canvas')
-          };
-        }
-      }
-      
-      // Create a new layer if none exists
-      if (!layer) {
-        const layerId = createLayer('paint', `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Layer`);
-        const newLayer = layers.find(l => l.id === layerId);
+    
+    // CRITICAL FIX: Always read fresh value from ref
+    const currentStrokeSession = strokeSessionRef.current;
+    
+    // CRITICAL FIX: Check if we're starting a new stroke session (only on first paintAtEvent call)
+    if (!currentStrokeSession || !currentStrokeSession.layerId) {
+      try {
+        // Use AdvancedLayerSystemV2 directly
+        const { layers, createLayer } = useAdvancedLayerStoreV2.getState();
+        
+        // CRITICAL: Create a new layer for THIS specific stroke (only once)
+        const strokeId = `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const layerName = `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Stroke ${strokeId}`;
+        const layerId = createLayer('paint', layerName);
+        
+        // CRITICAL FIX: Re-read layers from store after creation to get the newly created layer
+        // Zustand state updates are asynchronous, so we need to re-read the state
+        const { layers: updatedLayers } = useAdvancedLayerStoreV2.getState();
+        
+        // Find the newly created layer
+        const newLayer = updatedLayers.find(l => l.id === layerId);
+        
         if (newLayer) {
+          // PHASE 1: Capture current brush settings for this stroke session
+          const brushColor = useApp.getState().brushColor;
+          const brushSize = useApp.getState().brushSize;
+          const brushOpacity = useApp.getState().brushOpacity;
+          const gradientSettings = (window as any).getGradientSettings?.();
+          const brushGradientData = gradientSettings?.brush;
+          
+          // PHASE 1: Initialize stroke session with settings
+          strokeSessionRef.current = {
+            id: strokeId,
+            layerId: layerId,
+            points: [],
+            bounds: null,
+            settings: {
+              size: brushSize,
+              color: brushColor,
+              opacity: brushOpacity,
+              gradient: brushGradientData?.mode === 'gradient' ? {
+                type: brushGradientData.type,
+                angle: brushGradientData.angle,
+                stops: brushGradientData.stops
+              } : undefined
+            },
+            tool: activeTool
+          };
+          
           layer = {
             id: newLayer.id,
             name: newLayer.name,
             canvas: newLayer.content.canvas || document.createElement('canvas')
           };
+          
+          console.log('🎨 PHASE 1: Created new layer for stroke:', strokeId);
         }
+      } catch (error) {
+        console.warn('🎨 Advanced layer system V2 failed, fallback:', error);
+        const getOrCreateActiveLayer = useApp.getState().getOrCreateActiveLayer;
+        layer = getOrCreateActiveLayer ? getOrCreateActiveLayer(activeTool) : null;
       }
-    } catch (error) {
-      console.warn('🎨 Advanced layer system V2 failed, using fallback:', error);
-      // Fallback to original system
-      const getOrCreateActiveLayer = useApp.getState().getOrCreateActiveLayer;
-      layer = getOrCreateActiveLayer ? getOrCreateActiveLayer(activeTool) : null;
+    } else {
+      // PHASE 1: Continue using the current stroke's layer (reuse existing layer)
+      try {
+        const { layers } = useAdvancedLayerStoreV2.getState();
+        const strokeLayer = layers.find(l => l.id === currentStrokeSession.layerId);
+        
+        if (strokeLayer) {
+          layer = {
+            id: strokeLayer.id,
+            name: strokeLayer.name,
+            canvas: strokeLayer.content.canvas || document.createElement('canvas')
+          };
+        }
+      } catch (error) {
+        console.warn('🎨 Advanced layer system V2 failed, using fallback:', error);
+        const getOrCreateActiveLayer = useApp.getState().getOrCreateActiveLayer;
+        layer = getOrCreateActiveLayer ? getOrCreateActiveLayer(activeTool) : null;
+      }
     }
     
     if (!layer) {
-      console.log('🎨 ShirtRefactored: paintAtEvent - failed to get/create layer for tool:', activeTool);
       return;
     }
     
-    console.log('🎨 Using layer for tool:', { tool: activeTool, layerId: layer.id, layerName: layer.name });
 
     // Get symmetry settings
     const symmetryX = useApp.getState().symmetryX;
@@ -1714,99 +1958,34 @@ export function ShirtRefactored({
       console.log('🔄 No symmetry enabled');
     }
     
-    // Helper function to draw at multiple positions based on symmetry
+    // SIMPLE: Helper function to draw at multiple positions based on symmetry
     const drawWithSymmetry = (drawFn: (x: number, y: number) => void) => {
-      const canvas = layer.canvas;
-      // CRITICAL FIX: Use precise UV-to-pixel conversion with proper rounding
-      // This ensures perfect 1:1 correspondence between UV coordinates and canvas pixels
-      const x = Math.round(uv.x * (canvas.width - 1));
-      const y = Math.round(uv.y * (canvas.height - 1));
+      // SIMPLE: Use the layer canvas dimensions directly
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
       
-      // Ensure coordinates are within canvas bounds
-      const clampedX = Math.max(0, Math.min(canvas.width - 1, x));
-      const clampedY = Math.max(0, Math.min(canvas.height - 1, y));
+      // SIMPLE: Convert UV to canvas coordinates
+      const x = Math.floor(uv.x * canvasWidth);
+      const y = Math.floor(uv.y * canvasHeight);
       
-      console.log('🎨 UV to pixel conversion:', {
-        uv: { x: uv.x, y: uv.y },
-        pixel: { x: clampedX, y: clampedY },
-        canvas: { width: canvas.width, height: canvas.height },
-        conversion: {
-          xFormula: `Math.round(${uv.x} * (${canvas.width} - 1)) = ${x}`,
-          yFormula: `Math.round(${uv.y} * (${canvas.height} - 1)) = ${y}`,
-          clampedX: `${Math.max(0, Math.min(canvas.width - 1, x))}`,
-          clampedY: `${Math.max(0, Math.min(canvas.height - 1, y))}`
-        }
-      });
+      // SIMPLE: Draw at original position
+      drawFn(x, y);
       
-      // Calculate all possible mirror positions
-      const positions = new Set<string>();
-      
-      // Always draw at original position
-      positions.add(`${clampedX},${clampedY}`);
-      drawFn(clampedX, clampedY);
-      
-      // PERFORMANCE: Skip symmetry calculations if no symmetry is enabled
-      if (!symmetryX && !symmetryY && !symmetryZ) {
-        return;
-      }
-      
-      // Fallback: Simple UV-based symmetry when world position conversion fails
-      const useFallbackSymmetry = () => {
-        console.log('🔄 Using fallback UV-based symmetry');
-        
-        // X-axis symmetry: Mirror across center of UV space
+      // SIMPLE: Apply symmetry if enabled
       if (symmetryX) {
-          const mirrorX = canvas.width - 1 - clampedX;
-          const mirrorY = clampedY;
-          if (mirrorX >= 0 && mirrorX < canvas.width) {
-          const pos = `${mirrorX},${mirrorY}`;
-          if (!positions.has(pos)) {
-            positions.add(pos);
-            drawFn(mirrorX, mirrorY);
-          }
-        }
+        const mirrorX = canvasWidth - 1 - x;
+        drawFn(mirrorX, y);
       }
       
-        // Y-axis symmetry: Mirror across center of UV space
       if (symmetryY) {
-          const mirrorX = clampedX;
-          const mirrorY = canvas.height - 1 - clampedY;
-          if (mirrorY >= 0 && mirrorY < canvas.height) {
-          const pos = `${mirrorX},${mirrorY}`;
-          if (!positions.has(pos)) {
-            positions.add(pos);
-            drawFn(mirrorX, mirrorY);
-          }
-        }
+        const mirrorY = canvasHeight - 1 - y;
+        drawFn(x, mirrorY);
       }
       
-        // Z-axis symmetry: Mirror both X and Y (diagonal symmetry)
       if (symmetryZ) {
-          const mirrorX = canvas.width - 1 - clampedX;
-          const mirrorY = canvas.height - 1 - clampedY;
-          if (mirrorX >= 0 && mirrorX < canvas.width && mirrorY >= 0 && mirrorY < canvas.height) {
-          const pos = `${mirrorX},${mirrorY}`;
-          if (!positions.has(pos)) {
-            positions.add(pos);
-            drawFn(mirrorX, mirrorY);
-          }
-        }
-      }
-      };
-      
-      // Use simplified UV-based symmetry to avoid world position conversion issues
-      console.log('🔄 Using simplified UV-based symmetry');
-      useFallbackSymmetry();
-      
-      // PERFORMANCE: Reduce debug logging frequency
-      if (Math.random() < 0.05) {
-        console.log('🔄 Symmetry Debug:', {
-          original: { x, y },
-          canvasSize: { width: canvas.width, height: canvas.height },
-          enabled: { symmetryX, symmetryY, symmetryZ },
-          positions: Array.from(positions),
-          totalPositions: positions.size
-        });
+        const mirrorX = canvasWidth - 1 - x;
+        const mirrorY = canvasHeight - 1 - y;
+        drawFn(mirrorX, mirrorY);
       }
     };
 
@@ -1828,7 +2007,15 @@ export function ShirtRefactored({
       
       // Create or append to vector path
       if (!activePathId) {
-        // Start new path with proper VectorAnchor format
+        // CRITICAL FIX: Include current brush/gradient settings in the vector path
+        const brushSettings = useApp.getState();
+        const gradientSettings = (window as any).getGradientSettings?.();
+        const brushGradientData = gradientSettings?.brush;
+        
+        // Only include gradient if mode is actually 'gradient'
+        const shouldUseGradient = brushGradientData && brushGradientData.mode === 'gradient';
+        
+        // Start new path with proper VectorAnchor format and settings
         const newPath: any = {
           id: `path-${Date.now()}`,
           points: [{
@@ -1838,13 +2025,27 @@ export function ShirtRefactored({
             outHandle: null
           }],
           closed: false,
-          tool: activeTool // Store which tool this path is for
+          tool: activeTool, // Store which tool this path is for
+          // CRITICAL FIX: Store current settings including gradient ONLY if mode is gradient
+          settings: {
+            size: brushSettings.brushSize || 10,
+            opacity: brushSettings.brushOpacity || 1.0,
+            hardness: brushSettings.brushHardness || 0.5,
+            flow: brushSettings.brushFlow || 0.8,
+            spacing: brushSettings.brushSpacing || 0.3,
+            angle: 0,
+            roundness: 1,
+            color: brushSettings.brushColor || '#000000',
+            // CRITICAL: Only include gradient if mode is actually 'gradient'
+            gradient: shouldUseGradient ? brushGradientData : undefined,
+            blendMode: brushSettings.blendMode || 'source-over'
+          }
         };
         useApp.setState({ 
           vectorPaths: [...vectorPaths, newPath],
           activePathId: newPath.id
         });
-        console.log('🎨 Created new vector path:', newPath.id);
+        console.log('🎨 Created new vector path with settings:', newPath.id, newPath.settings);
       } else {
         // Add point to existing path with proper VectorAnchor format
         const pathIndex = vectorPaths.findIndex(p => p.id === activePathId);
@@ -1902,7 +2103,7 @@ export function ShirtRefactored({
     }
     
     // PERFORMANCE FIX: Removed excessive color debugging logs
-    const currentBrushColor = useApp.getState().brushColor;
+    const currentBrushColor = brushColor;
 
       // PERFORMANCE: Optimized canvas operations
       ctx.save();
@@ -1915,208 +2116,168 @@ export function ShirtRefactored({
     ctx.shadowOffsetY = 0;
     
     if (activeTool === 'brush') {
-      // Apply brush flow to opacity (flow controls how much paint is applied per stroke)
-      const effectiveOpacity = brushOpacity * brushFlow;
-      ctx.globalAlpha = effectiveOpacity;
-      ctx.globalCompositeOperation = blendMode;
+      // SIMPLE FIX: Direct mouse-to-brush mapping
+      const brushEngine = (window as any).__brushEngine;
+      if (!brushEngine) {
+        console.warn('🖌️ Brush engine not available');
+        return;
+      }
+
+      // Get current settings - use consistent source from brushSettings
+      const currentBrushSize = brushSize;
+      const actualBrushColor = brushColor;
       
-      // Use the current brush color from the store (force real-time updates)
-      const actualBrushColor = useApp.getState().brushColor;
+      // SIMPLE: Use the layer canvas dimensions directly
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
       
-      // Check if gradient mode is active
-      const gradientSettings = (window as any).getGradientSettings ? (window as any).getGradientSettings() : null;
-      const isGradientMode = gradientSettings && gradientSettings.brush && gradientSettings.brush.mode === 'gradient';
+      // SIMPLE: Convert UV to canvas coordinates ONCE
+      const canvasX = Math.floor(uv.x * canvasWidth);
+      const canvasY = Math.floor(uv.y * canvasHeight);
       
-      ctx.fillStyle = actualBrushColor;
-      
-      // Define brush drawing function for symmetry
-      const drawBrushAt = (x: number, y: number) => {
-        // FIXED: Always get current brush size from store to avoid stale closures
-        const currentBrushSize = useApp.getState().brushSize;
-        console.log('🖌️ BRUSH DEBUG - drawBrushAt:', { 
-          canvasPos: { x, y }, 
-          brushSize: currentBrushSize, 
-          canvasSize: { width: canvas.width, height: canvas.height },
-          uvEstimate: { u: x / canvas.width, v: y / canvas.height },
-          brushColor: currentBrushColor,
-          ctxGlobalAlpha: ctx.globalAlpha,
-          ctxFillStyle: ctx.fillStyle
-        });
-        
-        // Apply brush hardness (hardness affects edge softness)
-        if (isGradientMode && gradientSettings) {
-          // Create canvas gradient from gradient settings
-          const grad = gradientSettings.brush;
-          let canvasGradient;
-          
-          if (grad.type === 'linear') {
-            const angleRad = (grad.angle * Math.PI) / 180;
-            const x1 = x - Math.cos(angleRad) * currentBrushSize;
-            const y1 = y - Math.sin(angleRad) * currentBrushSize;
-            const x2 = x + Math.cos(angleRad) * currentBrushSize;
-            const y2 = y + Math.sin(angleRad) * currentBrushSize;
-            canvasGradient = ctx.createLinearGradient(x1, y1, x2, y2);
-          } else {
-            // Radial gradient
-            canvasGradient = ctx.createRadialGradient(x, y, 0, x, y, currentBrushSize / 2);
-          }
-          
-          // Add color stops
-          grad.stops.forEach((stop: any) => {
-            canvasGradient.addColorStop(stop.position / 100, stop.color);
-          });
-          
-          ctx.fillStyle = canvasGradient;
-        } else if (brushHardness < 1) {
-          // Create gradient for soft edges when hardness < 1
-          const gradientRadius = currentBrushSize / 2;
-          console.log('🎨 Creating soft gradient with radius:', gradientRadius, 'brushSize:', currentBrushSize);
-          const gradient = ctx.createRadialGradient(x, y, 0, x, y, gradientRadius);
-          gradient.addColorStop(0, actualBrushColor);
-          gradient.addColorStop(brushHardness, actualBrushColor);
-          gradient.addColorStop(1, 'transparent');
-          ctx.fillStyle = gradient;
-        } else {
-          ctx.fillStyle = actualBrushColor;
-        }
-        
-        // Use the brush engine to create realistic brush stamp
-        try {
-          // Import brush engine dynamically to avoid circular dependencies
-          const brushEngine = (window as any).__brushEngine;
-          if (!brushEngine) {
-            console.warn('🖌️ Brush engine not available, falling back to basic shapes');
-            // Fallback to basic shape
-        ctx.beginPath();
-            ctx.arc(x, y, currentBrushSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-            return;
-          }
-          
-          // Create brush settings for the engine
-          const brushSettings = {
-            size: currentBrushSize,
-            shape: brushShape,
-            opacity: brushOpacity,
-            hardness: brushHardness,
-            color: actualBrushColor,
-            flow: brushFlow,
-            angle: 0, // Could be made dynamic later
-            texture: { enabled: false, pattern: null }
-          };
-          
-          // Create the brush stamp
-          const brushStamp = brushEngine.createBrushStamp(brushSettings);
-          
-          // Apply the stamp to canvas
-          const stampSize = brushStamp.width;
-          const halfStampSize = stampSize / 2;
-          
-          ctx.save();
-          ctx.globalCompositeOperation = blendMode;
-          ctx.globalAlpha = effectiveOpacity;
-          
-          // Draw the brush stamp centered at the brush position
-          ctx.drawImage(
-            brushStamp,
-            x - halfStampSize,
-            y - halfStampSize,
-            stampSize,
-            stampSize
-          );
-          
-          ctx.restore();
-          
-          console.log('🖌️ Applied brush stamp:', {
-            stampSize,
-            brushShape: brushShape,
-            position: { x, y }
-          });
-          
-        } catch (error) {
-          console.warn('🖌️ Error using brush engine, falling back to basic shape:', error);
-          // Fallback to basic shape
-          ctx.beginPath();
-          ctx.arc(x, y, currentBrushSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-        }
-        
-        // DEBUG: Check if brush content was actually drawn
-        const imageData = ctx.getImageData(x, y, 1, 1);
-        const pixel = imageData.data;
-        console.log('🖌️ DEBUG: Brush pixel after drawing:', `rgba(${pixel[0]}, ${pixel[1]}, ${pixel[2]}, ${pixel[3]})`);
+      const brushPoint = {
+        x: canvasX,
+        y: canvasY,
+        pressure: 1,
+        tiltX: 0,
+        tiltY: 0,
+        velocity: 0,
+        timestamp: Date.now(),
+        distance: 0,
+        uv: { x: uv.x, y: uv.y },
+        worldPosition: point
       };
+
+      // Get gradient settings if in gradient mode
+      const gradientSettings = (window as any).getGradientSettings?.();
+      const brushGradientData = gradientSettings?.brush;
       
-      // Draw with symmetry
-      drawWithSymmetry(drawBrushAt);
+      // Only log if actually using gradient
+      if (brushGradientData?.mode === 'gradient') {
+        console.log('🎨 Using gradient mode for brush stroke');
+      }
       
-      // Track brush stroke for layer management using V2 system
-      let currentLayer;
-      try {
-        // Use AdvancedLayerSystemV2 directly
-        const { layers, activeLayerId, createLayer } = useAdvancedLayerStoreV2.getState();
+      // SIMPLE: Create brush settings
+      const brushSettings = {
+        size: currentBrushSize,
+        opacity: brushOpacity,
+        hardness: brushHardness,
+        flow: brushFlow,
+        spacing: brushSpacing,
+        angle: 0,
+        roundness: 1,
+        color: actualBrushColor,
+        gradient: brushGradientData?.mode === 'gradient' ? {
+          type: brushGradientData.type,
+          angle: brushGradientData.angle,
+          stops: brushGradientData.stops
+        } : undefined,
+        blendMode: blendMode,
+        shape: brushShape,
+        dynamics: {
+          sizePressure: true,
+          opacityPressure: true,
+          anglePressure: false,
+          spacingPressure: false,
+          velocitySize: false,
+          velocityOpacity: false
+        },
+        texture: { 
+          enabled: false, 
+          pattern: null, 
+          scale: 1, 
+          rotation: 0, 
+          opacity: 1, 
+          blendMode: 'multiply' 
+        }
+      };
+
+      // CRITICAL FIX: Render directly to layer.canvas instead of brushStrokes array
+      // Get layer canvas context and render the brush point immediately
+      const layerCtx = layer.canvas.getContext('2d');
+      if (layerCtx && brushEngine && brushEngine.createBrushStamp) {
+        const brushStamp = brushEngine.createBrushStamp(brushSettings);
+        layerCtx.save();
         
-        // Check if we have an active layer
-        if (activeLayerId) {
-          const activeLayer = layers.find(l => l.id === activeLayerId);
-          if (activeLayer && activeLayer.visible) {
-            currentLayer = {
-              id: activeLayer.id,
-              name: activeLayer.name,
-              canvas: activeLayer.content.canvas || document.createElement('canvas')
+        // CRITICAL FIX: Always use source-over when drawing to individual layer canvas
+        // Blend mode is applied ONLY during layer composition (composeLayers)
+        // This prevents double blending and incorrect behavior
+        layerCtx.globalCompositeOperation = 'source-over';
+        
+        // CRITICAL FIX: Apply flow to opacity
+        // Flow controls how much paint is applied per stamp (builds up paint gradually)
+        // Multiply opacity by flow to control paint buildup
+        layerCtx.globalAlpha = brushSettings.opacity * brushSettings.flow;
+        
+        // Draw brush stamp
+        layerCtx.drawImage(
+          brushStamp,
+          canvasX - brushSettings.size / 2,
+          canvasY - brushSettings.size / 2
+        );
+        layerCtx.restore();
+        
+        // PHASE 1: Track this point in the stroke session
+        if (strokeSessionRef.current) {
+          strokeSessionRef.current.points.push({ x: canvasX, y: canvasY });
+          strokeSessionRef.current.settings = brushSettings;
+          
+          // Update bounds as we draw
+          const brushRadius = brushSettings.size / 2;
+          if (!strokeSessionRef.current.bounds) {
+            strokeSessionRef.current.bounds = {
+              minX: canvasX - brushRadius,
+              minY: canvasY - brushRadius,
+              maxX: canvasX + brushRadius,
+              maxY: canvasY + brushRadius
             };
+          } else {
+            strokeSessionRef.current.bounds.minX = Math.min(strokeSessionRef.current.bounds.minX, canvasX - brushRadius);
+            strokeSessionRef.current.bounds.minY = Math.min(strokeSessionRef.current.bounds.minY, canvasY - brushRadius);
+            strokeSessionRef.current.bounds.maxX = Math.max(strokeSessionRef.current.bounds.maxX, canvasX + brushRadius);
+            strokeSessionRef.current.bounds.maxY = Math.max(strokeSessionRef.current.bounds.maxY, canvasY + brushRadius);
           }
         }
         
-        // Create a new layer if none exists
-        if (!currentLayer) {
-          const layerId = createLayer('paint', `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Layer`);
-          const newLayer = layers.find(l => l.id === layerId);
-          if (newLayer) {
-            currentLayer = {
-              id: newLayer.id,
-              name: newLayer.name,
-              canvas: newLayer.content.canvas || document.createElement('canvas')
-            };
-          }
+        // SIMPLE BRUSH - Rendered directly to layer.canvas
+      } else if (layerCtx) {
+        // Fallback to simple circle rendering
+        layerCtx.save();
+        layerCtx.fillStyle = actualBrushColor;
+        layerCtx.globalAlpha = brushOpacity;
+        layerCtx.beginPath();
+        layerCtx.arc(canvasX, canvasY, currentBrushSize / 2, 0, Math.PI * 2);
+        layerCtx.fill();
+        layerCtx.restore();
+        
+        // PHASE 1: Track this point
+        if (strokeSessionRef.current) {
+          strokeSessionRef.current.points.push({ x: canvasX, y: canvasY });
+          strokeSessionRef.current.settings = brushSettings;
         }
-      } catch (error) {
-        console.warn('🎨 Advanced layer system V2 failed, using fallback:', error);
-        const getOrCreateActiveLayer = useApp.getState().getOrCreateActiveLayer;
-        currentLayer = getOrCreateActiveLayer ? getOrCreateActiveLayer(activeTool) : null;
-      }
-      if (currentLayer) {
-        const newStroke = {
-          id: `stroke-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          layerId: currentLayer.id,
-          points: [{ x: Math.floor(uv.x * layer.canvas.width), y: Math.floor(uv.y * layer.canvas.height) }],
-          color: actualBrushColor,
-          size: brushSize,
-          opacity: effectiveOpacity,
-          timestamp: Date.now()
-        };
         
-        // Add brush stroke to V2 system
-        const { addBrushStroke } = useAdvancedLayerStoreV2.getState();
-        addBrushStroke(currentLayer.id, newStroke);
-        
-        console.log('🎨 Brush stroke tracked and linked to layer:', currentLayer.id, newStroke);
-        
-        // CRITICAL FIX: Trigger layer composition to ensure brush strokes are rendered
-        console.log('🎨 Triggering layer composition for brush stroke...');
-        useApp.getState().composeLayers();
+        // SIMPLE BRUSH - Rendered to layer.canvas (fallback)
       }
       
-      // PERFORMANCE FIX: Reduced debug logging
-      if (Date.now() % 5000 < 100) { // Only log every 5 seconds
-        console.log('🎨 Applied brush paint with color:', actualBrushColor, 'symmetry:', { symmetryX, symmetryY, symmetryZ });
-      }
-      
+      // CRITICAL FIX: Update model texture after brush stroke
+      setTimeout(() => {
+        // CRITICAL FIX: Mark layer as updated in V2 store and trigger thumbnail update
+        const v2Store = useAdvancedLayerStoreV2.getState();
+        v2Store.updateLayer(layer.id, { updatedAt: new Date() });
+        
+        // CRITICAL FIX: Generate thumbnail to update UI
+        v2Store.generateLayerThumbnail(layer.id);
+        
+        // Update model texture
+        if ((window as any).updateModelTexture) {
+          (window as any).updateModelTexture(true, false);
+        }
+      }, 10);
     } else if (activeTool === 'fill') {
       // Fill tool - flood fill algorithm
       console.log('🪣 Fill: Starting flood fill at position:', { x, y });
       
-      const fillColor = useApp.getState().brushColor;
+      const fillColor = brushColor;
       const fillTolerance = useApp.getState().fillTolerance;
       const fillGrow = useApp.getState().fillGrow;
       const fillAntiAlias = useApp.getState().fillAntiAlias;
@@ -2205,7 +2366,7 @@ export function ShirtRefactored({
       console.log('🧽 Eraser: Erasing from all texture layers and displacement layers at position:', { x, y });
       
       // FIXED: Get current brush size from store to avoid stale closures
-      const currentBrushSize = useApp.getState().brushSize;
+      const currentBrushSize = brushSize;
       const halfSize = currentBrushSize / 2;
       const appState = useApp.getState();
       
@@ -2948,10 +3109,11 @@ export function ShirtRefactored({
 
     } else if (activeTool === 'vector') {
       // Handle vector tool with different edit modes
+      // CRITICAL FIX: Get fresh state each time to avoid stale state issues
       const vectorState = useApp.getState();
       const { vectorEditMode, selectedAnchor, vectorPaths } = vectorState;
       
-      console.log('🎨 Vector: Mode:', vectorEditMode, 'at UV:', { u: uv.x, v: uv.y });
+      console.log('🎨 Vector: Mode:', vectorEditMode, 'at UV:', { u: uv.x, v: uv.y }, 'VectorPaths:', vectorPaths.length);
 
       if (vectorEditMode === 'pen') {
         // Smart pen mode - check if clicking near existing anchor first
@@ -2959,8 +3121,11 @@ export function ShirtRefactored({
         let minDistance = 20; // 20 pixel threshold for anchor detection
 
         console.log('🎨 Vector: Checking for nearby anchors at click position:', { x, y });
+        
+        // CRITICAL FIX: Use fresh vectorPaths for anchor detection to avoid stale state
+        const freshPathsForDetection = useApp.getState().vectorPaths;
 
-        vectorPaths.forEach(path => {
+        freshPathsForDetection.forEach(path => {
           path.points.forEach((point, index) => {
             const anchorX = Math.floor(point.u * canvas.width);
             const anchorY = Math.floor(point.v * canvas.height);
@@ -3003,7 +3168,11 @@ export function ShirtRefactored({
           return; // Don't create new anchor, just select existing one
         } else {
           // No nearby anchor - clear any existing selection and create new anchor
-          const activePathId = vectorState.activePathId;
+          // CRITICAL FIX: Get fresh activePathId from current state, not captured state
+          const freshState = useApp.getState();
+          const activePathId = freshState.activePathId;
+          
+          console.log('🎨 Vector: activePathId:', activePathId, 'total paths:', freshState.vectorPaths.length);
           
           // Clear any existing selection first
           useApp.setState({ selectedAnchor: null });
@@ -3017,30 +3186,51 @@ export function ShirtRefactored({
             curveControl: false
           };
 
-          // Check if we have an active path
-          const activePath = vectorPaths.find(p => p.id === activePathId);
+          // CRITICAL FIX: Use fresh vectorPaths from current state
+          const currentVectorPaths = freshState.vectorPaths;
+          const activePath = currentVectorPaths.find(p => p.id === activePathId);
 
           if (!activePath) {
-            // Start new vector path
+            // CRITICAL FIX: Include current tool settings when creating new path
+            const appState = useApp.getState();
+            const gradientSettings = (window as any).getGradientSettings?.();
+            const brushGradientData = gradientSettings?.brush;
+            const shouldUseGradient = brushGradientData && brushGradientData.mode === 'gradient';
+            
+            // Start new vector path with proper settings
             const newPath = {
               id: `vpath-${Date.now()}`,
               points: [anchor],
-              closed: false
+              closed: false,
+              tool: activeTool, // Store which tool this path is for
+              // CRITICAL: Include current settings including gradient
+              settings: {
+                size: appState.brushSize || 10,
+                opacity: appState.brushOpacity || 1.0,
+                hardness: appState.brushHardness || 0.5,
+                flow: appState.brushFlow || 0.8,
+                spacing: 0.3,
+                angle: 0,
+                roundness: 1,
+                color: appState.brushColor || '#000000',
+                gradient: shouldUseGradient ? brushGradientData : undefined,
+                blendMode: appState.blendMode || 'source-over'
+              }
             };
             
-            // Add to vector paths and set as active, clear previous selection
+            // CRITICAL FIX: Use fresh vectorPaths from freshState
             useApp.setState({ 
-              vectorPaths: [...vectorPaths, newPath],
+              vectorPaths: [...currentVectorPaths, newPath],
               activePathId: newPath.id,
               selectedAnchor: { 
                 pathId: newPath.id, 
                 anchorIndex: 0 
               }
             });
-            console.log('🎨 Vector: Started new path at UV:', { u: uv.x, v: uv.y });
+            console.log('🎨 Vector: Started new path at UV:', { u: uv.x, v: uv.y }, 'with settings:', newPath.settings);
           } else {
             // Add anchor to existing path
-            const updatedPaths = vectorPaths.map(p => 
+            const updatedPaths = currentVectorPaths.map(p => 
               p.id === activePathId 
                 ? { ...p, points: [...p.points, anchor] }
                 : p
@@ -3224,99 +3414,21 @@ export function ShirtRefactored({
       }
 
     } else if (activeTool === 'puffPrint') {
-      // ========== PUFF TOOL WITH V2 LAYER SYSTEM INTEGRATION ==========
-      // Now uses V2 layer system for proper displacement canvas support
+      // ========== PUFF TOOL - DELEGATED TO UNIFIED PUFF PRINT SYSTEM ==========
+      // The puff tool is now handled by UnifiedPuffPrintSystem component
+      // This ensures consistent behavior and proper integration with the layer system
+      console.log('🎈 Puff tool delegated to UnifiedPuffPrintSystem');
       
-      const puffBrushSize = useApp.getState().puffBrushSize;
-      const puffColor = useApp.getState().puffColor;
-      const puffHeight = useApp.getState().puffHeight; // 0-1 range
-      const puffSoftness = useApp.getState().puffSoftness; // 0-1 range
-      
-      if (!ctx) return;
-      
-      const puffRadius = puffBrushSize / 2;
-      
-      // CRITICAL FIX: Use V2 layer system instead of App.tsx layers
-      const v2State = useAdvancedLayerStoreV2.getState();
-      const activeLayer = v2State.layers.find(l => l.id === v2State.activeLayerId);
-      
-      // Helper function to create layer canvas
-      const createLayerCanvas = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = CANVAS_CONFIG.LAYER.width;
-        canvas.height = CANVAS_CONFIG.LAYER.height;
-        return canvas;
-      };
-      
-      // Ensure layer has displacement canvas
-      if (!activeLayer?.content.displacementCanvas) {
-        console.log('🎨 Creating displacement canvas for puff tool');
-        const displacementCanvas = createLayerCanvas();
-        v2State.updateLayer(activeLayer?.id || 'default', {
-          content: {
-            ...activeLayer?.content,
-            displacementCanvas: displacementCanvas
-          }
-        });
-      }
-      
-      const dispCtx = activeLayer?.content.displacementCanvas?.getContext('2d', { willReadFrequently: true });
-      if (!dispCtx) return;
-      
-      // STEP 1: Draw smooth continuous color stroke
-      const drawPuffColor = (px: number, py: number) => {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1.0;
-        ctx.fillStyle = puffColor;
-        ctx.beginPath();
-        ctx.arc(px, py, puffRadius, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // CRITICAL FIX: Also add puff element to V2 system
-        v2State.addPuffElementFromApp({
-          x: px,
-          y: py,
-          radius: puffRadius,
-          height: puffHeight,
-          softness: puffSoftness,
-          color: puffColor,
-          opacity: 1.0
-        }, activeLayer?.id);
-      };
-      
-      drawWithSymmetry(drawPuffColor);
-      
-      // STEP 2: Draw ULTRA-SMOOTH displacement dome using lighten blend mode
-      const centerHeight = Math.floor(255 * puffHeight);
-      
-      const drawDisplacement = (dpx: number, dpy: number) => {
-        // Use 'lighten' mode to prevent overlapping circles from creating spikes
-        dispCtx.globalCompositeOperation = 'lighten';
-        
-        // Create perfectly smooth radial gradient with more stops
-        const grad = dispCtx.createRadialGradient(dpx, dpy, 0, dpx, dpy, puffRadius);
-        
-        // Ultra-smooth dome using cosine interpolation
-        const stops = 12; // More stops = smoother
-        for (let i = 0; i <= stops; i++) {
-          const t = i / stops; // 0 to 1
-          // Cosine curve for perfect sphere: cos((1-t) * π/2)
-          const cosValue = Math.cos((1 - t) * Math.PI / 2);
-          const height = Math.floor(centerHeight * cosValue * puffSoftness);
-          grad.addColorStop(t, `rgb(${height}, ${height}, ${height})`);
+      // Pass the event to UnifiedPuffPrintSystem via global event system
+      const puffEvent = new CustomEvent('puffPrintEvent', {
+        detail: {
+          uv: uv,
+          point: point,
+          event: e
         }
-        grad.addColorStop(1, 'rgb(0, 0, 0)'); // Edge falloff
-        
-        dispCtx.fillStyle = grad;
-            dispCtx.beginPath();
-        dispCtx.arc(dpx, dpy, puffRadius, 0, Math.PI * 2);
-            dispCtx.fill();
-        
-        // Reset blend mode
-        dispCtx.globalCompositeOperation = 'source-over';
-      };
-      
-      drawWithSymmetry(drawDisplacement);
+      });
+      window.dispatchEvent(puffEvent);
+      return;
     }
     
     // Restore canvas state after drawing
@@ -3761,6 +3873,77 @@ export function ShirtRefactored({
         // Click is on model - start drawing
         console.log('🎨 Click on model - starting drawing');
         
+        // CRITICAL FIX: Check for stroke selection FIRST, before starting to paint
+        // This must happen BEFORE setting paintingActiveRef.current to true
+        const uv = e.uv as THREE.Vector2 | undefined;
+        const { composedCanvas } = useApp.getState();
+        
+        if (uv && composedCanvas && ['brush', 'eraser', 'puffPrint', 'embroidery'].includes(activeTool)) {
+          // PHASE 3: Check if clicking on a handle first
+          const { selectedLayerId } = useStrokeSelection.getState();
+          let handle = null;
+          
+          if (selectedLayerId) {
+            const { layers } = useAdvancedLayerStoreV2.getState();
+            const selectedLayer = layers.find(l => l.id === selectedLayerId);
+            
+            if (selectedLayer?.content?.strokeData?.bounds) {
+              const bounds = selectedLayer.content.strokeData.bounds;
+              const canvasX = uv.x * composedCanvas.width;
+              const canvasY = uv.y * composedCanvas.height;
+              const handleSize = 12;
+              
+              // Check corners and edges
+              if (Math.abs(canvasX - bounds.minX) < handleSize && Math.abs(canvasY - bounds.minY) < handleSize) {
+                handle = 'topLeft';
+              } else if (Math.abs(canvasX - bounds.maxX) < handleSize && Math.abs(canvasY - bounds.minY) < handleSize) {
+                handle = 'topRight';
+              } else if (Math.abs(canvasX - bounds.minX) < handleSize && Math.abs(canvasY - bounds.maxY) < handleSize) {
+                handle = 'bottomLeft';
+              } else if (Math.abs(canvasX - bounds.maxX) < handleSize && Math.abs(canvasY - bounds.maxY) < handleSize) {
+                handle = 'bottomRight';
+              } else if (Math.abs(canvasY - bounds.minY) < handleSize) {
+                handle = 'top';
+              } else if (Math.abs(canvasY - bounds.maxY) < handleSize) {
+                handle = 'bottom';
+              } else if (Math.abs(canvasX - bounds.minX) < handleSize) {
+                handle = 'left';
+              } else if (Math.abs(canvasX - bounds.maxX) < handleSize) {
+                handle = 'right';
+              }
+              
+              // PHASE 3: Start transform if handle clicked
+              if (handle) {
+                const { startTransform } = useStrokeSelection.getState();
+                startTransform(handle.includes('topLeft') || handle.includes('topRight') || handle.includes('bottomLeft') || handle.includes('bottomRight') ? 'resize' : 'move', handle, { x: canvasX, y: canvasY });
+                return;
+              }
+            }
+          }
+          
+          // Hit test for stroke selection
+          const { performHitTest } = useStrokeSelection.getState();
+          const hitLayerId = performHitTest({ u: uv.x, v: uv.y }, composedCanvas);
+          
+          if (hitLayerId) {
+            console.log('🎯 Clicked on existing stroke, selecting it');
+            const { selectStroke, startTransform } = useStrokeSelection.getState();
+            selectStroke(hitLayerId);
+            
+            // PHASE 3: Start move transform
+            const canvasX = uv.x * composedCanvas.width;
+            const canvasY = uv.y * composedCanvas.height;
+            startTransform('move', null, { x: canvasX, y: canvasY });
+            
+            // Don't start painting, just select
+            return;
+          } else {
+            console.log('🎯 Clicked on empty area, clearing selection');
+            const { clearSelection } = useStrokeSelection.getState();
+            clearSelection();
+          }
+        }
+        
         // Save state before drawing starts (for undo)
         const { saveState } = useApp.getState();
         const actionName = activeTool === 'brush' ? 'Brush Stroke' :
@@ -3805,7 +3988,7 @@ export function ShirtRefactored({
         
         // Only set paintingActiveRef for continuous drawing tools, not for vector tool
         if (activeTool !== 'vector') {
-        paintingActiveRef.current = true;
+          paintingActiveRef.current = true;
           console.log('🎨 Set paintingActiveRef to true for tool:', activeTool);
           
           // Clear last embroidery point when starting a new drawing session
@@ -4692,6 +4875,20 @@ const canvasDimensions = {
       const moveThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 50 : 20; // 20fps or 50fps (reduced from 60fps)
       if (now - lastMoveTime < moveThrottle) return; // Throttle moves
       lastMoveTime = now;
+      
+      // PHASE 3: Handle stroke transform during drag
+      const { transformMode } = useStrokeSelection.getState();
+      if (transformMode && e.uv) {
+        const uv = e.uv as THREE.Vector2;
+        const { composedCanvas } = useApp.getState();
+        if (composedCanvas) {
+          const canvasX = uv.x * composedCanvas.width;
+          const canvasY = uv.y * composedCanvas.height;
+          const { updateTransform } = useStrokeSelection.getState();
+          updateTransform({ x: canvasX, y: canvasY });
+          return; // Don't process other actions during transform
+        }
+      }
       
       // Update cursor for image tool when hovering over anchors
       if ((activeTool as string) === 'image' && !(window as any).__imageDragging && !(window as any).__imageResizing && !(window as any).__imageRotating) {
@@ -5637,11 +5834,93 @@ const canvasDimensions = {
       
       // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation end for drawing events
       triggerBrushEnd();
+      
+      // PHASE 1: Finalize stroke session and store stroke data
+      if (strokeSessionRef.current) {
+        const { layerId, points, bounds, settings, tool } = strokeSessionRef.current;
+        
+        if (bounds) {
+          // Calculate final bounds
+          const finalBounds = {
+            minX: bounds.minX,
+            minY: bounds.minY,
+            maxX: bounds.maxX,
+            maxY: bounds.maxY,
+            width: bounds.maxX - bounds.minX,
+            height: bounds.maxY - bounds.minY
+          };
+          
+          // Store stroke data in layer
+          const v2Store = useAdvancedLayerStoreV2.getState();
+          const { layers } = v2Store;
+          const strokeLayer = layers.find(l => l.id === layerId);
+          
+          if (strokeLayer && settings) {
+            // PHASE 1: Update layer content with stroke data using proper method
+            if (layerId) {
+              v2Store.updateLayerContent(layerId, {
+              strokeData: {
+                id: strokeSessionRef.current!.id,
+                points: points,
+                bounds: finalBounds,
+                settings: {
+                  size: settings.size || 10,
+                  color: settings.color || '#000000',
+                  opacity: settings.opacity || 1.0,
+                  gradient: settings.gradient
+                },
+                tool: tool,
+                createdAt: new Date(),
+                isSelected: false
+              }
+            });
+            }
+            
+            console.log('🎨 PHASE 1: Stroke finalized with data:', {
+              strokeId: strokeSessionRef.current!.id,
+              layerId: layerId,
+              pointsCount: points.length,
+              bounds: finalBounds
+            });
+          }
+        }
+        
+        // Clear stroke session
+        strokeSessionRef.current = null;
+      }
     }
     
-    // CRITICAL FIX: Don't re-enable controls for continuous drawing tools
-    // They should stay disabled until user manually enables them
+    // CRITICAL FIX: For continuous drawing tools, compose layers before returning
     if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+      console.log('🎨 Continuous drawing tool - composing layers for:', activeTool);
+      
+      // CRITICAL FIX: Call composeLayers to transfer layer content to composedCanvas
+      console.log('🎨 Composing V2 layers to transfer drawings to composedCanvas');
+      const v2Store = useAdvancedLayerStoreV2.getState();
+      v2Store.composeLayers();
+      
+      console.log('🎨 Composing App layers');
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      
+      // Final texture update when painting ends
+      updateModelTexture(false, false);
+      
+      // Update displacement maps for puff and embroidery (REAL 3D geometry)
+      if (activeTool === 'puffPrint') {
+        console.log('🎨 Updating displacement maps for puff print');
+        if ((window as any).updateModelWithPuffDisplacement) {
+          (window as any).updateModelWithPuffDisplacement();
+        }
+      }
+      
+      if (activeTool === 'embroidery') {
+        console.log('🎨 Updating displacement maps for embroidery');
+        if ((window as any).updateModelWithEmbroideryDisplacement) {
+          (window as any).updateModelWithEmbroideryDisplacement();
+        }
+      }
+      
       console.log('🎨 Continuous drawing tool - keeping controls disabled for:', activeTool);
       return; // Don't re-enable controls for continuous drawing tools
     }
@@ -5660,6 +5939,21 @@ const canvasDimensions = {
       (window as any).__imageDragging = false;
       delete (window as any).__imageDragStart;
       setControlsEnabled(true);
+    }
+    
+    // PHASE 3: Handle stroke transform end
+    const { transformMode } = useStrokeSelection.getState();
+    if (transformMode) {
+      console.log('🎯 PHASE 3: Transform ended');
+      const { endTransform } = useStrokeSelection.getState();
+      endTransform();
+      
+      // Re-compose layers after transform
+      const v2Store = useAdvancedLayerStoreV2.getState();
+      v2Store.composeLayers();
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      updateModelTexture(false, false);
     }
     
     // Handle text tool rotation end

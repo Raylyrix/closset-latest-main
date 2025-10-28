@@ -79,172 +79,19 @@ const VectorToolbar: React.FC<VectorToolbarProps> = ({ isVisible, onClose }) => 
     }
   };
 
+  /**
+   * DEPRECATED: Consolidated into MainLayout.tsx to avoid duplicate logic
+   * This function now redirects to the main Apply button in MainLayout
+   */
   const handleApplyToolToPaths = () => {
-    const appState = useApp.getState();
-    const currentTool = appState.activeTool;
-    const vectorPaths = appState.vectorPaths || [];
+    console.log('🔄 VectorToolbar Apply: Redirecting to MainLayout Apply button');
     
-    console.log('🎨 VectorToolbar: handleApplyToolToPaths called', { 
-      currentTool, 
-      vectorPathsCount: vectorPaths.length,
-      vectorMode: appState.vectorMode 
-    });
-    
-    if (!vectorPaths.length) {
-      console.log('⚠️ No vector paths to apply tool to');
-      return;
-    }
-    
-    if (currentTool === 'brush' || currentTool === 'puffPrint' || currentTool === 'embroidery') {
-      console.log(`🎨 Applying ${currentTool} to ${vectorPaths.length} vector path(s)`);
-      
-      const layer = appState.getActiveLayer();
-      if (!layer || !layer.canvas) {
-        console.log('⚠️ No active layer or canvas');
-        return;
-      }
-      
-      const ctx = layer.canvas.getContext('2d');
-      if (!ctx) return;
-      
-      // Apply tool to each vector path
-      vectorPaths.forEach((path: any) => {
-        console.log(`🎨 Applying ${currentTool} to path:`, path.id, 'with', path.points.length, 'points');
-        
-        // Sample points along the path for smooth painting
-        const sampledPoints = samplePathPoints(path.points, 2);
-        
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1.0; // Ensure full opacity for vector tools
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        
-        if (currentTool === 'brush') {
-          // Apply brush along path
-          console.log('🎨 Brush color:', appState.brushColor, 'Size:', appState.brushSize);
-          ctx.strokeStyle = appState.brushColor;
-          ctx.lineWidth = appState.brushSize;
-          ctx.beginPath();
-          sampledPoints.forEach((point: any, index: number) => {
-            const x = point.u * layer.canvas.width;
-            const y = point.v * layer.canvas.height;
-            if (index === 0) {
-              ctx.moveTo(x, y);
-            } else {
-              ctx.lineTo(x, y);
-            }
-          });
-          ctx.stroke();
-          console.log('🎨 Stroke applied with color:', ctx.strokeStyle);
-        } else if (currentTool === 'embroidery') {
-          // Apply embroidery stitches along path
-          const stitchType = appState.embroideryStitchType || 'satin';
-          const color = appState.embroideryColor || appState.brushColor;
-          const thickness = appState.embroideryThickness || 2;
-          
-          ctx.strokeStyle = color;
-          ctx.fillStyle = color;
-          ctx.lineWidth = thickness;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 2;
-          
-          ctx.beginPath();
-          sampledPoints.forEach((point: any, index: number) => {
-            const x = point.u * layer.canvas.width;
-            const y = point.v * layer.canvas.height;
-            if (index === 0) {
-              ctx.moveTo(x, y);
-            } else {
-              ctx.lineTo(x, y);
-            }
-          });
-          ctx.stroke();
-        } else if (currentTool === 'puffPrint') {
-          // ========== SMOOTH VECTOR PUFF PRINT ==========
-          console.log('🎨 Vector puff print - ultra-smooth displacement');
-          
-          const puffBrushSize = appState.puffBrushSize || 20;
-          const puffColor = appState.puffColor || '#ff69b4';
-          const puffHeight = appState.puffHeight || 1.0;
-          const puffSoftness = appState.puffSoftness || 0.8;
-          
-          const activeLayer = appState.layers.find((l: any) => l.id === appState.activeLayerId);
-          if (!activeLayer?.canvas || !activeLayer?.displacementCanvas) {
-            console.log('⚠️ No active layer or displacement canvas');
-            return;
-          }
-          
-          const layerCtx = activeLayer.canvas.getContext('2d', { willReadFrequently: true });
-          const dispCtx = activeLayer.displacementCanvas.getContext('2d', { willReadFrequently: true });
-          
-          if (!layerCtx || !dispCtx) return;
-          
-          const puffRadius = puffBrushSize / 2;
-          const centerHeight = Math.floor(255 * puffHeight);
-          
-          sampledPoints.forEach((point: any) => {
-            const x = Math.round(point.u * activeLayer.canvas.width);
-            const y = Math.round(point.v * activeLayer.canvas.height);
-            
-            // STEP 1: Draw puff color
-            layerCtx.globalCompositeOperation = 'source-over';
-            layerCtx.globalAlpha = 1.0;
-            layerCtx.fillStyle = puffColor;
-            layerCtx.beginPath();
-            layerCtx.arc(x, y, puffRadius, 0, Math.PI * 2);
-            layerCtx.fill();
-            
-            // STEP 2: Draw ultra-smooth displacement with lighten blend
-            dispCtx.globalCompositeOperation = 'lighten'; // Prevents spikes
-            
-            const grad = dispCtx.createRadialGradient(x, y, 0, x, y, puffRadius);
-            
-            // 12-stop cosine gradient for perfect smoothness
-            const stops = 12;
-            for (let i = 0; i <= stops; i++) {
-              const t = i / stops;
-              const cosValue = Math.cos((1 - t) * Math.PI / 2);
-              const height = Math.floor(centerHeight * cosValue * puffSoftness);
-              grad.addColorStop(t, `rgb(${height}, ${height}, ${height})`);
-            }
-            grad.addColorStop(1, 'rgb(0, 0, 0)');
-            
-            dispCtx.fillStyle = grad;
-            dispCtx.beginPath();
-            dispCtx.arc(x, y, puffRadius, 0, Math.PI * 2);
-            dispCtx.fill();
-            
-            dispCtx.globalCompositeOperation = 'source-over'; // Reset
-          });
-          
-          console.log('✅ Vector puff print - smooth displacement applied');
-        }
-        
-        ctx.restore();
-      });
-      
-      // Trigger composition and updates
-      setTimeout(() => {
-        console.log('🎨 Composing layers after vector tool application');
-        appState.composeLayers();
-        
-        if (currentTool === 'puffPrint') {
-          console.log('🎨 Vector puff - triggering 3D displacement application');
-          // Trigger texture update
-          window.dispatchEvent(new CustomEvent('forceModelTextureUpdate'));
-          
-          // Compose displacement maps
-          const composedDisp = appState.composeDisplacementMaps();
-          
-          // Apply displacement to model (same as regular puff print)
-          if (composedDisp) {
-            window.dispatchEvent(new CustomEvent('applyPuffDisplacement', { 
-              detail: { displacementCanvas: composedDisp } 
-            }));
-          }
-        }
-      }, 100);
+    // Trigger the MainLayout Apply button programmatically
+    const applyButton = document.querySelector('[data-apply-tool-button]') as HTMLButtonElement;
+    if (applyButton) {
+      applyButton.click();
+    } else {
+      console.error('❌ Apply button not found in MainLayout');
     }
   };
   

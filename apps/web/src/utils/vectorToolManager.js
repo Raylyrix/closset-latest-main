@@ -212,31 +212,8 @@ export class VectorToolManager {
         this.drawPath(ctx, path);
     }
     renderPuffPath(context, path, options) {
-        const { ctx, appState } = context;
-        const puffSize = appState.puffBrushSize || 20;
-        const puffColor = appState.puffColor || '#ff69b4';
-        const puffOpacity = appState.puffBrushOpacity || 1.0;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.globalAlpha = puffOpacity;
-        // Parse color
-        const r = parseInt(puffColor.slice(1, 3), 16) || 255;
-        const g = parseInt(puffColor.slice(3, 5), 16) || 0;
-        const b = parseInt(puffColor.slice(5, 7), 16) || 255;
-        // Create puff effect along the path
-        const stepSize = Math.max(1, Math.floor(puffSize / 4));
-        for (let i = 0; i < path.points.length; i += stepSize) {
-            const point = path.points[i];
-            const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, puffSize / 2);
-            gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${puffOpacity})`);
-            gradient.addColorStop(0.4, `rgba(${r}, ${g}, ${b}, ${puffOpacity * 0.6})`);
-            gradient.addColorStop(0.8, `rgba(${r}, ${g}, ${b}, ${puffOpacity * 0.2})`);
-            gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, puffSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-        }
+        // Puff tool - delegated to UnifiedPuffPrintSystem
+        console.log('🎈 Vector puff tool delegated to UnifiedPuffPrintSystem');
     }
     renderPrintPath(context, path, options) {
         const { ctx, appState } = context;

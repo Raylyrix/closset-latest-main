@@ -13,8 +13,8 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../App';
+import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { PuffDisplacementEngine } from '../core/PuffDisplacementEngine';
-import { PuffLayerManager } from '../core/PuffLayerManager';
 import { PuffPreviewRenderer } from '../core/PuffPreviewRenderer';
 import { PuffPatternLibrary } from '../core/PuffPatternLibrary';
 import { PuffMemoryManager } from '../core/PuffMemoryManager';
@@ -94,18 +94,32 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     setPuffShape
   } = useApp();
   
+  // Use V2 layer system instead of PuffLayerManager
+  const { 
+    activeLayerId: v2ActiveLayerId, 
+    layers, 
+    addPuffElementFromApp,
+    getLayerCanvas,
+    getLayerDisplacementCanvas,
+    updateLayerContent
+  } = useAdvancedLayerStoreV2();
+  
   // Core system refs
   const displacementEngineRef = useRef<PuffDisplacementEngine | null>(null);
-  const layerManagerRef = useRef<PuffLayerManager | null>(null);
   const previewRendererRef = useRef<PuffPreviewRenderer | null>(null);
   const patternLibraryRef = useRef<PuffPatternLibrary | null>(null);
   const memoryManagerRef = useRef<PuffMemoryManager | null>(null);
   
   // UI state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [isPainting, setIsPainting] = useState(false);
   const [lastPaintTime, setLastPaintTime] = useState(0);
+  
+  // Pattern and preview settings state
+  const [currentPattern, setCurrentPattern] = useState('round');
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewQuality, setPreviewQuality] = useState<'low' | 'medium' | 'high' | 'ultra'>('high');
+  const [previewLighting, setPreviewLighting] = useState<'studio' | 'natural' | 'dramatic'>('studio');
   
   // Performance monitoring
   const [fps, setFps] = useState(60);
@@ -121,15 +135,15 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     brushSize: puffBrushSize,
     brushFlow: 1.0,
     brushSpacing: 0.3,
-    pattern: 'round',
+    pattern: currentPattern,
     patternScale: 1.0,
     patternRotation: 0
   };
   
   const previewSettings: PuffPreviewSettings = {
-    enabled: true,
-    quality: 'high',
-    lighting: 'studio',
+    enabled: previewEnabled,
+    quality: previewQuality,
+    lighting: previewLighting,
     cameraAngle: 'front',
     showWireframe: false,
     showNormals: false
@@ -147,6 +161,118 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     }
   }, [active, modelScene, composedCanvas]);
   
+  // Handle puff painting events
+  const handlePuffPainting = useCallback((uv: THREE.Vector2, point: THREE.Vector3, originalEvent: any) => {
+    if (!displacementEngineRef.current || !v2ActiveLayerId) {
+      console.warn('🎈 Puff painting: System not ready');
+      return;
+    }
+    
+    console.log('🎈 Processing puff painting at UV:', uv, 'Point:', point);
+    
+    // Convert UV to canvas coordinates
+    const canvasX = Math.floor(uv.x * composedCanvas!.width);
+    const canvasY = Math.floor(uv.y * composedCanvas!.height);
+    
+    // Get the active layer canvas and displacement canvas from V2 system
+    const layerCanvas = getLayerCanvas(v2ActiveLayerId);
+    const displacementCanvas = getLayerDisplacementCanvas(v2ActiveLayerId);
+    
+    if (!layerCanvas) {
+      console.warn('🎈 Puff painting: No active layer canvas');
+      return;
+    }
+    
+    // Create puff effect
+    const puffRadius = puffSettings.brushSize / 2;
+    const puffHeight = Math.floor(255 * puffSettings.height);
+    
+    // Draw puff color on the layer canvas
+    const layerCtx = layerCanvas.getContext('2d');
+    if (layerCtx) {
+      layerCtx.globalCompositeOperation = 'source-over';
+      layerCtx.globalAlpha = puffSettings.opacity;
+      layerCtx.fillStyle = puffSettings.color;
+      layerCtx.beginPath();
+      layerCtx.arc(canvasX, canvasY, puffRadius, 0, Math.PI * 2);
+      layerCtx.fill();
+    }
+    
+    // Draw displacement on the displacement canvas if available
+    if (displacementCanvas) {
+      const dispCtx = displacementCanvas.getContext('2d');
+      if (dispCtx) {
+        dispCtx.globalCompositeOperation = 'lighten'; // Prevent spikes
+        
+        // Create smooth radial gradient
+        const gradient = dispCtx.createRadialGradient(canvasX, canvasY, 0, canvasX, canvasY, puffRadius);
+        
+        // Ultra-smooth dome using cosine interpolation
+        const stops = 12;
+        for (let i = 0; i <= stops; i++) {
+          const t = i / stops;
+          const cosValue = Math.cos((1 - t) * Math.PI / 2);
+          const height = Math.floor(puffHeight * cosValue * puffSettings.softness);
+          gradient.addColorStop(t, `rgb(${height}, ${height}, ${height})`);
+        }
+        gradient.addColorStop(1, 'rgb(0, 0, 0)');
+        
+        dispCtx.fillStyle = gradient;
+        dispCtx.beginPath();
+        dispCtx.arc(canvasX, canvasY, puffRadius, 0, Math.PI * 2);
+        dispCtx.fill();
+        
+        dispCtx.globalCompositeOperation = 'source-over'; // Reset
+      }
+    }
+    
+    // Add puff element to V2 system
+    addPuffElementFromApp({
+      x: canvasX,
+      y: canvasY,
+      radius: puffRadius,
+      height: puffSettings.height,
+      softness: puffSettings.softness,
+      color: puffSettings.color,
+      opacity: puffSettings.opacity
+    }, v2ActiveLayerId);
+    
+    // Update the model texture
+    if (composedCanvas) {
+      const ctx = composedCanvas.getContext('2d');
+      if (ctx) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = puffSettings.opacity;
+        ctx.fillStyle = puffSettings.color;
+        ctx.beginPath();
+        ctx.arc(canvasX, canvasY, puffRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    console.log('🎈 Puff painting completed');
+  }, [composedCanvas, puffSettings, v2ActiveLayerId, getLayerCanvas, getLayerDisplacementCanvas, addPuffElementFromApp]);
+  
+  // Listen for puff print events from ShirtRefactored
+  useEffect(() => {
+    if (!active) return;
+    
+    const handlePuffEvent = (event: CustomEvent) => {
+      const { uv, point, event: originalEvent } = event.detail;
+      
+      console.log('🎈 UnifiedPuffPrintSystem received puff event:', { uv, point });
+      
+      // Handle the puff painting
+      handlePuffPainting(uv, point, originalEvent);
+    };
+    
+    window.addEventListener('puffPrintEvent', handlePuffEvent as EventListener);
+    
+    return () => {
+      window.removeEventListener('puffPrintEvent', handlePuffEvent as EventListener);
+    };
+  }, [active, handlePuffPainting]);
+  
   // Initialize all core systems
   const initializeSystems = useCallback(() => {
     console.log('🎈 Initializing Unified Puff Print System...');
@@ -161,31 +287,21 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
       memoryManagerRef.current
     );
     
-    // Initialize layer manager
-    layerManagerRef.current = new PuffLayerManager(
-      composedCanvas!,
-      displacementEngineRef.current
-    );
-    
     // Initialize pattern library
     patternLibraryRef.current = new PuffPatternLibrary();
     
     // Initialize preview renderer
     previewRendererRef.current = new PuffPreviewRenderer(
       modelScene!,
-      previewSettings as any // FIXED: Type mismatch
+      previewSettings
     );
-    
-    // Create default layer
-    const defaultLayer = layerManagerRef.current.createLayer('Base Puff Layer');
-    setActiveLayerId(defaultLayer.id);
     
     console.log('🎈 Unified Puff Print System initialized successfully');
   }, [modelScene, composedCanvas, previewSettings]);
   
   // Handle painting on the model
   const handlePaint = useCallback((uv: THREE.Vector2, pressure: number = 1.0) => {
-    if (!active || !layerManagerRef.current || !displacementEngineRef.current) return;
+    if (!active || !displacementEngineRef.current || !v2ActiveLayerId) return;
     
     const now = performance.now();
     const timeSinceLastPaint = now - lastPaintTime;
@@ -193,8 +309,9 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     
     if (timeSinceLastPaint < minPaintInterval) return;
     
-    const activeLayer = layerManagerRef.current.getLayer(activeLayerId!);
-    if (!activeLayer) return;
+    // Get the active layer canvas from V2 system
+    const layerCanvas = getLayerCanvas(v2ActiveLayerId);
+    if (!layerCanvas) return;
     
     // Get current pattern
     const pattern = patternLibraryRef.current?.getPattern(puffSettings.pattern);
@@ -228,7 +345,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     
     // Stop painting indicator after short delay
     setTimeout(() => setIsPainting(false), 100);
-  }, [active, activeLayerId, puffSettings, previewSettings, lastPaintTime]);
+  }, [active, v2ActiveLayerId, puffSettings, previewSettings, lastPaintTime, getLayerCanvas]);
   
   // Handle mouse/touch events
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
@@ -282,7 +399,6 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
     return () => {
       memoryManagerRef.current?.cleanup();
       displacementEngineRef.current?.cleanup();
-      layerManagerRef.current?.cleanup();
       previewRendererRef.current?.cleanup();
     };
   }, []);
@@ -324,18 +440,23 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
         <div className="section">
           <h4>📁 Layers</h4>
           <div className="layers-list">
-            {layerManagerRef.current?.getLayers().map(layer => (
+            {layers.map(layer => (
               <div 
                 key={layer.id}
-                className={`layer-item ${activeLayerId === layer.id ? 'active' : ''}`}
-                onClick={() => setActiveLayerId(layer.id)}
+                className={`layer-item ${v2ActiveLayerId === layer.id ? 'active' : ''}`}
+                onClick={() => {
+                  // Set active layer in V2 system
+                  const { setActiveLayer } = useAdvancedLayerStoreV2.getState();
+                  setActiveLayer(layer.id);
+                }}
               >
                 <div className="layer-visibility">
                   <button 
                     className={`visibility-btn ${layer.visible ? 'visible' : 'hidden'}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      layerManagerRef.current?.toggleLayerVisibility(layer.id);
+                      const { setLayerVisibility } = useAdvancedLayerStoreV2.getState();
+                      setLayerVisibility(layer.id, !layer.visible);
                     }}
                   >
                     {layer.visible ? '👁️' : '👁️‍🗨️'}
@@ -344,10 +465,10 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
                 <div className="layer-thumbnail">
                   <canvas 
                     ref={(canvas) => {
-                      if (canvas && layer.canvas) {
+                      if (canvas && layer.content.canvas) {
                         const ctx = canvas.getContext('2d');
                         if (ctx) {
-                          ctx.drawImage(layer.canvas, 0, 0, canvas.width, canvas.height);
+                          ctx.drawImage(layer.content.canvas, 0, 0, canvas.width, canvas.height);
                         }
                       }
                     }}
@@ -364,7 +485,8 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
                     step="0.01"
                     value={layer.opacity}
                     onChange={(e) => {
-                      layerManagerRef.current?.updateLayerOpacity(layer.id, parseFloat(e.target.value));
+                      const { setLayerOpacity } = useAdvancedLayerStoreV2.getState();
+                      setLayerOpacity(layer.id, parseFloat(e.target.value));
                     }}
                   />
                 </div>
@@ -373,8 +495,9 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <button 
               className="add-layer-btn"
               onClick={() => {
-                const newLayer = layerManagerRef.current?.createLayer(`Puff Layer ${Date.now()}`);
-                if (newLayer) setActiveLayerId(newLayer.id);
+                const { createLayer, setActiveLayer } = useAdvancedLayerStoreV2.getState();
+                const newLayerId = createLayer('paint', `Puff Layer ${Date.now()}`);
+                setActiveLayer(newLayerId);
               }}
             >
               + Add Layer
@@ -485,7 +608,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
               <button
                 key={pattern.id}
                 className={`pattern-btn ${puffSettings.pattern === pattern.id ? 'active' : ''}`}
-                onClick={() => console.log('Puff settings updated:', pattern.id)} // FIXED: Missing function
+                onClick={() => setCurrentPattern(pattern.id)}
                 title={pattern.name}
               >
                 {pattern.icon}
@@ -515,7 +638,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
               <input
                 type="checkbox"
                 checked={previewSettings.enabled}
-                onChange={(e) => console.log('Preview settings updated:', e.target.checked)} // FIXED: Missing function
+                onChange={(e) => setPreviewEnabled(e.target.checked)}
               />
               Enable Real-time Preview
             </label>
@@ -525,7 +648,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <label>Quality</label>
             <select
               value={previewSettings.quality}
-              onChange={(e) => console.log('Preview quality updated:', e.target.value)} // FIXED: Missing function
+              onChange={(e) => setPreviewQuality(e.target.value as 'low' | 'medium' | 'high' | 'ultra')}
             >
               <option value="low">Low (Fast)</option>
               <option value="medium">Medium</option>
@@ -538,7 +661,7 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <label>Lighting</label>
             <select
               value={previewSettings.lighting}
-              onChange={(e) => console.log('Preview lighting updated:', e.target.value)} // FIXED: Missing function
+              onChange={(e) => setPreviewLighting(e.target.value as 'studio' | 'natural' | 'dramatic')}
             >
               <option value="studio">Studio</option>
               <option value="natural">Natural</option>
@@ -554,9 +677,15 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <button 
               className="action-btn export-btn"
               onClick={() => {
-                const activeLayer = layerManagerRef.current?.getLayer(activeLayerId!);
-                if (activeLayer) {
-                  exportDisplacementMap(activeLayer as any); // FIXED: Type mismatch
+                if (v2ActiveLayerId) {
+                  const displacementCanvas = getLayerDisplacementCanvas(v2ActiveLayerId);
+                  if (displacementCanvas) {
+                    // Export displacement map
+                    const link = document.createElement('a');
+                    link.download = 'displacement-map.png';
+                    link.href = displacementCanvas.toDataURL();
+                    link.click();
+                  }
                 }
               }}
             >
@@ -565,9 +694,15 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <button 
               className="action-btn export-btn"
               onClick={() => {
-                const activeLayer = layerManagerRef.current?.getLayer(activeLayerId!);
-                if (activeLayer) {
-                  exportNormalMap(activeLayer as any); // FIXED: Type mismatch
+                if (v2ActiveLayerId) {
+                  const layerCanvas = getLayerCanvas(v2ActiveLayerId);
+                  if (layerCanvas) {
+                    // Export normal map (placeholder - would need actual normal map generation)
+                    const link = document.createElement('a');
+                    link.download = 'normal-map.png';
+                    link.href = layerCanvas.toDataURL();
+                    link.click();
+                  }
                 }
               }}
             >
@@ -576,7 +711,6 @@ export function UnifiedPuffPrintSystem({ active, onError }: UnifiedPuffPrintSyst
             <button 
               className="action-btn reset-btn"
               onClick={() => {
-                layerManagerRef.current?.resetAllLayers();
                 // Reset global state to defaults
                 setPuffHeight(2.0);
                 setPuffSoftness(0.5);

@@ -1,5 +1,7 @@
 import React from 'react';
 import { useApp } from '../App';
+import { UnifiedToolSystem } from '../core/UnifiedToolSystem';
+import { useBrushEngine } from '../hooks/useBrushEngine';
 
 // Import all tool components
 import { PatternMaker } from './PatternMaker';
@@ -11,7 +13,7 @@ import { ColorGrading } from './ColorGrading';
 // Removed Animation tools
 import { DesignTemplates } from './DesignTemplates';
 import { BatchProcessing } from './BatchProcessing';
-import { AdvancedBrushSystem } from './AdvancedBrushSystem';
+// Removed AdvancedBrushSystem - now using unified useBrushEngine system
 import { ProceduralGenerator } from './ProceduralGenerator';
 // Removed 3D Painting tool
 import { SmartFillTool } from './SmartFillTool';
@@ -27,11 +29,28 @@ export function ToolRouter({ active }: ToolRouterProps) {
   // Console log removed
 
   const activeTool = useApp(s => s.activeTool);
+  
+  // Initialize unified tool system and brush engine
+  const brushEngine = useBrushEngine();
+  const unifiedToolSystem = React.useMemo(() => {
+    const system = UnifiedToolSystem.getInstance();
+    system.setBrushEngine(brushEngine);
+    return system;
+  }, [brushEngine]);
 
   // Tool routing configuration
   const toolRoutes = {
-    // Design Tools
-    'brush': null, // Handled by main canvas
+    // Design Tools - Now handled by unified system
+    'brush': 'unified', // Handled by unified brush engine
+    'airbrush': 'unified', // Handled by unified brush engine
+    'pencil': 'unified', // Handled by unified brush engine
+    'marker': 'unified', // Handled by unified brush engine
+    'watercolor': 'unified', // Handled by unified brush engine
+    'vector': 'unified', // Handled by unified vector engine
+    'select': 'unified', // Handled by unified selection engine
+    'text': 'unified', // Handled by unified text engine
+    'shape': 'unified', // Handled by unified shape engine
+    'shapes': 'unified', // Handled by unified shape engine
     'eraser': null, // Handled by main canvas
     'smudge': null, // Handled by main canvas
     'blur': null, // Handled by main canvas
@@ -39,11 +58,12 @@ export function ToolRouter({ active }: ToolRouterProps) {
     'gradient': null, // Handled by main canvas
     'picker': null, // Handled by main canvas
 
-    // Shapes & Text
+    // Shapes & Text - Now handled by unified system
     'line': null, // Handled by main canvas
-    'rect': null, // Handled by main canvas
-    'ellipse': null, // Handled by main canvas
-    'text': null, // Handled by main canvas
+    'rect': null, // Handled by unified vector system
+    'ellipse': null, // Handled by unified vector system
+    'polygon': null, // Handled by unified vector system
+    'star': null, // Handled by unified vector system
     'moveText': null, // Handled by main canvas
 
     // Selection & Transform
@@ -52,16 +72,18 @@ export function ToolRouter({ active }: ToolRouterProps) {
     'transform': null, // Handled by main canvas
     'move': null, // Handled by main canvas
 
-    // Vector & Paths (UV-based 3D surface drawing)
+    // Vector & Paths - Now handled by unified system
     'vectorTools': ProfessionalVectorTool,
-    'vector': ProfessionalVectorTool,
+    'pen': null, // Handled by unified vector system
+    'lasso': null, // Handled by unified vector system
+    'magic_wand': null, // Handled by unified vector system
 
     // Effects & Filters
     'layerEffects': LayerEffects,
     'colorGrading': ColorGrading,
 
     // Textile Design
-    'puffPrint': null, // Handled by existing PuffPrintTool
+    'puffPrint': null, // Handled by UnifiedPuffPrintSystem
     'patternMaker': PatternMaker,
     'embroidery': null, // Settings in RightPanelNew.tsx, drawing on 3D model
 
@@ -80,10 +102,9 @@ export function ToolRouter({ active }: ToolRouterProps) {
     'cloudSync': CloudSync,
 
     // Advanced Tools
-    'advancedBrush': AdvancedBrushSystem,
+    // 'advancedBrush': AdvancedBrushSystem, // Removed - using unified useBrushEngine system
     'meshDeformation': null,
     'proceduralGenerator': ProceduralGenerator,
-    '3dPainting': null,
     'smartFill': SmartFillTool,
 
     // History & Undo
@@ -96,7 +117,83 @@ export function ToolRouter({ active }: ToolRouterProps) {
     return null;
   }
 
+  // Unified tool component that handles both brush and vector tools
+  const UnifiedToolComponent = React.useMemo(() => {
+    return function UnifiedToolHandler({ active }: { active: boolean }) {
+      if (!active) return null;
+      
+      const currentTool = unifiedToolSystem.getActiveTool();
+      if (!currentTool) return null;
+      
+      // For brush tools, the brush engine handles everything
+      if (currentTool.type === 'brush') {
+        return (
+          <div style={{ 
+            position: 'absolute', 
+            top: '20px', 
+            left: '20px', 
+            background: 'rgba(15, 23, 42, 0.95)', 
+            borderRadius: '12px', 
+            padding: '16px',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            color: '#e2e8f0',
+            fontSize: '14px',
+            fontWeight: '500'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '18px' }}>{currentTool.icon}</span>
+              <span>{currentTool.name}</span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+              {currentTool.description}
+            </div>
+          </div>
+        );
+      }
+      
+      // For vector tools, show vector-specific UI
+      if (currentTool.type === 'vector') {
+        return (
+          <div style={{ 
+            position: 'absolute', 
+            top: '20px', 
+            left: '20px', 
+            background: 'rgba(15, 23, 42, 0.95)', 
+            borderRadius: '12px', 
+            padding: '16px',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            color: '#e2e8f0',
+            fontSize: '14px',
+            fontWeight: '500'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '18px' }}>{currentTool.icon}</span>
+              <span>{currentTool.name}</span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+              {currentTool.description}
+            </div>
+            <div style={{ fontSize: '12px', color: '#22c55e', marginTop: '8px' }}>
+              Vector Mode Active
+            </div>
+          </div>
+        );
+      }
+      
+      return null;
+    };
+  }, [unifiedToolSystem]);
+
   const ToolComponent = toolRoutes[activeTool as keyof typeof toolRoutes];
+
+  // Handle unified tools
+  if (ToolComponent === 'unified') {
+    return <UnifiedToolComponent active={active} />;
+  }
 
   if (!ToolComponent) {
     // Console log removed

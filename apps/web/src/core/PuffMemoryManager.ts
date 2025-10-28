@@ -130,6 +130,11 @@ export class PuffMemoryManager {
   
   // Release a canvas back to the pool
   public releaseCanvas(canvas: HTMLCanvasElement): void {
+    if (!canvas) {
+      console.warn('Cannot release null canvas');
+      return;
+    }
+    
     const size = Math.max(canvas.width, canvas.height);
     const poolKey = this.getPoolKey(size);
     const pool = this.canvasPools.get(poolKey);

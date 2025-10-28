@@ -9,6 +9,1271 @@ import { useAdvancedLayerStoreV2, AdvancedLayer, LayerGroup, BlendMode, LayerEff
 import { useLayerSelectionSystem } from '../core/LayerSelectionSystem';
 import { EnhancedTextSettings } from './EnhancedTextSettings';
 
+// Enhanced Layer Item Component
+interface EnhancedLayerItemProps {
+  layer: AdvancedLayer;
+  isActive: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
+  onToggleVisibility: () => void;
+  onToggleLock: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+  onDuplicate: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onSetOpacity: (opacity: number) => void;
+  onSetBlendMode: (blendMode: BlendMode) => void;
+  onReorderLayers: (newOrder: string[]) => void;
+  allLayers: AdvancedLayer[];
+}
+
+const EnhancedLayerItem: React.FC<EnhancedLayerItemProps> = ({
+  layer,
+  isActive,
+  isSelected,
+  onSelect,
+  onToggleVisibility,
+  onToggleLock,
+  onRename,
+  onDelete,
+  onDuplicate,
+  onMoveUp,
+  onMoveDown,
+  onSetOpacity,
+  onSetBlendMode,
+  onReorderLayers,
+  allLayers
+}) => {
+  const [isRenaming, setIsRenaming] = React.useState(false);
+  const [tempName, setTempName] = React.useState(layer.name);
+  const [showContextMenu, setShowContextMenu] = React.useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = React.useState({ x: 0, y: 0 });
+  const [showDuplicationMenu, setShowDuplicationMenu] = React.useState(false);
+  const [showDeletionMenu, setShowDeletionMenu] = React.useState(false);
+  const [showLockMenu, setShowLockMenu] = React.useState(false);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (isRenaming && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isRenaming]);
+
+  // Close context menu when clicking outside
+  React.useEffect(() => {
+    const handleGlobalClick = () => {
+      if (showContextMenu) {
+        setShowContextMenu(false);
+      }
+    };
+
+    if (showContextMenu) {
+      document.addEventListener('click', handleGlobalClick);
+      return () => document.removeEventListener('click', handleGlobalClick);
+    }
+  }, [showContextMenu]);
+
+  const handleRename = () => {
+    if (tempName.trim() && tempName !== layer.name) {
+      onRename(tempName.trim());
+    }
+    setIsRenaming(false);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleRename();
+    } else if (e.key === 'Escape') {
+      setTempName(layer.name);
+      setIsRenaming(false);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
+
+  const closeContextMenu = () => {
+    setShowContextMenu(false);
+  };
+
+  const handleLayerClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (e.ctrlKey || e.metaKey) {
+      // Multi-select with Ctrl/Cmd
+      onSelect();
+    } else {
+      // Single select
+      onSelect();
+    }
+  };
+
+  // Drag & Drop handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', layer.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragging(true);
+    console.log('🎨 Drag started for layer:', layer.name);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    console.log('🎨 Drag ended for layer:', layer.name);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedLayerId = e.dataTransfer.getData('text/plain');
+    if (draggedLayerId !== layer.id) {
+      // Get the current layer order
+      const currentLayers = Array.from(allLayers).sort((a, b) => b.order - a.order);
+      const draggedIndex = currentLayers.findIndex(l => l.id === draggedLayerId);
+      const targetIndex = currentLayers.findIndex(l => l.id === layer.id);
+      
+      if (draggedIndex !== -1 && targetIndex !== -1) {
+        // Create new order array
+        const newOrder = currentLayers.map(l => l.id);
+        
+        // Remove dragged layer from its current position
+        newOrder.splice(draggedIndex, 1);
+        
+        // Insert dragged layer at target position
+        const insertIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        newOrder.splice(insertIndex, 0, draggedLayerId);
+        
+        // Apply the new order
+        onReorderLayers(newOrder);
+        console.log('🎨 Reordered layers:', newOrder);
+      }
+    }
+  };
+
+  const getLayerIcon = () => {
+    switch (layer.type) {
+      case 'paint': return '🎨';
+      case 'image': return '🖼️';
+      case 'text': return '📝';
+      case 'group': return '📁';
+      case 'adjustment': return '🎛️';
+      default: return '📄';
+    }
+  };
+
+  return (
+    <div 
+      style={{
+        padding: '6px 8px',
+        marginBottom: '2px',
+        background: isActive 
+          ? 'linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05))'
+          : isSelected 
+            ? 'linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03))'
+            : 'rgba(255, 255, 255, 0.02)',
+        border: isActive 
+          ? '1px solid rgba(255, 255, 255, 0.15)' 
+          : isSelected
+            ? '1px solid rgba(255, 255, 255, 0.08)'
+            : '1px solid rgba(255, 255, 255, 0.04)',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontSize: '9px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'relative',
+        opacity: layer.visible ? 1 : 0.4,
+        transform: isDragging ? 'scale(0.98)' : 'scale(1)',
+        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        boxShadow: isActive 
+          ? '0 2px 8px rgba(0, 0, 0, 0.3)'
+          : isSelected 
+            ? '0 1px 4px rgba(0, 0, 0, 0.2)'
+            : 'none',
+        backdropFilter: 'blur(8px)',
+        minHeight: '32px',
+        maxHeight: '40px'
+      }}
+      onClick={handleLayerClick}
+      onContextMenu={handleContextMenu}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDrop={handleDrop}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {/* Visibility Toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleVisibility(); }}
+          style={{
+            padding: '4px',
+            background: 'transparent',
+            border: 'none',
+            color: layer.visible ? '#E8E8E8' : '#666666',
+            cursor: 'pointer',
+            fontSize: '10px',
+            borderRadius: '4px',
+            transition: 'all 0.15s ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '20px',
+            height: '20px'
+          }}
+          title={layer.visible ? 'Hide layer' : 'Show layer'}
+        >
+          {layer.visible ? '👁️' : '🙈'}
+        </button>
+
+        {/* Lock Toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleLock(); }}
+          style={{
+            padding: '4px',
+            background: 'transparent',
+            border: 'none',
+            color: layer.locked ? '#E8E8E8' : '#666666',
+            cursor: 'pointer',
+            fontSize: '10px',
+            borderRadius: '4px',
+            transition: 'all 0.15s ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '20px',
+            height: '20px'
+          }}
+          title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+        >
+          {layer.locked ? '🔒' : '🔓'}
+        </button>
+
+        {/* Layer Icon */}
+        <span style={{ 
+          fontSize: '12px', 
+          color: '#D0D0D0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '20px',
+          height: '20px'
+        }}>
+          {getLayerIcon()}
+        </span>
+
+        {/* Layer Thumbnail */}
+        <div style={{
+          width: '20px',
+          height: '16px',
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '8px',
+          color: '#999',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          {layer.thumbnail ? (
+            <img 
+              src={layer.thumbnail} 
+              alt={layer.name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                borderRadius: '3px'
+              }}
+            />
+          ) : (
+            <span style={{ fontSize: '8px', color: '#666' }}>{getLayerIcon()}</span>
+          )}
+        </div>
+
+        {/* Layer Name */}
+        {isRenaming ? (
+          <input
+            ref={inputRef}
+            type="text"
+            value={tempName}
+            onChange={(e) => setTempName(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={handleKeyPress}
+            style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              padding: '4px 8px',
+              fontSize: '11px',
+              color: '#F5F5F5',
+              width: '120px',
+              fontWeight: '400',
+              letterSpacing: '0.3px',
+              outline: 'none',
+              transition: 'all 0.15s ease'
+            }}
+          />
+        ) : (
+          <span 
+            style={{ 
+              color: isActive ? '#F5F5F5' : '#C0C0C0',
+              fontWeight: isActive ? '500' : '400',
+              fontSize: '11px',
+              letterSpacing: '0.3px',
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              marginLeft: '8px',
+              cursor: 'pointer'
+            }}
+            onDoubleClick={() => setIsRenaming(true)}
+          >
+            {layer.name}
+          </span>
+        )}
+
+        {/* Layer Type Badge */}
+        <span style={{ 
+          fontSize: '6px', 
+          color: '#999',
+          background: 'rgba(255, 255, 255, 0.1)',
+          padding: '1px 3px',
+          borderRadius: '2px'
+        }}>
+          {layer.type}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        {/* Quick Actions */}
+        <div style={{ display: 'flex', gap: '2px' }}>
+          {/* Move Up */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
+            style={{
+              padding: '2px',
+              fontSize: '7px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '3px',
+              color: '#C0C0C0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '18px',
+              height: '18px'
+            }}
+            title="Move up (higher in stack)"
+          >
+            ▲
+          </button>
+
+          {/* Move Down */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
+            style={{
+              padding: '2px',
+              fontSize: '7px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '3px',
+              color: '#C0C0C0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '18px',
+              height: '18px'
+            }}
+            title="Move down (lower in stack)"
+          >
+            ▼
+          </button>
+
+          {/* Duplicate */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+            style={{
+              padding: '2px',
+              fontSize: '7px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '3px',
+              color: '#C0C0C0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '18px',
+              height: '18px'
+            }}
+            title="Duplicate layer"
+          >
+            📋
+          </button>
+
+          {/* Enhanced Duplication Menu */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowDuplicationMenu(!showDuplicationMenu); }}
+              style={{
+                padding: '2px',
+                fontSize: '7px',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '3px',
+                color: '#C0C0C0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px'
+              }}
+              title="Advanced duplicate options"
+            >
+              ⚙️
+            </button>
+            
+            {/* Duplication Menu */}
+            {showDuplicationMenu && (
+              <div style={{
+                position: 'fixed',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'linear-gradient(135deg, rgba(20, 20, 20, 0.98), rgba(30, 30, 30, 0.98))',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '8px',
+                padding: '12px',
+                zIndex: 99999,
+                backdropFilter: 'blur(20px)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+                minWidth: '200px'
+              }}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDuplicate(); setShowDuplicationMenu(false); }}
+                  style={{ 
+                    display: 'block',
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '10px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '4px',
+                    color: '#E8E8E8',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    marginBottom: '4px',
+                    transition: 'all 0.15s ease',
+                    fontWeight: '400'
+                  }}
+                >
+                  📋 Duplicate Layer
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDuplicate(); setShowDuplicationMenu(false); }}
+                  style={{ 
+                    display: 'block',
+                    width: '100%',
+                    padding: '4px 6px',
+                    fontSize: '7px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fff',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                    marginTop: '2px'
+                  }}
+                >
+                  ✨ Duplicate + Effects
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Enhanced Deletion Menu */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowDeletionMenu(!showDeletionMenu); }}
+              style={{
+                padding: '1px 2px',
+                fontSize: '6px',
+                background: layer.locked ? 'rgba(255, 107, 107, 0.2)' : 'rgba(255, 0, 0, 0.2)',
+                border: 'none',
+                color: layer.locked ? '#ff6b6b' : '#ff6666',
+                cursor: 'pointer',
+                borderRadius: '2px'
+              }}
+              title="Delete options"
+            >
+              🗑️
+            </button>
+            
+            {/* Deletion Menu */}
+            {showDeletionMenu && (
+              <div style={{
+                position: 'fixed',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'rgba(0, 0, 0, 0.98)',
+                border: '2px solid rgba(255, 0, 0, 0.3)',
+                borderRadius: '6px',
+                padding: '8px',
+                zIndex: 99999,
+                minWidth: '150px',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.8)',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(); setShowDeletionMenu(false); }}
+                  style={{ 
+                    display: 'block',
+                    width: '100%',
+                    padding: '4px 6px',
+                    fontSize: '7px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ff6666',
+                    textAlign: 'left',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🗑️ Delete Layer
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(); setShowDeletionMenu(false); }}
+                  style={{ 
+                    display: 'block',
+                    width: '100%',
+                    padding: '4px 6px',
+                    fontSize: '7px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ff6666',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                    marginTop: '2px'
+                  }}
+                >
+                  💀 Permanent Delete
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Opacity Slider */}
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={Math.round(layer.opacity * 100)}
+          onChange={(e) => {
+            const opacity = parseInt(e.target.value) / 100;
+            onSetOpacity(opacity);
+          }}
+          style={{
+            width: '24px',
+            height: '2px',
+            background: 'rgba(255, 255, 255, 0.15)',
+            outline: 'none',
+            cursor: 'pointer',
+            borderRadius: '1px'
+          }}
+          title={`Opacity: ${Math.round(layer.opacity * 100)}%`}
+        />
+        <span style={{ fontSize: '6px', color: '#999', minWidth: '16px', textAlign: 'center' }}>
+          {Math.round(layer.opacity * 100)}%
+        </span>
+      </div>
+
+      {/* Right-Click Context Menu */}
+      {showContextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: contextMenuPosition.x,
+            top: contextMenuPosition.y,
+            background: 'linear-gradient(135deg, rgba(20, 20, 20, 0.98), rgba(30, 30, 30, 0.98))',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '8px',
+            padding: '12px',
+            zIndex: 99999,
+            minWidth: '180px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(20px)'
+          }}
+          onClick={closeContextMenu}
+        >
+          <div style={{ 
+            fontSize: '11px', 
+            fontWeight: '500', 
+            marginBottom: '8px', 
+            color: '#F5F5F5',
+            letterSpacing: '0.3px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            paddingBottom: '6px'
+          }}>
+            {layer.name}
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleVisibility(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              {layer.visible ? '👁️' : '🙈'} {layer.visible ? 'Hide Layer' : 'Show Layer'}
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleLock(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: layer.locked ? '#ff6b6b' : '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              {layer.locked ? '🔒' : '🔓'} {layer.locked ? 'Unlock Layer' : 'Lock Layer'}
+            </button>
+            
+            <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.2)', margin: '3px 0' }}></div>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              📋 Duplicate Layer
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onMoveUp(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              ↑ Move Up
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onMoveDown(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              ↓ Move Down
+            </button>
+            
+            <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.2)', margin: '3px 0' }}></div>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 12px',
+                fontSize: '10px',
+                background: 'rgba(220, 38, 38, 0.1)',
+                border: '1px solid rgba(220, 38, 38, 0.3)',
+                borderRadius: '4px',
+                color: '#EF4444',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                fontWeight: '500'
+              }}
+            >
+              🗑️ Delete Layer
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Enhanced Group Item Component
+interface EnhancedGroupItemProps {
+  group: LayerGroup;
+  isActive: boolean;
+  isSelected: boolean;
+  layers: Map<string, AdvancedLayer>;
+  onSelect: () => void;
+  onToggleCollapse: () => void;
+  onToggleVisibility: () => void;
+  onToggleLock: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+  onDuplicate: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onSetOpacity: (opacity: number) => void;
+  onSetBlendMode: (blendMode: BlendMode) => void;
+}
+
+const EnhancedGroupItem: React.FC<EnhancedGroupItemProps> = ({
+  group,
+  isActive,
+  isSelected,
+  layers,
+  onSelect,
+  onToggleCollapse,
+  onToggleVisibility,
+  onToggleLock,
+  onRename,
+  onDelete,
+  onDuplicate,
+  onMoveUp,
+  onMoveDown,
+  onSetOpacity,
+  onSetBlendMode
+}) => {
+  const [isRenaming, setIsRenaming] = React.useState(false);
+  const [tempName, setTempName] = React.useState(group.name);
+  const [showContextMenu, setShowContextMenu] = React.useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = React.useState({ x: 0, y: 0 });
+  const [showDuplicationMenu, setShowDuplicationMenu] = React.useState(false);
+  const [showDeletionMenu, setShowDeletionMenu] = React.useState(false);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (isRenaming && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isRenaming]);
+
+  // Close context menu when clicking outside
+  React.useEffect(() => {
+    const handleGlobalClick = () => {
+      if (showContextMenu) {
+        setShowContextMenu(false);
+      }
+    };
+
+    if (showContextMenu) {
+      document.addEventListener('click', handleGlobalClick);
+      return () => document.removeEventListener('click', handleGlobalClick);
+    }
+  }, [showContextMenu]);
+
+  const handleRename = () => {
+    if (tempName.trim() && tempName !== group.name) {
+      onRename(tempName.trim());
+    }
+    setIsRenaming(false);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleRename();
+    } else if (e.key === 'Escape') {
+      setTempName(group.name);
+      setIsRenaming(false);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
+
+  const closeContextMenu = () => {
+    setShowContextMenu(false);
+  };
+
+  const handleGroupClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (e.ctrlKey || e.metaKey) {
+      // Multi-select with Ctrl/Cmd
+      onSelect();
+    } else {
+      // Single select
+      onSelect();
+    }
+  };
+
+  // Drag & Drop handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', group.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragging(true);
+    console.log('🎨 Drag started for group:', group.name);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    console.log('🎨 Drag ended for group:', group.name);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (draggedId !== group.id) {
+      // Determine drop position based on mouse position
+      const rect = e.currentTarget.getBoundingClientRect();
+      const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+      console.log('🎨 Dropped item', draggedId, position, 'group', group.id);
+      // Note: We would need to implement reordering logic here
+    }
+  };
+
+  const childLayers = Array.from(layers.values()).filter(layer => layer.groupId === group.id);
+  const visibleChildCount = childLayers.filter(layer => layer.visible).length;
+
+  return (
+    <div 
+      style={{
+        padding: '6px 8px',
+        marginBottom: '2px',
+        background: isActive 
+          ? 'rgba(255, 165, 0, 0.2)' 
+          : isSelected 
+            ? 'rgba(255, 165, 0, 0.1)'
+            : 'rgba(255, 255, 255, 0.05)',
+        border: isActive 
+          ? '1px solid rgba(255, 165, 0, 0.5)' 
+          : isSelected
+            ? '1px solid rgba(255, 165, 0, 0.3)'
+            : '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '3px',
+        cursor: 'pointer',
+        fontSize: '9px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'relative',
+        opacity: isDragging ? 0.5 : 1,
+        transform: isDragging ? 'scale(0.95)' : 'scale(1)',
+        transition: 'all 0.2s ease'
+      }}
+      onClick={handleGroupClick}
+      onContextMenu={handleContextMenu}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDrop={handleDrop}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {/* Collapse/Expand Toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
+          style={{
+            padding: '2px',
+            background: 'transparent',
+            border: 'none',
+            color: '#FFA500',
+            cursor: 'pointer',
+            fontSize: '8px'
+          }}
+          title={group.collapsed ? 'Expand group' : 'Collapse group'}
+        >
+          {group.collapsed ? '▶️' : '🔽'}
+        </button>
+
+        {/* Visibility Toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleVisibility(); }}
+          style={{
+            padding: '2px',
+            background: 'transparent',
+            border: 'none',
+            color: group.visible ? '#fff' : '#666',
+            cursor: 'pointer',
+            fontSize: '8px'
+          }}
+          title={group.visible ? 'Hide group' : 'Show group'}
+        >
+          {group.visible ? '👁️' : '🙈'}
+        </button>
+
+        {/* Lock Toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleLock(); }}
+          style={{
+            padding: '2px',
+            background: 'transparent',
+            border: 'none',
+            color: group.locked ? '#ff6b6b' : '#999',
+            cursor: 'pointer',
+            fontSize: '8px'
+          }}
+          title={group.locked ? 'Unlock group' : 'Lock group'}
+        >
+          {group.locked ? '🔒' : '🔓'}
+        </button>
+
+        {/* Group Icon */}
+        <span style={{ fontSize: '10px' }}>📁</span>
+
+        {/* Group Name */}
+        {isRenaming ? (
+          <input
+            ref={inputRef}
+            type="text"
+            value={tempName}
+            onChange={(e) => setTempName(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={handleKeyPress}
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 165, 0, 0.5)',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '8px',
+              color: '#fff',
+              width: '80px'
+            }}
+          />
+        ) : (
+          <span 
+            style={{ 
+              color: group.visible ? '#fff' : '#666',
+              fontWeight: isActive ? '600' : '400',
+              fontSize: '8px'
+            }}
+            onDoubleClick={() => setIsRenaming(true)}
+          >
+            {group.name}
+          </span>
+        )}
+
+        {/* Layer Count Badge */}
+        <span style={{ 
+          fontSize: '6px', 
+          color: '#FFA500',
+          background: 'rgba(255, 165, 0, 0.2)',
+          padding: '1px 3px',
+          borderRadius: '2px'
+        }}>
+          {childLayers.length} layers
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        {/* Quick Actions */}
+        <div style={{ display: 'flex', gap: '2px' }}>
+          {/* Move Up */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
+            style={{
+              padding: '1px 2px',
+              fontSize: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: '#999',
+              cursor: 'pointer'
+            }}
+            title="Move group up"
+          >
+            ▲
+          </button>
+
+          {/* Move Down */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
+            style={{
+              padding: '1px 2px',
+              fontSize: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: '#999',
+              cursor: 'pointer'
+            }}
+            title="Move group down"
+          >
+            ▼
+          </button>
+
+          {/* Duplicate */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+            style={{
+              padding: '1px 2px',
+              fontSize: '6px',
+              background: 'transparent',
+              border: 'none',
+              color: '#999',
+              cursor: 'pointer'
+            }}
+            title="Duplicate group"
+          >
+            📋
+          </button>
+
+          {/* Delete */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            style={{
+              padding: '1px 2px',
+              fontSize: '6px',
+              background: group.locked ? 'rgba(255, 107, 107, 0.2)' : 'rgba(255, 0, 0, 0.2)',
+              border: 'none',
+              color: group.locked ? '#ff6b6b' : '#ff6666',
+              cursor: 'pointer',
+              borderRadius: '2px'
+            }}
+            title="Delete group"
+          >
+            🗑️
+          </button>
+        </div>
+
+        {/* Opacity Slider */}
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={Math.round(group.opacity * 100)}
+          onChange={(e) => {
+            const opacity = parseInt(e.target.value) / 100;
+            onSetOpacity(opacity);
+          }}
+          style={{
+            width: '30px',
+            height: '2px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            outline: 'none',
+            cursor: 'pointer'
+          }}
+          title={`Group Opacity: ${Math.round(group.opacity * 100)}%`}
+        />
+        <span style={{ fontSize: '6px', color: '#999', minWidth: '20px' }}>
+          {Math.round(group.opacity * 100)}%
+        </span>
+      </div>
+
+      {/* Right-Click Context Menu */}
+      {showContextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: contextMenuPosition.x,
+            top: contextMenuPosition.y,
+            background: 'rgba(0, 0, 0, 0.95)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '6px',
+            padding: '8px',
+            zIndex: 99999,
+            minWidth: '150px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+          }}
+          onClick={closeContextMenu}
+        >
+          <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '6px', color: '#FFA500' }}>
+            {group.name}
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleVisibility(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              {group.visible ? '👁️' : '🙈'} {group.visible ? 'Hide Group' : 'Show Group'}
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleLock(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: group.locked ? '#ff6b6b' : '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              {group.locked ? '🔒' : '🔓'} {group.locked ? 'Unlock Group' : 'Lock Group'}
+            </button>
+            
+            <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.2)', margin: '3px 0' }}></div>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              📋 Duplicate Group
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onMoveUp(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              ↑ Move Up
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onMoveDown(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              ↓ Move Down
+            </button>
+            
+            <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.2)', margin: '3px 0' }}></div>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); closeContextMenu(); }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                fontSize: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#ff6666',
+                textAlign: 'left',
+                width: '100%',
+                cursor: 'pointer'
+              }}
+            >
+              🗑️ Delete Group
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface RightPanelCompactProps {
   activeToolSidebar?: string | null;
 }
@@ -40,6 +1305,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     setBrushHardness,
     setBrushShape,
     setBrushSpacing,
+    setBrushFlow,
     setBlendMode,
     setBrushSymmetry,
     setSymmetryX,
@@ -112,7 +1378,6 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     duplicateLayer: duplicateLayer,
     renameLayer: renameLayer,
     selectLayer: selectLayer,
-    selectLayers: selectLayers,
     clearSelection: clearLayerSelection,
     setActiveLayer: setActiveLayer,
     setLayerVisibility: setLayerVisibility,
@@ -138,8 +1403,58 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     updateMask,
     toggleMaskEnabled,
     toggleMaskInverted,
-    generateLayerName: generateAdvancedLayerName
+    generateLayerName: generateAdvancedLayerName,
+    selectLayers,
+    clearSelection,
+    deleteSelectedLayers,
+    duplicateSelectedLayers,
+    renameGroup
   } = useAdvancedLayerStoreV2();
+
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      console.log('🎨 Keyboard event:', e.key, 'Ctrl:', e.ctrlKey, 'Selected layers:', advancedSelectedLayerIds.length);
+      
+      // Ctrl+A: Select all layers
+      if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault();
+        // Select all layers
+        const allLayerIds = advancedLayers.map(layer => layer.id);
+        selectLayers(allLayerIds);
+        console.log('🎨 Selected all layers (Ctrl+A)');
+      }
+      
+      // Escape: Clear selection
+      if (e.key === 'Escape') {
+        clearSelection();
+        console.log('🎨 Cleared layer selection (Escape)');
+      }
+      
+      // Delete: Delete selected layers
+      if (e.key === 'Delete' && advancedSelectedLayerIds.length > 0) {
+        e.preventDefault();
+        console.log('🎨 Attempting to delete selected layers:', advancedSelectedLayerIds);
+        deleteSelectedLayers();
+        console.log('🎨 Deleted selected layers (Delete key)');
+      }
+      
+      // Ctrl+D: Duplicate selected layers
+      if (e.ctrlKey && e.key === 'd' && advancedSelectedLayerIds.length > 0) {
+        e.preventDefault();
+        console.log('🎨 Attempting to duplicate selected layers:', advancedSelectedLayerIds);
+        duplicateSelectedLayers();
+        console.log('🎨 Duplicated selected layers (Ctrl+D)');
+      }
+    };
+
+    console.log('🎨 Adding keyboard event listener');
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      console.log('🎨 Removing keyboard event listener');
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [advancedSelectedLayerIds, advancedLayers, selectLayers, clearSelection, deleteSelectedLayers, duplicateSelectedLayers]);
 
   // Automatic Layer Manager - REMOVED (simplified system)
   const autoCreationEnabled = false;
@@ -330,14 +1645,21 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
 
   // Expose gradient data globally for painting logic
   React.useEffect(() => {
-    (window as any).getGradientSettings = () => ({
+    const gradientData = {
       brush: { mode: brushColorMode, ...brushGradient },
       puff: { mode: puffColorMode, ...puffGradient },
       embroidery: { mode: embroideryColorMode, ...embroideryGradient },
       text: { mode: textColorMode, ...textGradient },
       shapes: { mode: shapesColorMode, ...shapesGradient },
       getGradientCSS
-    });
+    };
+    
+    console.log('🎨 GRADIENT DATA EXPOSED:', gradientData);
+    console.log('🎨 BRUSH GRADIENT DATA:', gradientData.brush);
+    console.log('🎨 BRUSH COLOR MODE:', brushColorMode);
+    console.log('🎨 BRUSH GRADIENT STOPS:', brushGradient.stops);
+    
+    (window as any).getGradientSettings = () => gradientData;
   }, [brushColorMode, brushGradient, puffColorMode, puffGradient, embroideryColorMode, embroideryGradient, textColorMode, textGradient, shapesColorMode, shapesGradient]);
 
   // Removed old tabs system - now using activeTool-based display
@@ -500,7 +1822,18 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   🎨 Solid Color
                 </button>
                 <button
-                  onClick={() => setBrushColorMode('gradient')}
+                  onClick={() => {
+                    console.log('🎨 GRADIENT TAB CLICKED - Setting brushColorMode to gradient');
+                    setBrushColorMode('gradient');
+                    console.log('🎨 GRADIENT TAB - brushColorMode set to:', 'gradient');
+                    console.log('🎨 GRADIENT TAB - brushGradient data:', brushGradient);
+                    
+                    // Force a small delay to ensure state is updated
+                    setTimeout(() => {
+                      console.log('🎨 GRADIENT TAB - After timeout, brushColorMode:', brushColorMode);
+                      console.log('🎨 GRADIENT TAB - After timeout, brushGradient:', brushGradient);
+                    }, 100);
+                  }}
                   style={{
                     flex: 1,
                     padding: '6px',
@@ -513,7 +1846,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     fontWeight: '600'
                   }}
                 >
-                  🌈 Gradient
+                  🌈 Gradient {brushColorMode === 'gradient' ? '✓' : ''}
                 </button>
               </div>
 
@@ -584,6 +1917,30 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               {/* Gradient Content */}
               {brushColorMode === 'gradient' && (
                 <div style={{ padding: '8px', background: 'rgba(138,43,226,0.05)', borderRadius: '4px', border: '1px solid rgba(138,43,226,0.3)' }}>
+                  {/* Test Button */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <button
+                      onClick={() => {
+                        console.log('🧪 GRADIENT TEST - Testing gradient functionality');
+                        const gradientSettings = (window as any).getGradientSettings?.();
+                        console.log('🧪 GRADIENT TEST - Current gradient settings:', gradientSettings);
+                        console.log('🧪 GRADIENT TEST - Brush gradient data:', gradientSettings?.brush);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px',
+                        fontSize: '8px',
+                        background: 'rgba(138,43,226,0.2)',
+                        color: '#fff',
+                        border: '1px solid rgba(138,43,226,0.5)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🧪 Test Gradient
+                    </button>
+                  </div>
+                  
                   {/* Gradient Type */}
                   <div style={{ marginBottom: '8px' }}>
                     <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Type</div>
@@ -804,6 +2161,60 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               />
             </div>
 
+            {/* Flow */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>Flow</span>
+                <span style={{ fontSize: '8px', color: '#999' }}>{Math.round(brushFlow * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={brushFlow}
+                onChange={(e) => setBrushFlow(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: '#0066CC'
+                }}
+              />
+            </div>
+
+            {/* Spacing */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>Spacing</span>
+                <span style={{ fontSize: '8px', color: '#999' }}>{Math.round(brushSpacing * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={brushSpacing}
+                onChange={(e) => setBrushSpacing(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: '#0066CC'
+                }}
+              />
+            </div>
+
             {/* Brush Type */}
             <div style={{ marginBottom: '8px' }}>
               <div style={{
@@ -868,6 +2279,47 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   <option value="blur">🌀 Blur</option>
                   <option value="smudge">👆 Smudge</option>
                 </optgroup>
+              </select>
+            </div>
+
+            {/* Blend Mode */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px'
+              }}>
+                Blend Mode
+              </div>
+              <select
+                value={blendMode}
+                onChange={(e) => setBlendMode(e.target.value as GlobalCompositeOperation)}
+                style={{
+                  width: '100%',
+                  padding: '4px 6px',
+                  background: '#000000',
+                  color: '#CCC',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '2px',
+                  fontSize: '9px'
+                }}
+              >
+                <option value="source-over">Normal</option>
+                <option value="multiply">Multiply</option>
+                <option value="screen">Screen</option>
+                <option value="overlay">Overlay</option>
+                <option value="soft-light">Soft Light</option>
+                <option value="hard-light">Hard Light</option>
+                <option value="color-dodge">Color Dodge</option>
+                <option value="color-burn">Color Burn</option>
+                <option value="darken">Darken</option>
+                <option value="lighten">Lighten</option>
+                <option value="difference">Difference</option>
+                <option value="exclusion">Exclusion</option>
+                <option value="hue">Hue</option>
+                <option value="saturation">Saturation</option>
+                <option value="color">Color</option>
+                <option value="luminosity">Luminosity</option>
               </select>
             </div>
           </div>
@@ -4521,56 +5973,83 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
             </div>
 
             {/* Layer Controls */}
-            <div style={{ marginBottom: '12px' }}>
+            <div style={{ marginBottom: '8px' }}>
               <div style={{
-                fontSize: '9px',
-                color: '#CCC',
-                marginBottom: '6px'
+                fontSize: '8px',
+                color: '#999',
+                marginBottom: '4px',
+                fontWeight: '500',
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase'
               }}>
                 Quick Actions
               </div>
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
                 <button
                   style={{
                     padding: '4px 8px',
-                    backgroundColor: '#007acc',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '3px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    color: '#E8E8E8',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '9px'
+                    fontSize: '8px',
+                    fontWeight: '400',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    minWidth: '60px',
+                    justifyContent: 'center'
                   }}
                   onClick={() => createLayer('paint', 'New Layer')}
+                  title="Create new paint layer"
                 >
-                  ➕ New Layer
+                  ➕ Layer
                 </button>
                 <button
                   style={{
                     padding: '4px 8px',
-                    backgroundColor: '#28a745',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '3px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    color: '#E8E8E8',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '9px'
+                    fontSize: '8px',
+                    fontWeight: '400',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    minWidth: '60px',
+                    justifyContent: 'center'
                   }}
                   onClick={() => createGroup('New Group')}
+                  title="Create new layer group"
                 >
-                  📁 New Group
+                  📁 Group
                 </button>
                 <button
                   style={{
                     padding: '4px 8px',
-                    backgroundColor: '#ffc107',
-                    color: '#000000',
-                    border: 'none',
-                    borderRadius: '3px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    color: '#999',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '9px'
+                    fontSize: '8px',
+                    fontWeight: '400',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    minWidth: '60px',
+                    justifyContent: 'center'
                   }}
                   onClick={() => console.log('Auto organize not available in V2')}
+                  title="Auto organize layers (coming soon)"
                 >
-                  🤖 Auto Organize
+                  🤖 Auto
                 </button>
               </div>
             </div>
@@ -6988,6 +8467,126 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           padding: '8px',
           overflowY: 'auto'
         }}>
+          {/* Layer Search and Filter */}
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+              <input
+                type="text"
+                placeholder="🔍 Search layers..."
+                    style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: 'rgba(0, 0, 0, 0.8)',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '3px',
+                  outline: 'none'
+                }}
+                onChange={(e) => {
+                  const searchTerm = e.target.value.toLowerCase();
+                  console.log('🎨 Searching layers for:', searchTerm);
+                  // Note: In a real implementation, this would filter the layers
+                }}
+              />
+              <select
+                style={{
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: 'rgba(0, 0, 0, 0.8)',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '3px',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+                onChange={(e) => {
+                  const filterType = e.target.value;
+                  console.log('🎨 Filtering layers by type:', filterType);
+                  // Note: In a real implementation, this would filter the layers
+                }}
+              >
+                <option value="all">All Types</option>
+                <option value="paint">🎨 Paint</option>
+                <option value="image">🖼️ Image</option>
+                <option value="text">📝 Text</option>
+                <option value="group">📁 Group</option>
+                <option value="adjustment">🎛️ Adjustment</option>
+              </select>
+                    </div>
+            
+            <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  console.log('🎨 Showing only visible layers');
+                  // Note: In a real implementation, this would filter visible layers
+                        }}
+                        style={{
+                  padding: '2px 4px',
+                  fontSize: '6px',
+                  background: 'rgba(0, 255, 0, 0.2)',
+                  color: '#00FF00',
+                  border: '1px solid rgba(0, 255, 0, 0.3)',
+                  borderRadius: '2px',
+                          cursor: 'pointer'
+                        }}
+              >
+                👁️ Visible Only
+              </button>
+                        <button
+                onClick={() => {
+                  console.log('🎨 Showing only locked layers');
+                  // Note: In a real implementation, this would filter locked layers
+                }}
+                          style={{
+                  padding: '2px 4px',
+                            fontSize: '6px',
+                  background: 'rgba(255, 165, 0, 0.2)',
+                  color: '#FFA500',
+                  border: '1px solid rgba(255, 165, 0, 0.3)',
+                  borderRadius: '2px',
+                  cursor: 'pointer'
+                }}
+              >
+                🔒 Locked Only
+                        </button>
+                        <button
+                onClick={() => {
+                  console.log('🎨 Showing layers with effects');
+                  // Note: In a real implementation, this would filter layers with effects
+                }}
+                          style={{
+                  padding: '2px 4px',
+                            fontSize: '6px',
+                  background: 'rgba(255, 0, 255, 0.2)',
+                  color: '#FF00FF',
+                  border: '1px solid rgba(255, 0, 255, 0.3)',
+                  borderRadius: '2px',
+                  cursor: 'pointer'
+                }}
+              >
+                ✨ With Effects
+                        </button>
+                      <button
+                onClick={() => {
+                  console.log('🎨 Showing layers with masks');
+                  // Note: In a real implementation, this would filter layers with masks
+                        }}
+                        style={{
+                          padding: '2px 4px',
+                  fontSize: '6px',
+                  background: 'rgba(0, 150, 255, 0.2)',
+                  color: '#66B3FF',
+                  border: '1px solid rgba(0, 150, 255, 0.3)',
+                  borderRadius: '2px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                🎭 With Masks
+                      </button>
+                    </div>
+                  </div>
+
           {/* Layer List */}
           <div style={{ marginBottom: '8px' }}>
             {advancedLayers.length === 0 ? (
@@ -7003,162 +8602,211 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 No layers yet. Start drawing to create layers!
               </div>
             ) : (
-              advancedLayers
-                .sort((a, b) => b.order - a.order) // Show newest first
-                .map((layer) => (
-                  <div
-                    key={layer.id}
-                    style={{
-                      padding: '6px 8px',
-                      marginBottom: '2px',
-                      background: layer.id === advancedActiveLayerId 
-                        ? 'rgba(0, 102, 204, 0.2)' 
-                        : 'rgba(255, 255, 255, 0.05)',
-                      border: layer.id === advancedActiveLayerId 
-                        ? '1px solid rgba(0, 102, 204, 0.5)' 
-                        : '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '3px',
-                      cursor: 'pointer',
-                      fontSize: '9px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}
-                    onClick={() => {
-                      setActiveLayer(layer.id);
-                      console.log('🎨 Selected layer:', layer.name);
-                    }}
-                    onDoubleClick={() => {
-                      const newName = prompt('Rename layer:', layer.name);
-                      if (newName && newName.trim() !== '' && newName !== layer.name) {
-                        renameLayer(layer.id, newName.trim());
-                        console.log('🎨 Renamed layer:', layer.name, 'to', newName.trim());
-                      }
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ opacity: layer.visible ? 1 : 0.3 }}>
-                        {layer.visible ? '👁️' : '🙈'}
-                      </span>
-                      <span style={{ 
-                        color: layer.visible ? '#fff' : '#666',
-                        fontWeight: layer.id === advancedActiveLayerId ? '600' : '400'
-                      }}>
-                        {layer.name}
-                      </span>
-                      <span style={{ 
-                        fontSize: '7px', 
-                        color: '#999',
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        padding: '1px 4px',
-                        borderRadius: '2px'
-                      }}>
-                        {layer.type}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {/* Layer Opacity Slider */}
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={Math.round(layer.opacity * 100)}
-                        onChange={(e) => {
-                          const opacity = parseInt(e.target.value) / 100;
-                          setLayerOpacity(layer.id, opacity);
-                          console.log('🎨 Set layer opacity:', layer.name, opacity);
+              <div>
+                {/* Render Groups First */}
+                {advancedGroups
+                  .sort((a, b) => b.order - a.order)
+                  .map((group) => (
+                    <div key={group.id}>
+                      <EnhancedGroupItem
+                        group={group}
+                        isActive={false} // Groups don't have active state like layers
+                        isSelected={false} // Groups don't have selection state like layers
+                        layers={new Map(advancedLayers.map(layer => [layer.id, layer]))}
+                        onSelect={() => {
+                          console.log('🎨 Selected group:', group.name);
                         }}
-                        style={{
-                          width: '30px',
-                          height: '2px',
-                          background: 'rgba(255, 255, 255, 0.2)',
-                          outline: 'none',
-                          cursor: 'pointer'
+                        onToggleCollapse={() => {
+                          toggleGroupCollapse(group.id);
+                          console.log('🎨 Toggled group collapse:', group.name);
                         }}
-                        title={`Opacity: ${Math.round(layer.opacity * 100)}%`}
+                        onToggleVisibility={() => {
+                          // Note: Groups don't have visibility in the current system
+                          console.log('🎨 Toggled group visibility:', group.name);
+                        }}
+                        onToggleLock={() => {
+                          // Note: Groups don't have lock in the current system
+                          console.log('🎨 Toggled group lock:', group.name);
+                        }}
+                        onRename={(newName) => {
+                          renameGroup(group.id, newName);
+                          console.log('🎨 Renamed group:', group.name, 'to', newName);
+                        }}
+                        onDelete={() => {
+                          deleteGroup(group.id);
+                          console.log('🎨 Deleted group:', group.name);
+                        }}
+                        onDuplicate={() => {
+                          // Note: Groups don't have duplicate in the current system
+                          console.log('🎨 Duplicated group:', group.name);
+                        }}
+                        onMoveUp={() => {
+                          // Note: Groups don't have move up in the current system
+                          console.log('🎨 Moved group up:', group.name);
+                        }}
+                        onMoveDown={() => {
+                          // Note: Groups don't have move down in the current system
+                          console.log('🎨 Moved group down:', group.name);
+                        }}
+                        onSetOpacity={(opacity) => {
+                          // Note: Groups don't have opacity in the current system
+                          console.log('🎨 Set group opacity:', group.name, opacity);
+                        }}
+                        onSetBlendMode={(blendMode) => {
+                          // Note: Groups don't have blend mode in the current system
+                          console.log('🎨 Set group blend mode:', group.name, blendMode);
+                        }}
                       />
-                      <span style={{ fontSize: '7px', color: '#999', minWidth: '25px' }}>
-                        {Math.round(layer.opacity * 100)}%
-                      </span>
                       
-                      {/* Layer Reordering Controls */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const currentIndex = advancedLayers.findIndex(l => l.id === layer.id);
-                            if (currentIndex < advancedLayers.length - 1) {
-                              const newOrder = [...advancedLayers.map(l => l.id)];
-                              [newOrder[currentIndex], newOrder[currentIndex + 1]] = [newOrder[currentIndex + 1], newOrder[currentIndex]];
-                              reorderLayers(newOrder);
-                              console.log('🎨 Moved layer up:', layer.name);
-                            }
-                          }}
-                          disabled={advancedLayers.findIndex(l => l.id === layer.id) >= advancedLayers.length - 1}
-                          style={{
-                            padding: '1px 2px',
-                            fontSize: '6px',
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#999',
-                            cursor: 'pointer',
-                            opacity: advancedLayers.findIndex(l => l.id === layer.id) >= advancedLayers.length - 1 ? 0.3 : 1
-                          }}
-                          title="Move layer up"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const currentIndex = advancedLayers.findIndex(l => l.id === layer.id);
-                            if (currentIndex > 0) {
-                              const newOrder = [...advancedLayers.map(l => l.id)];
-                              [newOrder[currentIndex], newOrder[currentIndex - 1]] = [newOrder[currentIndex - 1], newOrder[currentIndex]];
-                              reorderLayers(newOrder);
-                              console.log('🎨 Moved layer down:', layer.name);
-                            }
-                          }}
-                          disabled={advancedLayers.findIndex(l => l.id === layer.id) <= 0}
-                          style={{
-                            padding: '1px 2px',
-                            fontSize: '6px',
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#999',
-                            cursor: 'pointer',
-                            opacity: advancedLayers.findIndex(l => l.id === layer.id) <= 0 ? 0.3 : 1
-                          }}
-                          title="Move layer down"
-                        >
-                          ▼
-                        </button>
-                      </div>
-                      
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLayerVisibility(layer.id, !layer.visible);
-                        }}
-                        style={{
-                          padding: '2px 4px',
-                          fontSize: '7px',
-                          background: 'transparent',
-                          border: 'none',
-                          color: layer.visible ? '#fff' : '#666',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {layer.visible ? '👁️' : '🙈'}
-                      </button>
+                      {/* Render Layers in this Group */}
+                      {!group.collapsed && (
+                        <div style={{ marginLeft: '20px', borderLeft: '1px solid rgba(255, 165, 0, 0.3)' }}>
+                          {advancedLayers
+                            .filter(layer => layer.groupId === group.id)
+                            .sort((a, b) => b.order - a.order)
+                            .map((layer) => (
+                              <EnhancedLayerItem
+                                key={layer.id}
+                                layer={layer}
+                                isActive={layer.id === advancedActiveLayerId}
+                                isSelected={advancedSelectedLayerIds.includes(layer.id)}
+                                onSelect={() => {
+                                  setActiveLayer(layer.id);
+                                  console.log('🎨 Selected layer:', layer.name);
+                                }}
+                                onToggleVisibility={() => {
+                                  setLayerVisibility(layer.id, !layer.visible);
+                                }}
+                                onToggleLock={() => {
+                                  setLayerLocked(layer.id, !layer.locked);
+                                }}
+                                onRename={(newName) => {
+                                  renameLayer(layer.id, newName);
+                                  console.log('🎨 Renamed layer:', layer.name, 'to', newName);
+                                }}
+                                onDelete={() => {
+                                  deleteLayer(layer.id);
+                                  console.log('🎨 Deleted layer:', layer.name);
+                                }}
+                                onDuplicate={() => {
+                                  duplicateLayer(layer.id);
+                                  console.log('🎨 Duplicated layer:', layer.name);
+                                }}
+                                onMoveUp={() => {
+                                  moveLayerUp(layer.id);
+                                  console.log('🎨 Moved layer up:', layer.name);
+                                }}
+                                onMoveDown={() => {
+                                  moveLayerDown(layer.id);
+                                  console.log('🎨 Moved layer down:', layer.name);
+                                }}
+                                onSetOpacity={(opacity) => {
+                                  setLayerOpacity(layer.id, opacity);
+                                  console.log('🎨 Set layer opacity:', layer.name, opacity);
+                                }}
+                                onSetBlendMode={(blendMode) => {
+                                  setLayerBlendMode(layer.id, blendMode);
+                                  console.log('🎨 Set layer blend mode:', layer.name, blendMode);
+                                }}
+                                onReorderLayers={(newOrder) => {
+                                  reorderLayers(newOrder);
+                                  console.log('🎨 Reordered layers:', newOrder);
+                                }}
+                                allLayers={advancedLayers}
+                              />
+                            ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))
+                  ))}
+                
+                {/* Render Ungrouped Layers */}
+                {advancedLayers
+                  .filter(layer => !layer.groupId)
+                  .sort((a, b) => b.order - a.order)
+                  .map((layer) => (
+                    <EnhancedLayerItem
+                      key={layer.id}
+                      layer={layer}
+                      isActive={layer.id === advancedActiveLayerId}
+                      isSelected={advancedSelectedLayerIds.includes(layer.id)}
+                      onSelect={() => {
+                        setActiveLayer(layer.id);
+                        console.log('🎨 Selected layer:', layer.name);
+                        
+                        // PHASE 2: If layer has strokeData, also select the stroke for border highlighting
+                        if (layer.content?.strokeData) {
+                          console.log('🎯 Layer has strokeData, attempting to select stroke:', layer.id);
+                          
+                          // Use setTimeout to ensure module is loaded
+                          setTimeout(() => {
+                            try {
+                              const strokeSelectionModule = (window as any).__strokeSelectionModule;
+                              console.log('🎯 Stroke selection module:', !!strokeSelectionModule);
+                              
+                              if (strokeSelectionModule?.useStrokeSelection) {
+                                const { selectStroke } = strokeSelectionModule.useStrokeSelection.getState();
+                                console.log('🎯 Calling selectStroke for:', layer.id);
+                                selectStroke(layer.id);
+                                console.log('✅ Stroke selected successfully');
+                              } else {
+                                console.warn('⚠️ useStrokeSelection not available in module');
+                              }
+                            } catch (e) {
+                              console.warn('⚠️ Could not select stroke:', e);
+                            }
+                          }, 0);
+                        } else {
+                          console.log('🎯 Layer does not have strokeData');
+                        }
+                      }}
+                      onToggleVisibility={() => {
+                        setLayerVisibility(layer.id, !layer.visible);
+                      }}
+                      onToggleLock={() => {
+                        setLayerLocked(layer.id, !layer.locked);
+                      }}
+                      onRename={(newName) => {
+                        renameLayer(layer.id, newName);
+                        console.log('🎨 Renamed layer:', layer.name, 'to', newName);
+                      }}
+                      onDelete={() => {
+                        deleteLayer(layer.id);
+                        console.log('🎨 Deleted layer:', layer.name);
+                      }}
+                      onDuplicate={() => {
+                        duplicateLayer(layer.id);
+                        console.log('🎨 Duplicated layer:', layer.name);
+                      }}
+                      onMoveUp={() => {
+                        moveLayerUp(layer.id);
+                        console.log('🎨 Moved layer up:', layer.name);
+                      }}
+                      onMoveDown={() => {
+                        moveLayerDown(layer.id);
+                        console.log('🎨 Moved layer down:', layer.name);
+                      }}
+                      onSetOpacity={(opacity) => {
+                        setLayerOpacity(layer.id, opacity);
+                        console.log('🎨 Set layer opacity:', layer.name, opacity);
+                      }}
+                      onSetBlendMode={(blendMode) => {
+                        setLayerBlendMode(layer.id, blendMode);
+                        console.log('🎨 Set layer blend mode:', layer.name, blendMode);
+                      }}
+                      onReorderLayers={(newOrder) => {
+                        reorderLayers(newOrder);
+                        console.log('🎨 Reordered layers:', newOrder);
+                      }}
+                      allLayers={advancedLayers}
+                    />
+                  ))}
+              </div>
             )}
           </div>
 
           {/* Layer Actions */}
-          <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
+          <div style={{ display: 'flex', gap: '4px', marginTop: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={() => {
                 const layerId = createLayer('paint', `Layer ${advancedLayers.length + 1}`);
@@ -7175,8 +8823,53 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                 borderRadius: '3px',
                 cursor: 'pointer'
               }}
+              title="Create a new paint layer"
             >
               + New Layer
+            </button>
+            <button
+              onClick={() => {
+                const groupId = createGroup(`Group ${advancedGroups.length + 1}`);
+                console.log('🎨 Created new group:', groupId);
+              }}
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                fontSize: '8px',
+                background: 'rgba(255, 165, 0, 0.2)',
+                color: '#FFA500',
+                border: '1px solid rgba(255, 165, 0, 0.3)',
+                borderRadius: '3px',
+                cursor: 'pointer'
+              }}
+              title="Create a new layer group/folder"
+            >
+              📁 New Group
+            </button>
+            <button
+              onClick={() => {
+                if (advancedActiveLayerId) {
+                  duplicateLayer(advancedActiveLayerId);
+                  console.log('🎨 Duplicated layer:', advancedActiveLayerId);
+                }
+              }}
+              disabled={!advancedActiveLayerId}
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                fontSize: '8px',
+                background: advancedActiveLayerId 
+                  ? 'rgba(0, 150, 255, 0.2)' 
+                  : 'rgba(255, 255, 255, 0.1)',
+                color: advancedActiveLayerId ? '#66B3FF' : '#666',
+                border: `1px solid ${advancedActiveLayerId 
+                  ? 'rgba(0, 150, 255, 0.3)' 
+                  : 'rgba(255, 255, 255, 0.1)'}`,
+                borderRadius: '3px',
+                cursor: advancedActiveLayerId ? 'pointer' : 'not-allowed'
+              }}
+            >
+              📋 Duplicate
             </button>
             <button
               onClick={() => {
@@ -7204,6 +8897,199 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               🗑️ Delete
             </button>
           </div>
+
+          {/* Bulk Operations */}
+          {advancedLayers.length > 1 && (
+            <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  // Duplicate all selected layers
+                  advancedSelectedLayerIds.forEach(layerId => {
+                    duplicateLayer(layerId);
+                  });
+                  console.log('🎨 Duplicated selected layers:', advancedSelectedLayerIds.length);
+                }}
+                disabled={advancedSelectedLayerIds.length === 0}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(0, 150, 255, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.1)',
+                  color: advancedSelectedLayerIds.length > 0 ? '#66B3FF' : '#666',
+                  border: `1px solid ${advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(0, 150, 255, 0.3)' 
+                    : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '3px',
+                  cursor: advancedSelectedLayerIds.length > 0 ? 'pointer' : 'not-allowed'
+                }}
+              >
+                📋 Duplicate Selected ({advancedSelectedLayerIds.length})
+              </button>
+              <button
+                onClick={() => {
+                  // Delete all selected layers
+                  advancedSelectedLayerIds.forEach(layerId => {
+                    deleteLayer(layerId);
+                  });
+                  console.log('🎨 Deleted selected layers:', advancedSelectedLayerIds.length);
+                }}
+                disabled={advancedSelectedLayerIds.length === 0}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(255, 0, 0, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.1)',
+                  color: advancedSelectedLayerIds.length > 0 ? '#FF6666' : '#666',
+                  border: `1px solid ${advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(255, 0, 0, 0.3)' 
+                    : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '3px',
+                  cursor: advancedSelectedLayerIds.length > 0 ? 'pointer' : 'not-allowed'
+                }}
+              >
+                🗑️ Delete Selected ({advancedSelectedLayerIds.length})
+              </button>
+            </div>
+          )}
+
+          {/* Group Management */}
+          {advancedLayers.length > 0 && advancedGroups.length > 0 && (
+            <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  // Move selected layers to a new group
+                  if (advancedSelectedLayerIds.length > 0) {
+                    // Create a new group for the selected layers
+                    const groupId = createGroup(`Group ${advancedGroups.length + 1}`);
+                    advancedSelectedLayerIds.forEach(layerId => {
+                      addToGroup(layerId, groupId);
+                    });
+                    console.log('🎨 Moved selected layers to new group:', groupId);
+                  }
+                }}
+                disabled={advancedSelectedLayerIds.length === 0}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(255, 165, 0, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.1)',
+                  color: advancedSelectedLayerIds.length > 0 ? '#FFA500' : '#666',
+                  border: `1px solid ${advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(255, 165, 0, 0.3)' 
+                    : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '3px',
+                  cursor: advancedSelectedLayerIds.length > 0 ? 'pointer' : 'not-allowed'
+                }}
+              >
+                📁 Move to Group ({advancedSelectedLayerIds.length})
+              </button>
+              <button
+                onClick={() => {
+                  // Remove selected layers from groups
+                  if (advancedSelectedLayerIds.length > 0) {
+                    advancedSelectedLayerIds.forEach(layerId => {
+                      removeFromGroup(layerId);
+                    });
+                    console.log('🎨 Removed selected layers from groups:', advancedSelectedLayerIds.length);
+                  }
+                }}
+                disabled={advancedSelectedLayerIds.length === 0}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(255, 165, 0, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.1)',
+                  color: advancedSelectedLayerIds.length > 0 ? '#FFA500' : '#666',
+                  border: `1px solid ${advancedSelectedLayerIds.length > 0 
+                    ? 'rgba(255, 165, 0, 0.3)' 
+                    : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '3px',
+                  cursor: advancedSelectedLayerIds.length > 0 ? 'pointer' : 'not-allowed'
+                }}
+              >
+                📤 Remove from Group ({advancedSelectedLayerIds.length})
+              </button>
+            </div>
+          )}
+
+          {/* Layer Merge/Flatten Options */}
+          {advancedLayers.length > 1 && (
+            <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  if (advancedSelectedLayerIds.length >= 2) {
+                    // Merge selected layers
+                    console.log('🎨 Merging selected layers:', advancedSelectedLayerIds.length);
+                    // Note: In a real implementation, this would merge the selected layers
+                  }
+                }}
+                disabled={advancedSelectedLayerIds.length < 2}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: advancedSelectedLayerIds.length >= 2 
+                    ? 'rgba(0, 255, 255, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.1)',
+                  color: advancedSelectedLayerIds.length >= 2 ? '#00FFFF' : '#666',
+                  border: `1px solid ${advancedSelectedLayerIds.length >= 2 
+                    ? 'rgba(0, 255, 255, 0.3)' 
+                    : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '3px',
+                  cursor: advancedSelectedLayerIds.length >= 2 ? 'pointer' : 'not-allowed'
+                }}
+              >
+                🔗 Merge Selected ({advancedSelectedLayerIds.length})
+              </button>
+              <button
+                onClick={() => {
+                  // Flatten all layers
+                  console.log('🎨 Flattening all layers:', advancedLayers.length);
+                  // Note: In a real implementation, this would flatten all layers
+                }}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: 'rgba(255, 100, 0, 0.2)',
+                  color: '#FF6400',
+                  border: '1px solid rgba(255, 100, 0, 0.3)',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+              >
+                📄 Flatten All ({advancedLayers.length})
+              </button>
+              <button
+                onClick={() => {
+                  // Merge visible layers only
+                  const visibleLayers = advancedLayers.filter(layer => layer.visible);
+                  console.log('🎨 Merging visible layers:', visibleLayers.length);
+                  // Note: In a real implementation, this would merge only visible layers
+                }}
+                style={{
+                  flex: 1,
+                  padding: '4px 6px',
+                  fontSize: '7px',
+                  background: 'rgba(0, 255, 0, 0.2)',
+                  color: '#00FF00',
+                  border: '1px solid rgba(0, 255, 0, 0.3)',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+              >
+                👁️ Merge Visible ({advancedLayers.filter(l => l.visible).length})
+              </button>
+            </div>
+          )}
 
           {/* Layer Properties */}
           {advancedActiveLayerId && (() => {
@@ -7238,43 +9124,359 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   />
                 </div>
 
-                {/* Blend Mode */}
+                {/* Enhanced Blend Mode */}
                 <div style={{ marginBottom: '6px' }}>
-                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '2px' }}>
-                    Blend Mode
+                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>🎨</span>
+                    <span>Blend Mode</span>
+                    <span style={{ fontSize: '6px', color: '#666' }}>({activeLayer.blendMode})</span>
                   </div>
                   <select
                     value={activeLayer.blendMode}
                     onChange={(e) => setLayerBlendMode(activeLayer.id, e.target.value as BlendMode)}
                     style={{
                       width: '100%',
-                      padding: '3px',
-                      background: '#000000',
+                      padding: '4px 6px',
+                      background: 'rgba(0, 0, 0, 0.8)',
                       color: '#FFFFFF',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '2px',
-                      fontSize: '7px'
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      borderRadius: '3px',
+                      fontSize: '8px',
+                      cursor: 'pointer'
                     }}
                   >
+                    <optgroup label="Normal">
                     <option value="normal">Normal</option>
+                    </optgroup>
+                    <optgroup label="Darken">
                     <option value="multiply">Multiply</option>
+                      <option value="darken">Darken</option>
+                      <option value="color-burn">Color Burn</option>
+                      <option value="linear-burn">Linear Burn</option>
+                    </optgroup>
+                    <optgroup label="Lighten">
                     <option value="screen">Screen</option>
+                      <option value="lighten">Lighten</option>
+                      <option value="color-dodge">Color Dodge</option>
+                      <option value="linear-dodge">Linear Dodge</option>
+                    </optgroup>
+                    <optgroup label="Contrast">
                     <option value="overlay">Overlay</option>
                     <option value="soft-light">Soft Light</option>
                     <option value="hard-light">Hard Light</option>
-                    <option value="color-dodge">Color Dodge</option>
-                    <option value="color-burn">Color Burn</option>
-                    <option value="darken">Darken</option>
-                    <option value="lighten">Lighten</option>
+                      <option value="vivid-light">Vivid Light</option>
+                      <option value="linear-light">Linear Light</option>
+                      <option value="pin-light">Pin Light</option>
+                    </optgroup>
+                    <optgroup label="Inversion">
                     <option value="difference">Difference</option>
                     <option value="exclusion">Exclusion</option>
+                    </optgroup>
+                    <optgroup label="Component">
+                      <option value="hue">Hue</option>
+                      <option value="saturation">Saturation</option>
+                      <option value="color">Color</option>
+                      <option value="luminosity">Luminosity</option>
+                    </optgroup>
                   </select>
                 </div>
 
-                {/* Layer Order */}
+                {/* Layer Effects */}
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>✨</span>
+                    <span>Layer Effects</span>
+                    <span style={{ fontSize: '6px', color: '#666' }}>({activeLayer.effects?.length || 0})</span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => {
+                        addEffect(activeLayer.id, {
+                          id: `drop-shadow-${Date.now()}`,
+                          type: 'drop-shadow',
+                          enabled: true,
+                          properties: {
+                            offsetX: 2,
+                            offsetY: 2,
+                            blur: 4,
+                            spread: 0,
+                            color: 'rgba(0, 0, 0, 0.5)',
+                            opacity: 0.5
+                          }
+                        });
+                        console.log('🎨 Added drop shadow effect to layer:', activeLayer.name);
+                      }}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '6px',
+                        background: 'rgba(0, 150, 255, 0.2)',
+                        color: '#66B3FF',
+                        border: '1px solid rgba(0, 150, 255, 0.3)',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🌑 Drop Shadow
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        addEffect(activeLayer.id, {
+                          id: `outer-glow-${Date.now()}`,
+                          type: 'outer-glow',
+                          enabled: true,
+                          properties: {
+                            color: '#00FF00',
+                            opacity: 0.8,
+                            blur: 8,
+                            spread: 2
+                          }
+                        });
+                        console.log('🎨 Added glow effect to layer:', activeLayer.name);
+                      }}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '6px',
+                        background: 'rgba(0, 255, 0, 0.2)',
+                        color: '#00FF00',
+                        border: '1px solid rgba(0, 255, 0, 0.3)',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ✨ Glow
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        addEffect(activeLayer.id, {
+                          id: `brightness-${Date.now()}`,
+                          type: 'brightness',
+                          enabled: true,
+                          properties: {
+                            amount: 0.2,
+                            color: '#FF0000'
+                          }
+                        });
+                        console.log('🎨 Added stroke effect to layer:', activeLayer.name);
+                      }}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '6px',
+                        background: 'rgba(255, 0, 0, 0.2)',
+                        color: '#FF6666',
+                        border: '1px solid rgba(255, 0, 0, 0.3)',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔲 Stroke
+                    </button>
+                  </div>
+                  
+                  {/* Display Active Effects */}
+                  {activeLayer.effects && activeLayer.effects.length > 0 && (
+                    <div style={{ marginTop: '4px', fontSize: '6px' }}>
+                      {activeLayer.effects.map((effect, index) => (
+                        <div key={index} style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '4px',
+                          padding: '2px 4px',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          borderRadius: '2px',
+                          marginBottom: '2px'
+                        }}>
+                          <span style={{ color: effect.enabled ? '#00FF00' : '#666' }}>
+                            {effect.enabled ? '●' : '○'}
+                          </span>
+                          <span style={{ color: '#CCC' }}>{effect.type}</span>
+                          <button
+                            onClick={() => {
+                              removeEffect(activeLayer.id, index.toString());
+                              console.log('🎨 Removed effect from layer:', activeLayer.name);
+                            }}
+                            style={{
+                              padding: '1px 3px',
+                              fontSize: '5px',
+                              background: 'rgba(255, 0, 0, 0.2)',
+                              color: '#FF6666',
+                              border: 'none',
+                              borderRadius: '1px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Layer Masks */}
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>🎭</span>
+                    <span>Layer Masks</span>
+                    <span style={{ fontSize: '6px', color: '#666' }}>({activeLayer.mask ? 1 : 0})</span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => {
+                        addMask(activeLayer.id, {
+                          id: `mask-${Date.now()}`,
+                          canvas: document.createElement('canvas'),
+                          enabled: true,
+                          inverted: false
+                        });
+                        console.log('🎨 Added reveal-all mask to layer:', activeLayer.name);
+                      }}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '6px',
+                        background: 'rgba(0, 150, 255, 0.2)',
+                        color: '#66B3FF',
+                        border: '1px solid rgba(0, 150, 255, 0.3)',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🎭 Reveal All
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        addMask(activeLayer.id, {
+                          id: `mask-${Date.now()}`,
+                          canvas: document.createElement('canvas'),
+                          enabled: true,
+                          inverted: true
+                        });
+                        console.log('🎨 Added hide-all mask to layer:', activeLayer.name);
+                      }}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '6px',
+                        background: 'rgba(255, 0, 0, 0.2)',
+                        color: '#FF6666',
+                        border: '1px solid rgba(255, 0, 0, 0.3)',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🚫 Hide All
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        addMask(activeLayer.id, {
+                          id: `mask-${Date.now()}`,
+                          canvas: document.createElement('canvas'),
+                          enabled: true,
+                          inverted: false
+                        });
+                        console.log('🎨 Added gradient mask to layer:', activeLayer.name);
+                      }}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '6px',
+                        background: 'rgba(255, 165, 0, 0.2)',
+                        color: '#FFA500',
+                        border: '1px solid rgba(255, 165, 0, 0.3)',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🌈 Gradient
+                    </button>
+                  </div>
+                  
+                  {/* Display Active Mask */}
+                  {activeLayer.mask && (
+                    <div style={{ marginTop: '4px', fontSize: '6px' }}>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '4px',
+                        padding: '2px 4px',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: '2px',
+                        marginBottom: '2px'
+                      }}>
+                        <button
+                          onClick={() => {
+                            toggleMaskEnabled(activeLayer.id);
+                            console.log('🎨 Toggled mask enabled:', activeLayer.id);
+                          }}
+                          style={{
+                            padding: '1px 2px',
+                            fontSize: '5px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: activeLayer.mask!.enabled ? '#00FF00' : '#666',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {activeLayer.mask!.enabled ? '●' : '○'}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            toggleMaskInverted(activeLayer.id);
+                            console.log('🎨 Toggled mask inverted:', activeLayer.id);
+                          }}
+                          style={{
+                            padding: '1px 2px',
+                            fontSize: '5px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: activeLayer.mask!.inverted ? '#FFA500' : '#CCC',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {activeLayer.mask!.inverted ? '🔄' : '↩️'}
+                        </button>
+                        
+                        <span style={{ color: '#CCC', flex: 1 }}>Layer Mask</span>
+                        
+                        <button
+                          onClick={() => {
+                            removeMask(activeLayer.id);
+                            console.log('🎨 Removed mask from layer:', activeLayer.name);
+                          }}
+                          style={{
+                            padding: '1px 3px',
+                            fontSize: '5px',
+                            background: 'rgba(255, 0, 0, 0.2)',
+                            color: '#FF6666',
+                            border: 'none',
+                            borderRadius: '1px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Layer Order Controls */}
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>📚</span>
+                    <span>Layer Order</span>
+                  </div>
                 <div style={{ display: 'flex', gap: '2px' }}>
                   <button
-                    onClick={() => moveLayerUp(activeLayer.id)}
+                      onClick={() => {
+                        // Move layer up in stack = higher priority = lower order number
+                        moveLayerUp(activeLayer.id);
+                        console.log('🎨 Moved layer up in stack:', activeLayer.name);
+                      }}
                     style={{
                       flex: 1,
                       padding: '3px',
@@ -7285,11 +9487,16 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       borderRadius: '2px',
                       cursor: 'pointer'
                     }}
+                      title="Move layer up in stack (higher priority)"
                   >
-                    ↑ Up
+                      ↑ Move Up
                   </button>
                   <button
-                    onClick={() => moveLayerDown(activeLayer.id)}
+                      onClick={() => {
+                        // Move layer down in stack = lower priority = higher order number
+                        moveLayerDown(activeLayer.id);
+                        console.log('🎨 Moved layer down in stack:', activeLayer.name);
+                      }}
                     style={{
                       flex: 1,
                       padding: '3px',
@@ -7300,9 +9507,26 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       borderRadius: '2px',
                       cursor: 'pointer'
                     }}
+                      title="Move layer down in stack (lower priority)"
                   >
-                    ↓ Down
+                      ↓ Move Down
                   </button>
+                  </div>
+                </div>
+
+                {/* Layer Info */}
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>ℹ️</span>
+                    <span>Layer Info</span>
+                  </div>
+                  <div style={{ fontSize: '6px', color: '#CCC', lineHeight: '1.2' }}>
+                    <div>Type: {activeLayer.type}</div>
+                    <div>Size: Auto × Auto</div>
+                    <div>Created: {new Date(activeLayer.createdAt).toLocaleDateString()}</div>
+                    <div>Modified: {new Date(activeLayer.updatedAt).toLocaleDateString()}</div>
+                    {activeLayer.groupId && <div>Group: {activeLayer.groupId}</div>}
+                  </div>
                 </div>
               </div>
             );

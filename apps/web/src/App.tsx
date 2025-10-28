@@ -30,7 +30,7 @@ import { vectorStore } from './vector/vectorState';
 import { puffVectorEngine, PuffVectorEngineState } from './vector/PuffVectorEngine';
 import { renderStitchType } from './utils/stitchRendering';
 import VectorEditorOverlay from './vector/VectorEditorOverlay';
-// import { UnifiedPuffPrintSystem } from './components/UnifiedPuffPrintSystem'; // Disabled - using ShirtRefactored puff system
+import { UnifiedPuffPrintSystem } from './components/UnifiedPuffPrintSystem'; // Re-enabled - using unified puff system
 import { AdvancedPuff3DSystem } from './utils/AdvancedPuff3DSystem';
 import { AdvancedUVSystem } from './utils/AdvancedUVSystem';
 import { AdvancedPuffGenerator } from './utils/AdvancedPuffGenerator';
@@ -40,6 +40,10 @@ import { history } from './utils/history';
 
 // Import new domain stores for state management
 import { useModelStore, useToolStore, useProjectStore } from './stores/domainStores';
+
+// Import unified brush system
+import { useBrushEngine } from './hooks/useBrushEngine';
+import { UnifiedToolSystem } from './core/UnifiedToolSystem';
 
 const cloneProject = (proj: any | null): any | null => {
   if (!proj) return null;
@@ -113,6 +117,11 @@ interface AppState {
   canUndo: () => boolean;
   canRedo: () => boolean;
   clearHistory: () => void;
+
+  // Unified Tool System
+  unifiedToolSystem: UnifiedToolSystem | null;
+  brushEngine: any;
+  initializeUnifiedToolSystem: (brushEngine: any) => { unifiedToolSystem: UnifiedToolSystem; brushEngine: any };
   
   // Tools
   activeTool: Tool;
@@ -387,6 +396,7 @@ interface AppState {
   setBrushOpacity: (opacity: number) => void;
   setBrushHardness: (hardness: number) => void;
   setBrushSpacing: (spacing: number) => void;
+  setBrushFlow: (flow: number) => void;
   setBrushShape: (shape: 'round' | 'square' | 'diamond' | 'triangle' | 'airbrush' | 'calligraphy' | 'spray' | 'texture' | 'watercolor' | 'oil' | 'charcoal' | 'pencil' | 'marker' | 'highlighter' | 'chalk' | 'ink' | 'pastel' | 'acrylic' | 'gouache' | 'stencil' | 'stamp' | 'blur' | 'smudge') => void;
   setBrushRotation: (rotation: number) => void;
   setBrushDynamics: (dynamics: boolean) => void;
@@ -582,12 +592,29 @@ export const useApp = create<AppState>((set, get) => ({
   // Undo/Redo System - Default state
   history: [],
   historyIndex: -1,
+
+  // Unified Tool System
+  unifiedToolSystem: null as UnifiedToolSystem | null,
+  brushEngine: null as any,
+
+  // Initialize unified tool system (without hooks)
+  initializeUnifiedToolSystem: (brushEngine: any) => {
+    const unifiedToolSystem = UnifiedToolSystem.getInstance();
+    unifiedToolSystem.setBrushEngine(brushEngine);
+    
+    set({ 
+      unifiedToolSystem,
+      brushEngine 
+    });
+    
+    return { unifiedToolSystem, brushEngine };
+  },
   maxHistorySize: 50,
   
   // Undo/Redo System - Methods
   saveState: (action = 'Unknown Action') => {
     const state = get();
-    console.log('💾 SaveState called with action:', action);
+    // SaveState called with action
     const timestamp = Date.now();
     const snapshotId = `snapshot_${timestamp}_${Math.random().toString(36).substr(2, 9)}`;
     
@@ -690,7 +717,7 @@ export const useApp = create<AppState>((set, get) => ({
       historyIndex: trimmedHistory.length - 1
     });
     
-    console.log(`💾 State saved: ${action} (History: ${trimmedHistory.length}/${state.maxHistorySize})`);
+    // State saved
   },
   
   undo: () => {
@@ -706,7 +733,7 @@ export const useApp = create<AppState>((set, get) => ({
         detail: { source: 'undo' }
         });
         window.dispatchEvent(textureEvent);
-      console.log('🔄 Triggered texture update after undo');
+      // Triggered texture update after undo
     }, 50);
   },
   
@@ -723,7 +750,7 @@ export const useApp = create<AppState>((set, get) => ({
         detail: { source: 'redo' }
         });
         window.dispatchEvent(textureEvent);
-      console.log('🔄 Triggered texture update after redo');
+      // Triggered texture update after redo
     }, 50);
   },
   
@@ -742,7 +769,7 @@ export const useApp = create<AppState>((set, get) => ({
       history: [],
       historyIndex: -1
     });
-    console.log('🗑️ History cleared');
+    // History cleared
   },
   
   // Default state
@@ -751,6 +778,25 @@ export const useApp = create<AppState>((set, get) => ({
     // Allow all tools to work with vector mode
     const currentTool = get().activeTool;
     set({ activeTool: tool });
+    
+    // Use unified tool system if available
+    const { unifiedToolSystem } = get();
+    if (unifiedToolSystem) {
+      // Map legacy tool types to UnifiedToolSystem tool IDs
+      const toolMapping: Record<string, string> = {
+        'brush': 'brush',
+        'vector': 'pen',
+        'select': 'select',
+        'text': 'text',
+        'shape': 'rectangle',
+        'shapes': 'rectangle',
+        'puff': 'brush', // Use brush for puff printing
+        'embroidery': 'brush' // Use brush for embroidery
+      };
+      
+      const mappedToolId = toolMapping[tool] || tool;
+      unifiedToolSystem.setActiveTool(mappedToolId);
+    }
     
     // Save state for undo/redo when switching tools
     if (currentTool !== tool) {
@@ -892,7 +938,7 @@ export const useApp = create<AppState>((set, get) => ({
     
     // CRITICAL FIX: Check if V2 system is properly initialized
     if (!v2State || !v2State.layers) {
-      console.log('🔍 DEBUG: App.tsx brushStrokes getter - V2 system not initialized yet, returning empty array');
+      // DEBUG: App.tsx brushStrokes getter - V2 system not initialized yet, returning empty array
       return [];
     }
     
@@ -968,6 +1014,7 @@ export const useApp = create<AppState>((set, get) => ({
   setBrushOpacity: (opacity) => set({ brushOpacity: opacity }),
   setBrushHardness: (hardness) => set({ brushHardness: hardness }),
   setBrushSpacing: (spacing) => set({ brushSpacing: spacing }),
+  setBrushFlow: (flow) => set({ brushFlow: flow }),
   setBrushShape: (shape) => set({ brushShape: shape }),
   setBrushRotation: (rotation) => set({ brushRotation: rotation }),
   setBrushDynamics: (dynamics) => set({ brushDynamics: dynamics }),
@@ -1001,20 +1048,20 @@ export const useApp = create<AppState>((set, get) => ({
     } else {
       v2State.clearSelection(); // This sets activeLayerId to null
     }
-    console.log(`🎨 Set active layer ID: ${id}`);
+    // Set active layer ID
   },
   
   setActiveDecalId: (id) => set({ activeDecalId: id }),
   
   // Layer management methods - delegated to AdvancedLayerSystemV2
   setLayers: (layers: Layer[]) => {
-    console.log('🎨 setLayers called - delegating to V2 system');
+    // setLayers called - delegating to V2 system
     // This method is kept for backward compatibility but doesn't do anything
     // as layers are now managed entirely by V2 system
   },
   
   setComposedCanvas: (canvas: HTMLCanvasElement | null) => {
-    console.log('🎨 setComposedCanvas called - delegating to V2 system');
+    // setComposedCanvas called - delegating to V2 system
     // This method is kept for backward compatibility but doesn't do anything
     // as composed canvas is now managed entirely by V2 system
   },
@@ -1556,7 +1603,7 @@ try {
   },
 
   addTextElement: (text: string, uv: { u: number; v: number }, layerId?: string) => {
-    console.log('🎨 addTextElement called - delegating to V2 system');
+    // addTextElement called - delegating to V2 system
     
     // Delegate to V2 system
     const v2State = useAdvancedLayerStoreV2.getState();
@@ -1585,7 +1632,7 @@ try {
   // Legacy image operations implementations - REMOVED (using simplified AdvancedLayerSystemV2)
 
   updateTextElement: (id: string, patch: Partial<TextElement>) => {
-    console.log('🎨 updateTextElement called - delegating to V2 system');
+    // updateTextElement called - delegating to V2 system
     
     // Delegate to V2 system
     const v2State = useAdvancedLayerStoreV2.getState();
@@ -1721,20 +1768,24 @@ try {
     console.log(`🎨 Successfully deleted layer: ${id}`);
   },
 
-  initCanvases: (w = 4096, h = 4096) => {
-    // PERFORMANCE FIX: Prevent multiple canvas initializations
+  initCanvases: (w?: number, h?: number) => {
+    // PERFORMANCE FIX: Use performance-managed canvas size instead of hardcoded 4096
+    const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+    const canvasWidth = w || optimalSize.width;
+    const canvasHeight = h || optimalSize.height;
     const currentState = get();
     if (currentState.composedCanvas && 
-        currentState.composedCanvas.width === w && 
-        currentState.composedCanvas.height === h) {
-      console.log('🎨 Canvases already initialized with correct size:', w, 'x', h);
+        currentState.composedCanvas.width === canvasWidth && 
+        currentState.composedCanvas.height === canvasHeight) {
+      console.log('🎨 Canvases already initialized with correct size:', canvasWidth, 'x', canvasHeight);
       return;
     }
     
-    console.log('🎨 Initializing device-optimized canvases with size:', w, 'x', h);
+    console.log('🎨 Initializing device-optimized canvases with size:', canvasWidth, 'x', canvasHeight);
     
     const base = document.createElement('canvas');
-    base.width = w; base.height = h;
+    base.width = canvasWidth; 
+    base.height = canvasHeight;
     // PERFORMANCE FIX: Use device-optimized canvas context settings
     const baseCtx = base.getContext('2d', unifiedPerformanceManager.getOptimalCanvasContextOptions());
     if (baseCtx && 'imageSmoothingEnabled' in baseCtx) {
@@ -1745,7 +1796,8 @@ try {
     }
     
     const composed = document.createElement('canvas');
-    composed.width = w; composed.height = h;
+    composed.width = canvasWidth; 
+    composed.height = canvasHeight;
     // PERFORMANCE FIX: Use high-quality canvas context settings for better color preservation
     const composedCtx = composed.getContext('2d', { 
       willReadFrequently: true,
@@ -1760,7 +1812,8 @@ try {
     }
     
     const paint = document.createElement('canvas');
-    paint.width = w; paint.height = h;
+    paint.width = canvasWidth; 
+    paint.height = canvasHeight;
     // Optimize paint canvas for frequent readback operations with high quality
     const paintCtx = paint.getContext('2d', { 
       willReadFrequently: true,
@@ -2268,8 +2321,15 @@ try {
   },
 
   commit: () => {
-    // TODO: Implement commit functionality with AdvancedLayerSystemV2
-    console.log('🔄 Commit called - Currently disabled during V2 migration');
+    // CRITICAL FIX: Implement commit functionality to save state before clearing vector paths
+    // This ensures undo/redo works properly for vector path application
+    const state = get();
+    const v2State = useAdvancedLayerStoreV2.getState();
+    
+    // Save history snapshot in V2 layer system
+    v2State.saveHistorySnapshot(`Apply Tool to Vector Paths`);
+    
+    console.log('✅ Commit: State saved to history for undo/redo');
   },
 
   forceRerender: () => {
@@ -2509,7 +2569,9 @@ try {
     }
     const composedCanvas = document.createElement('canvas');
     const base = layers[0];
-    composedCanvas.width = base?.canvas.width || 4096; composedCanvas.height = base?.canvas.height || 4096;
+    const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+    composedCanvas.width = base?.canvas.width || optimalSize.width; 
+    composedCanvas.height = base?.canvas.height || optimalSize.height;
     useApp.setState({
       modelUrl: data.modelUrl || null,
       modelPosition: data.modelPosition || [0, 0, 0],
@@ -3041,6 +3103,31 @@ try {
 
 export function App() {
   const composedCanvas = useApp(s => s.composedCanvas);
+  const initializeUnifiedToolSystem = useApp(s => s.initializeUnifiedToolSystem);
+  
+  // Initialize unified brush engine globally
+  const brushEngine = useBrushEngine();
+  
+  // Initialize unified tool system
+  useEffect(() => {
+    const { unifiedToolSystem, brushEngine: engine } = initializeUnifiedToolSystem(brushEngine);
+    
+    // Expose brush engine globally for use in other components
+    (window as any).__brushEngine = engine;
+    (window as any).__unifiedToolSystem = unifiedToolSystem;
+    
+    console.log('🎨 Unified tool system initialized:', unifiedToolSystem);
+    console.log('🎨 Brush engine initialized globally:', engine);
+    
+    // Test brush engine functionality
+    const presets = engine.getPresets();
+    console.log('🎨 Available brush presets:', presets.map((p: any) => p.name));
+    
+    return () => {
+      delete (window as any).__brushEngine;
+      delete (window as any).__unifiedToolSystem;
+    };
+  }, [initializeUnifiedToolSystem, brushEngine]);
   
   // Listen for controls state changes to force immediate updates
   useEffect(() => {
@@ -3152,9 +3239,26 @@ export function App() {
     // Make performance manager available globally for debugging
     (window as any).unifiedPerformanceManager = unifiedPerformanceManager;
     
-    // Make layer stores available globally for debugging
+    // Make layer stores available globally for debugging and brush engine integration
     (window as any).useApp = useApp;
     (window as any).useAdvancedLayerStoreV2 = useAdvancedLayerStoreV2;
+    // CRITICAL FIX: Expose layer store as __layerStore for brush engine integration
+    (window as any).__layerStore = useAdvancedLayerStoreV2;
+    
+    // PHASE 2: Expose stroke selection system globally
+    try {
+      // Import stroke selection system dynamically
+      import('./core/StrokeSelectionSystem').then((module) => {
+        (window as any).__strokeSelectionModule = {
+          useStrokeSelection: module.useStrokeSelection
+        };
+        console.log('✅ Stroke selection system exposed globally');
+      }).catch((e) => {
+        console.warn('⚠️ Could not expose stroke selection system:', e);
+      });
+    } catch (e) {
+      console.warn('⚠️ Could not expose stroke selection system:', e);
+    }
     
     // Initialize accessibility features
     console.log('♿ Initializing accessibility features...');
@@ -3419,11 +3523,10 @@ export function App() {
           {/* Legacy TransformGizmo - REMOVED (using simplified AdvancedLayerSystemV2) */}
           <CursorManager wrapRef={wrapRef} drawingActive={drawingActive} />
           <ToolRouter active={true} />
-          {/* UnifiedPuffPrintSystem disabled - using ShirtRefactored puff system instead */}
-          {/* <UnifiedPuffPrintSystem
+          <UnifiedPuffPrintSystem
             active={useApp(s => s.activeTool === 'puffPrint')}
             onError={(error) => console.error('Puff Print Error:', error)}
-          /> */}
+          />
                 </div>
       </ResponsiveLayout>
 
