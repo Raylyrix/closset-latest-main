@@ -342,7 +342,7 @@ interface AdvancedLayerStoreV2 {
   history: LayerHistoryState;
   
   // Actions
-  createLayer: (type: LayerType, name?: string) => string;
+  createLayer: (type: LayerType, name?: string, blendMode?: BlendMode) => string;
   deleteLayer: (id: string) => void;
   duplicateLayer: (id: string) => string;
   renameLayer: (id: string, name: string) => void;
@@ -698,7 +698,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     // Layer creation
-    createLayer: (type: LayerType, name?: string) => {
+    createLayer: (type: LayerType, name?: string, blendMode?: BlendMode) => {
       const state = get();
       const layerName = name || generateLayerName(type, state.layers);
       const newOrder = state.layerOrder.length;
@@ -709,7 +709,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         type,
         visible: true,
         opacity: 1.0,
-        blendMode: 'normal',
+        blendMode: blendMode || 'normal',
         locked: false,        // Legacy simple lock
         locking: createDefaultLocking(), // Advanced locking system
         effects: [],

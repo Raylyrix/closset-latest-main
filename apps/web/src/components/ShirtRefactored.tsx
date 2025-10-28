@@ -10,7 +10,7 @@ import { geometryManager } from '../utils/GeometryManager';
 import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { useApp } from '../App';
-import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
+import { useAdvancedLayerStoreV2, BlendMode } from '../core/AdvancedLayerSystemV2';
 import { useStrokeSelection } from '../core/StrokeSelectionSystem';
 import { StrokeSelectionCanvas } from './StrokeVisuals';
 import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
@@ -1722,44 +1722,25 @@ export function ShirtRefactored({
           // Draw green dashed border tracing the FULL stroke outline
           ctx.save();
           ctx.strokeStyle = '#00ff00';
-          ctx.lineWidth = 4;
+          ctx.lineWidth = outlineRadius * 2;
           ctx.setLineDash([10, 5]);
-          ctx.globalAlpha = 1.0;
+          ctx.globalAlpha = 0.7;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           
-          // Create a continuous outline by drawing circles at each point and connecting them
+          // Create a smooth continuous outline by drawing a thick stroke along the path
+          ctx.beginPath();
           if (points.length === 1) {
-            ctx.beginPath();
+            // Single point - draw a circle
             ctx.arc(points[0].x, points[0].y, outlineRadius, 0, Math.PI * 2);
-            ctx.stroke();
           } else {
-            // Draw circles at each point
-            for (const p of points) {
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, outlineRadius, 0, Math.PI * 2);
-              ctx.stroke();
-            }
-            
-            // Draw connecting lines between circles
-            for (let i = 0; i < points.length - 1; i++) {
-              const p = points[i];
-              const nextP = points[i + 1];
-              const dx = nextP.x - p.x;
-              const dy = nextP.y - p.y;
-              const angle = Math.atan2(dy, dx);
-              
-              const startX = p.x + Math.cos(angle) * outlineRadius;
-              const startY = p.y + Math.sin(angle) * outlineRadius;
-              const endX = nextP.x + Math.cos(angle + Math.PI) * outlineRadius;
-              const endY = nextP.y + Math.sin(angle + Math.PI) * outlineRadius;
-              
-              ctx.beginPath();
-              ctx.moveTo(startX, startY);
-              ctx.lineTo(endX, endY);
-              ctx.stroke();
+            // Draw a smooth path connecting all points
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+              ctx.lineTo(points[i].x, points[i].y);
             }
           }
+          ctx.stroke();
           
           ctx.restore();
           
@@ -1867,7 +1848,11 @@ export function ShirtRefactored({
         // CRITICAL: Create a new layer for THIS specific stroke (only once)
         const strokeId = `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const layerName = `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Stroke ${strokeId}`;
-        const layerId = createLayer('paint', layerName);
+        
+        // CRITICAL FIX: Pass current blend mode when creating layer
+        const currentBlendMode = useApp.getState().blendMode;
+        const layerBlendMode = (currentBlendMode === 'source-over' ? 'normal' : currentBlendMode) as BlendMode;
+        const layerId = createLayer('paint', layerName, layerBlendMode);
         
         // CRITICAL FIX: Re-read layers from store after creation to get the newly created layer
         // Zustand state updates are asynchronous, so we need to re-read the state
