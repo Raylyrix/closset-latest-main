@@ -1729,43 +1729,57 @@ export function ShirtRefactored({
             return;
           }
           
-          // Draw green dashed OUTLINE border (not fill) - trace the outer edge only
+          // Draw green dashed OUTLINE border - continuous smooth outline
           ctx.save();
           ctx.strokeStyle = '#00ff00';
-          ctx.lineWidth = 2; // CRITICAL FIX: Thin line for outline only
-          ctx.setLineDash([10, 5]);
-          ctx.globalAlpha = 0.8;
+          ctx.lineWidth = 3; // Slightly thicker for visibility
+          ctx.setLineDash([15, 5]);
+          ctx.globalAlpha = 0.9;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           
-          // CRITICAL FIX: Draw outline circles around each point to create a dotted outline
-          // This creates an outline effect without filling the stroke
-          points.forEach((p: any) => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, brushSize / 2, 0, Math.PI * 2);
-            ctx.stroke();
-          });
-          
-          // CRITICAL FIX: Also draw connecting lines between circles for continuous outline
-          if (points.length > 1) {
-            for (let i = 0; i < points.length - 1; i++) {
-              const p1 = points[i];
-              const p2 = points[i + 1];
-              const distance = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
-              const steps = Math.max(2, Math.floor(distance / (brushSize * 0.5)));
-              
+          // CRITICAL FIX: Draw a continuous outline using the stroke path with offset
+          // This creates a proper outline border that follows the stroke shape
+          if (points.length > 0) {
+            const outlineRadius = brushSize / 2 + 3; // Outline slightly outside brush size
+            
+            // Draw continuous outline by tracing the path with offset
+            if (points.length === 1) {
+              // Single point - draw circle outline
               ctx.beginPath();
-              for (let j = 0; j <= steps; j++) {
-                const t = j / steps;
-                const x = p1.x + (p2.x - p1.x) * t;
-                const y = p1.y + (p2.y - p1.y) * t;
+              ctx.arc(points[0].x, points[0].y, outlineRadius, 0, Math.PI * 2);
+              ctx.stroke();
+            } else {
+              // Multiple points - draw connected path outline
+              // Use quadratic curves for smoother outline
+              ctx.beginPath();
+              
+              // Start with first point
+              const p0 = points[0];
+              ctx.moveTo(p0.x, p0.y - outlineRadius);
+              
+              // Draw curved path along the outline
+              for (let i = 0; i < points.length; i++) {
+                const p = points[i];
                 
-                if (j === 0) {
-                  ctx.moveTo(x, y);
+                if (i === 0) {
+                  // Start point - curve up
+                  ctx.lineTo(p.x, p.y - outlineRadius);
+                } else if (i === points.length - 1) {
+                  // End point - curve down to close
+                  ctx.lineTo(p.x, p.y + outlineRadius);
                 } else {
-                  ctx.lineTo(x, y);
+                  // Middle points - follow the stroke with outline offset
+                  ctx.lineTo(p.x, p.y - outlineRadius);
                 }
               }
+              
+              // Close the outline by going back along the other side
+              for (let i = points.length - 1; i >= 0; i--) {
+                const p = points[i];
+                ctx.lineTo(p.x, p.y + outlineRadius);
+              }
+              
               ctx.stroke();
             }
           }
@@ -6836,3 +6850,4 @@ const canvasDimensions = {
 }
 
 export default ShirtRefactored;
+
