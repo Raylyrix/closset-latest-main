@@ -1664,9 +1664,11 @@ export function ShirtRefactored({
     console.log('🎯 Border useEffect triggered, selectedLayerId:', selectedLayerId, 'transformMode:', transformMode);
     
     if (!selectedLayerId) {
-      // No selection - re-compose layers to remove any existing border
+      // CRITICAL FIX: No selection - clear border by recomposing layers from scratch
       const { composeLayers } = useAdvancedLayerStoreV2.getState();
       composeLayers();
+      
+      // Force immediate texture update to clear border
       updateModelTexture(true);
       console.log('🎯 Deselected - cleared border');
       return;
@@ -1727,28 +1729,46 @@ export function ShirtRefactored({
             return;
           }
           
-          // Draw green dashed border tracing the FULL stroke outline
+          // Draw green dashed OUTLINE border (not fill) - trace the outer edge only
           ctx.save();
           ctx.strokeStyle = '#00ff00';
-          ctx.lineWidth = outlineRadius * 2;
+          ctx.lineWidth = 2; // CRITICAL FIX: Thin line for outline only
           ctx.setLineDash([10, 5]);
-          ctx.globalAlpha = 0.7;
+          ctx.globalAlpha = 0.8;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           
-          // Create a smooth continuous outline by drawing a thick stroke along the path
-          ctx.beginPath();
-          if (points.length === 1) {
-            // Single point - draw a circle
-            ctx.arc(points[0].x, points[0].y, outlineRadius, 0, Math.PI * 2);
-          } else {
-            // Draw a smooth path connecting all points
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-              ctx.lineTo(points[i].x, points[i].y);
+          // CRITICAL FIX: Draw outline circles around each point to create a dotted outline
+          // This creates an outline effect without filling the stroke
+          points.forEach((p: any) => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, brushSize / 2, 0, Math.PI * 2);
+            ctx.stroke();
+          });
+          
+          // CRITICAL FIX: Also draw connecting lines between circles for continuous outline
+          if (points.length > 1) {
+            for (let i = 0; i < points.length - 1; i++) {
+              const p1 = points[i];
+              const p2 = points[i + 1];
+              const distance = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+              const steps = Math.max(2, Math.floor(distance / (brushSize * 0.5)));
+              
+              ctx.beginPath();
+              for (let j = 0; j <= steps; j++) {
+                const t = j / steps;
+                const x = p1.x + (p2.x - p1.x) * t;
+                const y = p1.y + (p2.y - p1.y) * t;
+                
+                if (j === 0) {
+                  ctx.moveTo(x, y);
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              }
+              ctx.stroke();
             }
           }
-          ctx.stroke();
           
           ctx.restore();
           
@@ -3840,11 +3860,10 @@ export function ShirtRefactored({
     console.log('🎨   activeTool:', activeTool);
     console.log('🎨   Is in [brush, eraser, puffPrint, embroidery, fill]?', ['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool));
     
-    // CRITICAL FIX: Handle 'select' tool separately - it should enable camera but allow selection
+    // CRITICAL FIX: Handle 'select' tool FIRST - it should enable camera but allow selection
     if ((activeTool as string) === 'select') {
-      console.log('🎯 SELECT TOOL: Allowing camera controls');
-      // Keep controls enabled for select tool so camera can move
-      // But disable them when actually manipulating strokes
+      console.log('🎯 SELECT TOOL: Detected - handling selection');
+      
       const uv = e.uv as THREE.Vector2 | undefined;
       const { composedCanvas } = useApp.getState();
       
@@ -3857,9 +3876,84 @@ export function ShirtRefactored({
           setControlsEnabled(false);
           useApp.setState({ controlsEnabled: false });
         }
+        
+        // CRITICAL: Actually run selection logic here for select tool
+        // Check if clicking on a handle first
+        let handle = null;
+        
+        if (selectedLayerId) {
+          const { layers } = useAdvancedLayerStoreV2.getState();
+          const selectedLayer = layers.find((l: any) => l.id === selectedLayerId);
+          
+          if (selectedLayer?.content?.strokeData?.bounds) {
+            const bounds = selectedLayer.content.strokeData.bounds;
+            const canvasX = uv.x * composedCanvas.width;
+            const canvasY = uv.y * composedCanvas.height;
+            const handleSize = 12;
+            
+            // Check corners and edges
+            if (Math.abs(canvasX - bounds.minX) < handleSize && Math.abs(canvasY - bounds.minY) < handleSize) {
+              handle = 'topLeft';
+            } else if (Math.abs(canvasX - bounds.maxX) < handleSize && Math.abs(canvasY - bounds.minY) < handleSize) {
+              handle = 'topRight';
+            } else if (Math.abs(canvasX - bounds.minX) < handleSize && Math.abs(canvasY - bounds.maxY) < handleSize) {
+              handle = 'bottomLeft';
+            } else if (Math.abs(canvasX - bounds.maxX) < handleSize && Math.abs(canvasY - bounds.maxY) < handleSize) {
+              handle = 'bottomRight';
+            } else if (Math.abs(canvasY - bounds.minY) < handleSize) {
+              handle = 'top';
+            } else if (Math.abs(canvasY - bounds.maxY) < handleSize) {
+              handle = 'bottom';
+            } else if (Math.abs(canvasX - bounds.minX) < handleSize) {
+              handle = 'left';
+            } else if (Math.abs(canvasX - bounds.maxX) < handleSize) {
+              handle = 'right';
+            }
+            
+            if (handle) {
+              console.log('🎯 Starting transform for handle:', handle);
+              const { startTransform } = useStrokeSelection.getState();
+              startTransform(
+                handle.includes('topLeft') || handle.includes('topRight') || handle.includes('bottomLeft') || handle.includes('bottomRight') ? 'resize' : 'move',
+                handle,
+                { x: canvasX, y: canvasY }
+              );
+              return;
+            }
+          }
+        }
+        
+        // Hit test for stroke selection
+        const { performHitTest } = useStrokeSelection.getState();
+        const hitLayerId = performHitTest({ u: uv.x, v: uv.y }, composedCanvas);
+        
+        if (hitLayerId) {
+          console.log('🎯 SELECT TOOL: Clicked on stroke, selecting it:', hitLayerId);
+          const { selectStroke, startTransform } = useStrokeSelection.getState();
+          
+          const multiSelect = modifierKeys.ctrl || modifierKeys.meta;
+          selectStroke(hitLayerId, multiSelect);
+          
+          if (!multiSelect) {
+            const canvasX = uv.x * composedCanvas.width;
+            const canvasY = uv.y * composedCanvas.height;
+            startTransform('move', null, { x: canvasX, y: canvasY });
+          }
+          
+          return;
+        } else {
+          console.log('🎯 SELECT TOOL: Clicked on empty area');
+          
+          if (!modifierKeys.ctrl && !modifierKeys.meta) {
+            const { clearSelection } = useStrokeSelection.getState();
+            clearSelection();
+          }
+          
+          return;
+        }
       }
       
-      // Note: Selection logic is handled above in the uv check section
+      return; // Exit early for select tool
     } else if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
       console.log('🎨 Continuous drawing tool detected:', activeTool);
       
@@ -3880,92 +3974,9 @@ export function ShirtRefactored({
         const uv = e.uv as THREE.Vector2 | undefined;
         const { composedCanvas } = useApp.getState();
         
-        // CRITICAL FIX: Only check stroke selection when 'select' tool is active
-        // This prevents auto-selecting after drawing and allows immediate new strokes
-        if (uv && composedCanvas && (activeTool as string) === 'select') {
-          console.log('🎯 SELECT TOOL: Checking for stroke selection');
-          
-          // PHASE 3: Check if clicking on a handle first
-          const { selectedLayerId } = useStrokeSelection.getState();
-          let handle = null;
-          
-          if (selectedLayerId) {
-            const { layers } = useAdvancedLayerStoreV2.getState();
-            const selectedLayer = layers.find(l => l.id === selectedLayerId);
-            
-            if (selectedLayer?.content?.strokeData?.bounds) {
-              const bounds = selectedLayer.content.strokeData.bounds;
-              const canvasX = uv.x * composedCanvas.width;
-              const canvasY = uv.y * composedCanvas.height;
-              const handleSize = 12;
-              
-              // Check corners and edges
-              if (Math.abs(canvasX - bounds.minX) < handleSize && Math.abs(canvasY - bounds.minY) < handleSize) {
-                handle = 'topLeft';
-              } else if (Math.abs(canvasX - bounds.maxX) < handleSize && Math.abs(canvasY - bounds.minY) < handleSize) {
-                handle = 'topRight';
-              } else if (Math.abs(canvasX - bounds.minX) < handleSize && Math.abs(canvasY - bounds.maxY) < handleSize) {
-                handle = 'bottomLeft';
-              } else if (Math.abs(canvasX - bounds.maxX) < handleSize && Math.abs(canvasY - bounds.maxY) < handleSize) {
-                handle = 'bottomRight';
-              } else if (Math.abs(canvasY - bounds.minY) < handleSize) {
-                handle = 'top';
-              } else if (Math.abs(canvasY - bounds.maxY) < handleSize) {
-                handle = 'bottom';
-              } else if (Math.abs(canvasX - bounds.minX) < handleSize) {
-                handle = 'left';
-              } else if (Math.abs(canvasX - bounds.maxX) < handleSize) {
-                handle = 'right';
-              }
-              
-              // PHASE 3: Start transform if handle clicked
-              if (handle) {
-                console.log('🎯 Starting transform for handle:', handle);
-                const { startTransform } = useStrokeSelection.getState();
-                startTransform(handle.includes('topLeft') || handle.includes('topRight') || handle.includes('bottomLeft') || handle.includes('bottomRight') ? 'resize' : 'move', handle, { x: canvasX, y: canvasY });
-                return;
-              }
-            }
-          }
-          
-          // Hit test for stroke selection
-          const { performHitTest } = useStrokeSelection.getState();
-          const hitLayerId = performHitTest({ u: uv.x, v: uv.y }, composedCanvas);
-          
-          if (hitLayerId) {
-            console.log('🎯 SELECT TOOL: Clicked on stroke, selecting it:', hitLayerId);
-            const { selectStroke, startTransform } = useStrokeSelection.getState();
-            
-            // CRITICAL FIX: Check for Ctrl/Cmd for multi-select
-            const multiSelect = modifierKeys.ctrl || modifierKeys.meta;
-            selectStroke(hitLayerId, multiSelect);
-            
-            // PHASE 3: Start move transform only if not multi-selecting
-            if (!multiSelect) {
-              const canvasX = uv.x * composedCanvas.width;
-              const canvasY = uv.y * composedCanvas.height;
-              startTransform('move', null, { x: canvasX, y: canvasY });
-            }
-            
-            // For select tool, don't start painting
-            return;
-          } else {
-            console.log('🎯 SELECT TOOL: Clicked on empty area, clearing selection');
-            
-            // CRITICAL FIX: If Ctrl/Cmd is held, don't clear (allows box selection later)
-            if (!modifierKeys.ctrl && !modifierKeys.meta) {
-              const { clearSelection } = useStrokeSelection.getState();
-              clearSelection();
-            }
-            
-            // Don't start painting, just exit
-            return;
-          }
-        }
-        
-        // CRITICAL: For drawing tools (brush, eraser, etc.), only hit test if we're not already painting
-        // This prevents auto-selection after drawing a stroke
-        if (uv && composedCanvas && ['brush', 'eraser', 'puffPrint', 'embroidery'].includes(activeTool) && !paintingActiveRef.current) {
+        // CRITICAL: For drawing tools (brush, eraser, etc.), clear selection when starting to paint
+        // This prevents auto-selection after drawing and allows immediate drawing
+        if (uv && composedCanvas && !paintingActiveRef.current) {
           const { performHitTest } = useStrokeSelection.getState();
           const hitLayerId = performHitTest({ u: uv.x, v: uv.y }, composedCanvas);
           
