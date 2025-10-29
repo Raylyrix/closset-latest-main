@@ -3836,7 +3836,27 @@ export function ShirtRefactored({
     console.log('🎨   activeTool:', activeTool);
     console.log('🎨   Is in [brush, eraser, puffPrint, embroidery, fill]?', ['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool));
     
-    if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+    // CRITICAL FIX: Handle 'select' tool separately - it should enable camera but allow selection
+    if ((activeTool as string) === 'select') {
+      console.log('🎯 SELECT TOOL: Allowing camera controls');
+      // Keep controls enabled for select tool so camera can move
+      // But disable them when actually manipulating strokes
+      const uv = e.uv as THREE.Vector2 | undefined;
+      const { composedCanvas } = useApp.getState();
+      
+      if (uv && composedCanvas) {
+        const { selectedLayerId, transformMode } = useStrokeSelection.getState();
+        
+        // If we're in transform mode (moving a stroke), disable camera
+        if (transformMode) {
+          console.log('🎯 Transform mode active - disabling camera');
+          setControlsEnabled(false);
+          useApp.setState({ controlsEnabled: false });
+        }
+      }
+      
+      // Note: Selection logic is handled above in the uv check section
+    } else if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
       console.log('🎨 Continuous drawing tool detected:', activeTool);
       
       // Controls should already be disabled by useEffect when tool was selected
@@ -3856,7 +3876,11 @@ export function ShirtRefactored({
         const uv = e.uv as THREE.Vector2 | undefined;
         const { composedCanvas } = useApp.getState();
         
-        if (uv && composedCanvas && ['brush', 'eraser', 'puffPrint', 'embroidery'].includes(activeTool)) {
+        // CRITICAL FIX: Only check stroke selection when 'select' tool is active
+        // This prevents auto-selecting after drawing and allows immediate new strokes
+        if (uv && composedCanvas && (activeTool as string) === 'select') {
+          console.log('🎯 SELECT TOOL: Checking for stroke selection');
+          
           // PHASE 3: Check if clicking on a handle first
           const { selectedLayerId } = useStrokeSelection.getState();
           let handle = null;
@@ -3892,6 +3916,7 @@ export function ShirtRefactored({
               
               // PHASE 3: Start transform if handle clicked
               if (handle) {
+                console.log('🎯 Starting transform for handle:', handle);
                 const { startTransform } = useStrokeSelection.getState();
                 startTransform(handle.includes('topLeft') || handle.includes('topRight') || handle.includes('bottomLeft') || handle.includes('bottomRight') ? 'resize' : 'move', handle, { x: canvasX, y: canvasY });
                 return;
@@ -3904,7 +3929,7 @@ export function ShirtRefactored({
           const hitLayerId = performHitTest({ u: uv.x, v: uv.y }, composedCanvas);
           
           if (hitLayerId) {
-            console.log('🎯 Clicked on existing stroke, selecting it');
+            console.log('🎯 SELECT TOOL: Clicked on stroke, selecting it:', hitLayerId);
             const { selectStroke, startTransform } = useStrokeSelection.getState();
             selectStroke(hitLayerId);
             
@@ -3913,12 +3938,28 @@ export function ShirtRefactored({
             const canvasY = uv.y * composedCanvas.height;
             startTransform('move', null, { x: canvasX, y: canvasY });
             
-            // Don't start painting, just select
+            // For select tool, don't start painting
             return;
           } else {
-            console.log('🎯 Clicked on empty area, clearing selection');
+            console.log('🎯 SELECT TOOL: Clicked on empty area, clearing selection');
             const { clearSelection } = useStrokeSelection.getState();
             clearSelection();
+            // Don't start painting, just exit
+            return;
+          }
+        }
+        
+        // CRITICAL: For drawing tools (brush, eraser, etc.), only hit test if we're not already painting
+        // This prevents auto-selection after drawing a stroke
+        if (uv && composedCanvas && ['brush', 'eraser', 'puffPrint', 'embroidery'].includes(activeTool) && !paintingActiveRef.current) {
+          const { performHitTest } = useStrokeSelection.getState();
+          const hitLayerId = performHitTest({ u: uv.x, v: uv.y }, composedCanvas);
+          
+          if (hitLayerId) {
+            console.log('🎯 Drawing tool: Clicked on stroke BUT we want to draw, clearing selection');
+            const { clearSelection } = useStrokeSelection.getState();
+            clearSelection();
+            // Continue with drawing...
           }
         }
         
@@ -5817,6 +5858,8 @@ const canvasDimensions = {
   })(), [activeTool, paintAtEvent, updateModelTexture]);
 
   const onPointerUp = useCallback((e: any) => {
+    let layerIdToUpdate: string | null = null;
+    
     if (paintingActiveRef.current) {
       console.log('🎨 ShirtRefactored: onPointerUp - ending painting');
       paintingActiveRef.current = false;
@@ -5825,7 +5868,6 @@ const canvasDimensions = {
       triggerBrushEnd();
       
       // PHASE 1: Finalize stroke session and store stroke data
-      let layerIdToUpdate = null;
       if (strokeSessionRef.current) {
         const { layerId, points, bounds, settings, tool } = strokeSessionRef.current;
         layerIdToUpdate = layerId;

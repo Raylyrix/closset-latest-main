@@ -92,6 +92,7 @@ export function LeftPanelCompact() {
           gap: '4px'
         }}>
           {[
+            { id: 'select', icon: '👆', name: 'Select' },
             { id: 'brush', icon: '🖌️', name: 'Brush' },
             { id: 'eraser', icon: '🧽', name: 'Eraser' },
             { id: 'fill', icon: '🪣', name: 'Fill' },
