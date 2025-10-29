@@ -115,6 +115,9 @@ export function ShirtRefactored({
   const lastHistorySaveRef = useRef(0);
   const HISTORY_SAVE_DELAY = 500; // Don't save history more than once every 500ms
   
+  // SMOOTH BRUSH: Track last paint position for interpolation
+  const lastPaintPositionRef = useRef<{ x: number; y: number } | null>(null);
+  
   // Reduced logging frequency to prevent console spam
   if (Math.random() < 0.01) { // Only log 1% of the time
     // ShirtRefactored component mounting with props
@@ -2240,13 +2243,51 @@ export function ShirtRefactored({
         // Multiply opacity by flow to control paint buildup
         layerCtx.globalAlpha = brushSettings.opacity * brushSettings.flow;
         
-        // Draw brush stamp
-        layerCtx.drawImage(
-          brushStamp,
-          canvasX - brushSettings.size / 2,
-          canvasY - brushSettings.size / 2
-        );
+        // SMOOTH BRUSH: Interpolate between last and current position to prevent gaps
+        const lastPos = lastPaintPositionRef.current;
+        if (lastPos) {
+          const dx = canvasX - lastPos.x;
+          const dy = canvasY - lastPos.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          // Calculate minimum spacing between stamps for smooth continuous line
+          const minSpacing = brushSettings.size * brushSettings.spacing;
+          
+          if (distance > minSpacing) {
+            // Draw intermediate stamps to fill gaps
+            const steps = Math.ceil(distance / minSpacing);
+            for (let i = 1; i <= steps; i++) {
+              const t = i / steps;
+              const interpX = lastPos.x + t * dx;
+              const interpY = lastPos.y + t * dy;
+              
+              layerCtx.drawImage(
+                brushStamp,
+                interpX - brushSettings.size / 2,
+                interpY - brushSettings.size / 2
+              );
+            }
+          } else {
+            // Draw single stamp if points are close enough
+            layerCtx.drawImage(
+              brushStamp,
+              canvasX - brushSettings.size / 2,
+              canvasY - brushSettings.size / 2
+            );
+          }
+        } else {
+          // First point - just draw the stamp
+          layerCtx.drawImage(
+            brushStamp,
+            canvasX - brushSettings.size / 2,
+            canvasY - brushSettings.size / 2
+          );
+        }
+        
         layerCtx.restore();
+        
+        // Update last paint position for next interpolation
+        lastPaintPositionRef.current = { x: canvasX, y: canvasY };
         
         // PHASE 1: Track this point in the stroke session
         if (strokeSessionRef.current) {
@@ -6129,6 +6170,9 @@ const canvasDimensions = {
       console.log('🎨 Vector: onPointerUp - checking drag state');
     }
 
+    // SMOOTH BRUSH: Reset last paint position to prevent connecting different strokes
+    lastPaintPositionRef.current = null;
+    
     // Clear last embroidery point when mouse released
     if (activeTool === 'embroidery') {
       useApp.setState({ lastEmbroideryPoint: null });
