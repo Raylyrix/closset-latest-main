@@ -110,6 +110,10 @@ export function ShirtRefactored({
     tool: string;
   } | null>(null);
   
+  // PERFORMANCE: Track when to save history (debounced)
+  const lastHistorySaveRef = useRef(0);
+  const HISTORY_SAVE_DELAY = 500; // Don't save history more than once every 500ms
+  
   // Reduced logging frequency to prevent console spam
   if (Math.random() < 0.01) { // Only log 1% of the time
     // ShirtRefactored component mounting with props
@@ -2244,20 +2248,9 @@ export function ShirtRefactored({
         // SIMPLE BRUSH - Rendered to layer.canvas (fallback)
       }
       
-      // CRITICAL FIX: Update model texture after brush stroke
-      setTimeout(() => {
-        // CRITICAL FIX: Mark layer as updated in V2 store and trigger thumbnail update
-        const v2Store = useAdvancedLayerStoreV2.getState();
-        v2Store.updateLayer(layer.id, { updatedAt: new Date() });
-        
-        // CRITICAL FIX: Generate thumbnail to update UI
-        v2Store.generateLayerThumbnail(layer.id);
-        
-        // Update model texture
-        if ((window as any).updateModelTexture) {
-          (window as any).updateModelTexture(true, false);
-        }
-      }, 10);
+      // PERFORMANCE: Don't update texture/thumbnail on every paint event
+      // This causes massive performance degradation during continuous drawing
+      // These updates should only happen once at the end of the stroke (in onPointerUp)
     } else if (activeTool === 'fill') {
       // Fill tool - flood fill algorithm
       console.log('🪣 Fill: Starting flood fill at position:', { x, y });
@@ -3929,16 +3922,22 @@ export function ShirtRefactored({
           }
         }
         
-        // Save state before drawing starts (for undo)
-        const { saveState } = useApp.getState();
-        const actionName = activeTool === 'brush' ? 'Brush Stroke' :
-                          activeTool === 'eraser' ? 'Erase' :
-                          activeTool === 'puffPrint' ? 'Puff Print' :
-                          activeTool === 'embroidery' ? 'Embroidery Stitch' :
-                          activeTool === 'fill' ? 'Fill' :
-                          'Drawing Operation';
-        saveState(`Before ${actionName}`);
-        console.log('💾 State saved before drawing:', actionName);
+        // PERFORMANCE: Debounce history saves to prevent excessive saves
+        const now = Date.now();
+        if (now - lastHistorySaveRef.current >= HISTORY_SAVE_DELAY) {
+          lastHistorySaveRef.current = now;
+          
+          // Save state before drawing starts (for undo)
+          const { saveState } = useApp.getState();
+          const actionName = activeTool === 'brush' ? 'Brush Stroke' :
+                            activeTool === 'eraser' ? 'Erase' :
+                            activeTool === 'puffPrint' ? 'Puff Print' :
+                            activeTool === 'embroidery' ? 'Embroidery Stitch' :
+                            activeTool === 'fill' ? 'Fill' :
+                            'Drawing Operation';
+          saveState(`Before ${actionName}`);
+          console.log('💾 State saved before drawing:', actionName);
+        }
 
         // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation for drawing events
         triggerBrushStart();
@@ -5799,9 +5798,14 @@ const canvasDimensions = {
       if (paintingActiveRef.current) {
         paintAtEvent(e);
         
-        // CRITICAL FIX: Real-time texture updates for live drawing feedback
-        // Throttle texture updates to maintain performance while keeping real-time feel
-        const textureUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 100 : 50; // 10fps or 20fps (reduced from 30fps)
+        // PERFORMANCE: Use unified performance manager to determine optimal update frequency
+        const preset = unifiedPerformanceManager.getCurrentPreset();
+        const maxUpdatesPerSecond = preset.maxTextureUpdatesPerSecond || 5;
+        const textureUpdateThrottle = 1000 / maxUpdatesPerSecond; // Convert updates/sec to ms
+        
+        // PERFORMANCE CRITICAL: Don't update texture every frame during painting
+        // This causes massive lag. Only update texture occasionally for visual feedback
+        // The final update happens in onPointerUp
         if (now - lastTextureUpdateTime >= textureUpdateThrottle) {
           lastTextureUpdateTime = now;
           const { composeLayers } = useApp.getState();
@@ -5821,8 +5825,10 @@ const canvasDimensions = {
       triggerBrushEnd();
       
       // PHASE 1: Finalize stroke session and store stroke data
+      let layerIdToUpdate = null;
       if (strokeSessionRef.current) {
         const { layerId, points, bounds, settings, tool } = strokeSessionRef.current;
+        layerIdToUpdate = layerId;
         
         if (bounds) {
           // Calculate final bounds
@@ -5887,6 +5893,15 @@ const canvasDimensions = {
       console.log('🎨 Composing App layers');
       const { composeLayers } = useApp.getState();
       composeLayers();
+      
+      // PERFORMANCE: Batch all UI updates at the end of the stroke
+      // Update thumbnails and final texture update ONCE
+      if (layerIdToUpdate) {
+        setTimeout(() => {
+          v2Store.updateLayer(layerIdToUpdate!, { updatedAt: new Date() });
+          v2Store.generateLayerThumbnail(layerIdToUpdate!);
+        }, 100);
+      }
       
       // Final texture update when painting ends
       updateModelTexture(false, false);
