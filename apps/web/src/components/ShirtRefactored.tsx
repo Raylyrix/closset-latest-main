@@ -5990,6 +5990,20 @@ const canvasDimensions = {
       const { endTransform } = useStrokeSelection.getState();
       endTransform();
       
+      // CRITICAL FIX: Re-enable camera after transform ends
+      if ((activeTool as string) === 'select') {
+        console.log('🎯 Re-enabling camera after transform');
+        setControlsEnabled(true);
+        useApp.setState({ controlsEnabled: true });
+        
+        // Dispatch event to force OrbitControls update
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('controlsStateChanged', {
+            detail: { enabled: true, reason: 'stroke-transform-ended' }
+          }));
+        }, 0);
+      }
+      
       // Re-compose layers after transform
       const v2Store = useAdvancedLayerStoreV2.getState();
       v2Store.composeLayers();

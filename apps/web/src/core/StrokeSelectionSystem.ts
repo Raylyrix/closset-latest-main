@@ -420,14 +420,209 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
     
     // PHASE 3: Resize stroke
     resizeStroke: (layerId: string, handle: string, deltaX: number, deltaY: number) => {
-      // TODO: Implement resize logic
-      console.log('🔧 PHASE 3: Resize stroke - TODO implementation');
+      const useAdvancedLayerStoreV2 = (window as any).__layerStore;
+      if (!useAdvancedLayerStoreV2) {
+        console.error('⚠️ V2 layer store not available for resize');
+        return;
+      }
+      
+      const { layers } = useAdvancedLayerStoreV2.getState();
+      const layer = layers.find((l: any) => l.id === layerId);
+      
+      if (!layer || !layer.content?.strokeData) {
+        console.error('⚠️ Layer or stroke data not found');
+        return;
+      }
+      
+      const { bounds, points, settings } = layer.content.strokeData;
+      if (!bounds || !points || !settings) return;
+      
+      // Calculate center
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const centerY = (bounds.minY + bounds.maxY) / 2;
+      
+      // Calculate new bounds based on handle
+      let newBounds = { ...bounds };
+      if (handle === 'topLeft') {
+        newBounds.minX += deltaX;
+        newBounds.minY += deltaY;
+      } else if (handle === 'topRight') {
+        newBounds.maxX += deltaX;
+        newBounds.minY += deltaY;
+      } else if (handle === 'bottomLeft') {
+        newBounds.minX += deltaX;
+        newBounds.maxY += deltaY;
+      } else if (handle === 'bottomRight') {
+        newBounds.maxX += deltaX;
+        newBounds.maxY += deltaY;
+      } else if (handle === 'top') {
+        newBounds.minY += deltaY;
+      } else if (handle === 'bottom') {
+        newBounds.maxY += deltaY;
+      } else if (handle === 'left') {
+        newBounds.minX += deltaX;
+      } else if (handle === 'right') {
+        newBounds.maxX += deltaX;
+      }
+      
+      // Calculate scale factors
+      const scaleX = (newBounds.maxX - newBounds.minX) / (bounds.maxX - bounds.minX);
+      const scaleY = (newBounds.maxY - newBounds.minY) / (bounds.maxY - bounds.minY);
+      
+      // Update points
+      const newPoints = points.map((p: any) => ({
+        x: centerX + (p.x - centerX) * scaleX,
+        y: centerY + (p.y - centerY) * scaleY
+      }));
+      
+      // Update bounds
+      newBounds.width = newBounds.maxX - newBounds.minX;
+      newBounds.height = newBounds.maxY - newBounds.minY;
+      
+      // Update layer
+      const brushEngine = (window as any).__brushEngine;
+      if (!brushEngine || !layer.content.canvas) {
+        console.error('⚠️ Brush engine or canvas not available');
+        return;
+      }
+      
+      // Clear and redraw
+      const ctx = layer.content.canvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, layer.content.canvas.width, layer.content.canvas.height);
+        
+        // Redraw with new points
+        for (let i = 0; i < newPoints.length - 1; i++) {
+          const p1 = newPoints[i];
+          const p2 = newPoints[i + 1];
+          const distance = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+          const steps = Math.max(1, Math.floor(distance / Math.min(settings.size * 0.3, 5)));
+          
+          for (let j = 0; j <= steps; j++) {
+            const t = j / steps;
+            const x = p1.x + (p2.x - p1.x) * t;
+            const y = p1.y + (p2.y - p1.y) * t;
+            const stamp = brushEngine.createBrushStamp({
+              ...settings,
+              gradient: settings.gradient
+            });
+            ctx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+          }
+        }
+      }
+      
+      // Update stroke data
+      useAdvancedLayerStoreV2.getState().updateLayerContent(layerId, {
+        strokeData: {
+          ...layer.content.strokeData,
+          points: newPoints,
+          bounds: newBounds
+        }
+      });
+      
+      // Re-compose layers
+      const { composeLayers } = useAdvancedLayerStoreV2.getState();
+      composeLayers();
+      
+      useAdvancedLayerStoreV2.getState().saveHistorySnapshot(`Resize Stroke: ${layer.name}`);
+      console.log('✅ PHASE 3: Stroke resized');
     },
     
     // PHASE 3: Rotate stroke
     rotateStroke: (layerId: string, angle: number) => {
-      // TODO: Implement rotation logic
-      console.log('🔧 PHASE 3: Rotate stroke - TODO implementation');
+      const useAdvancedLayerStoreV2 = (window as any).__layerStore;
+      if (!useAdvancedLayerStoreV2) {
+        console.error('⚠️ V2 layer store not available for rotate');
+        return;
+      }
+      
+      const { layers } = useAdvancedLayerStoreV2.getState();
+      const layer = layers.find((l: any) => l.id === layerId);
+      
+      if (!layer || !layer.content?.strokeData) {
+        console.error('⚠️ Layer or stroke data not found');
+        return;
+      }
+      
+      const { bounds, points, settings } = layer.content.strokeData;
+      if (!bounds || !points || !settings) return;
+      
+      // Calculate center
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const centerY = (bounds.minY + bounds.maxY) / 2;
+      
+      // Rotate points
+      const angleRad = (angle * Math.PI) / 180;
+      const newPoints = points.map((p: any) => {
+        const dx = p.x - centerX;
+        const dy = p.y - centerY;
+        return {
+          x: centerX + dx * Math.cos(angleRad) - dy * Math.sin(angleRad),
+          y: centerY + dx * Math.sin(angleRad) + dy * Math.cos(angleRad)
+        };
+      });
+      
+      // Recalculate bounds
+      const xs = newPoints.map((p: any) => p.x);
+      const ys = newPoints.map((p: any) => p.y);
+      const newBounds = {
+        minX: Math.min(...xs),
+        minY: Math.min(...ys),
+        maxX: Math.max(...xs),
+        maxY: Math.max(...ys),
+        width: 0,
+        height: 0
+      };
+      newBounds.width = newBounds.maxX - newBounds.minX;
+      newBounds.height = newBounds.maxY - newBounds.minY;
+      
+      // Update layer
+      const brushEngine = (window as any).__brushEngine;
+      if (!brushEngine || !layer.content.canvas) {
+        console.error('⚠️ Brush engine or canvas not available');
+        return;
+      }
+      
+      // Clear and redraw
+      const ctx = layer.content.canvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, layer.content.canvas.width, layer.content.canvas.height);
+        
+        // Redraw with new points
+        for (let i = 0; i < newPoints.length - 1; i++) {
+          const p1 = newPoints[i];
+          const p2 = newPoints[i + 1];
+          const distance = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+          const steps = Math.max(1, Math.floor(distance / Math.min(settings.size * 0.3, 5)));
+          
+          for (let j = 0; j <= steps; j++) {
+            const t = j / steps;
+            const x = p1.x + (p2.x - p1.x) * t;
+            const y = p1.y + (p2.y - p1.y) * t;
+            const stamp = brushEngine.createBrushStamp({
+              ...settings,
+              gradient: settings.gradient
+            });
+            ctx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+          }
+        }
+      }
+      
+      // Update stroke data
+      useAdvancedLayerStoreV2.getState().updateLayerContent(layerId, {
+        strokeData: {
+          ...layer.content.strokeData,
+          points: newPoints,
+          bounds: newBounds
+        }
+      });
+      
+      // Re-compose layers
+      const { composeLayers } = useAdvancedLayerStoreV2.getState();
+      composeLayers();
+      
+      useAdvancedLayerStoreV2.getState().saveHistorySnapshot(`Rotate Stroke: ${layer.name}`);
+      console.log('✅ PHASE 3: Stroke rotated');
     },
     
     // PHASE 3: Delete stroke
