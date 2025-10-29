@@ -204,7 +204,12 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
     updateTransform: (currentPos: { x: number; y: number }) => {
       const { transformMode, dragStartPos, selectedLayerId } = get();
       
-      if (!dragStartPos || !selectedLayerId || !transformMode) return;
+      if (!dragStartPos || !selectedLayerId || !transformMode) {
+        console.warn('🎯 Cannot update transform:', { dragStartPos, selectedLayerId, transformMode });
+        return;
+      }
+      
+      console.log('🎯 Updating transform:', { transformMode, deltaX: currentPos.x - dragStartPos.x, deltaY: currentPos.y - dragStartPos.y });
       
       const deltaX = currentPos.x - dragStartPos.x;
       const deltaY = currentPos.y - dragStartPos.y;
@@ -212,6 +217,7 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
       // FIX #3: Update dragStartPos after transform to prevent jumpy movement
       // Call appropriate transform function
       if (transformMode === 'move') {
+        console.log('🎯 Moving stroke by:', deltaX, deltaY);
         get().moveStroke(selectedLayerId, deltaX, deltaY);
         // FIX #3: Update dragStartPos to current position after move
         set({ dragStartPos: currentPos });

@@ -3948,9 +3948,11 @@ export function ShirtRefactored({
           const multiSelect = modifierKeys.ctrl || modifierKeys.meta;
           selectStroke(hitLayerId, multiSelect);
           
-          if (!multiSelect) {
+          // CRITICAL FIX: Always start move transform when clicking on a stroke (for drag functionality)
+          if (!multiSelect && hitLayerId) {
             const canvasX = uv.x * composedCanvas.width;
             const canvasY = uv.y * composedCanvas.height;
+            console.log('🎯 Starting move transform for drag:', { canvasX, canvasY });
             startTransform('move', null, { x: canvasX, y: canvasY });
           }
           
