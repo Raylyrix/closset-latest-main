@@ -96,7 +96,8 @@ export function ShirtRefactored({
   const [modifierKeys, setModifierKeys] = useState({
     ctrl: false,
     shift: false,
-    alt: false
+    alt: false,
+    meta: false // Cmd key on Mac
   });
   
   // PHASE 1: Track individual stroke sessions
@@ -176,9 +177,10 @@ export function ShirtRefactored({
     const handleKeyDown = (e: KeyboardEvent) => {
       setModifierKeys(prev => ({
         ...prev,
-        ctrl: e.ctrlKey || e.metaKey, // Support both Ctrl and Cmd
+        ctrl: e.ctrlKey,
         shift: e.shiftKey,
-        alt: e.altKey
+        alt: e.altKey,
+        meta: e.metaKey
       }));
       
       // FIX #5: Delete key shortcut for stroke deletion
@@ -220,9 +222,10 @@ export function ShirtRefactored({
     const handleKeyUp = (e: KeyboardEvent) => {
       setModifierKeys(prev => ({
         ...prev,
-        ctrl: e.ctrlKey || e.metaKey,
+        ctrl: e.ctrlKey,
         shift: e.shiftKey,
-        alt: e.altKey
+        alt: e.altKey,
+        meta: e.metaKey
       }));
     };
 
@@ -1652,12 +1655,13 @@ export function ShirtRefactored({
     updateModelTexture();
   }, [vectorPaths, vectorMode, showAnchorPoints, updateModelTexture]);
   
-  // PHASE 2: Get selected layer ID for rendering
-  const { selectedLayerId } = useStrokeSelection();
+  // PHASE 2: Get selected layer ID and transform mode for rendering
+  const { selectedLayerId, transformMode } = useStrokeSelection();
   
   // PHASE 2: Render stroke selection border when stroke is selected
+  // CRITICAL FIX: Also update border during transform to follow movement
   useEffect(() => {
-    console.log('🎯 Border useEffect triggered, selectedLayerId:', selectedLayerId);
+    console.log('🎯 Border useEffect triggered, selectedLayerId:', selectedLayerId, 'transformMode:', transformMode);
     
     if (!selectedLayerId) {
       // No selection - re-compose layers to remove any existing border
@@ -1761,17 +1765,17 @@ export function ShirtRefactored({
     // Start the draw process
     drawBorder();
     
-    // Cleanup function to prevent memory leaks
-    return () => {
-      mounted = false;
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [selectedLayerId, updateModelTexture]);
+          // Cleanup function to prevent memory leaks
+          return () => {
+            mounted = false;
+            if (animationFrameId) {
+              cancelAnimationFrame(animationFrameId);
+            }
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
+          };
+        }, [selectedLayerId, transformMode, updateModelTexture]);
   
   // PERFORMANCE OPTIMIZATION: Aggressively optimized painting function
   const paintAtEvent = useCallback((e: any) => {
@@ -3931,19 +3935,29 @@ export function ShirtRefactored({
           if (hitLayerId) {
             console.log('🎯 SELECT TOOL: Clicked on stroke, selecting it:', hitLayerId);
             const { selectStroke, startTransform } = useStrokeSelection.getState();
-            selectStroke(hitLayerId);
             
-            // PHASE 3: Start move transform
-            const canvasX = uv.x * composedCanvas.width;
-            const canvasY = uv.y * composedCanvas.height;
-            startTransform('move', null, { x: canvasX, y: canvasY });
+            // CRITICAL FIX: Check for Ctrl/Cmd for multi-select
+            const multiSelect = modifierKeys.ctrl || modifierKeys.meta;
+            selectStroke(hitLayerId, multiSelect);
+            
+            // PHASE 3: Start move transform only if not multi-selecting
+            if (!multiSelect) {
+              const canvasX = uv.x * composedCanvas.width;
+              const canvasY = uv.y * composedCanvas.height;
+              startTransform('move', null, { x: canvasX, y: canvasY });
+            }
             
             // For select tool, don't start painting
             return;
           } else {
             console.log('🎯 SELECT TOOL: Clicked on empty area, clearing selection');
-            const { clearSelection } = useStrokeSelection.getState();
-            clearSelection();
+            
+            // CRITICAL FIX: If Ctrl/Cmd is held, don't clear (allows box selection later)
+            if (!modifierKeys.ctrl && !modifierKeys.meta) {
+              const { clearSelection } = useStrokeSelection.getState();
+              clearSelection();
+            }
+            
             // Don't start painting, just exit
             return;
           }

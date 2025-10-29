@@ -13,6 +13,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 interface StrokeSelectionState {
   selectedStrokeId: string | null;
   selectedLayerId: string | null;
+  selectedLayerIds: string[]; // CRITICAL FIX: Support multi-select
   transformMode: 'none' | 'move' | 'resize' | 'rotate' | null;
   transformHandle: string | null;
   dragStartPos: { x: number; y: number } | null;
@@ -23,7 +24,7 @@ interface StrokeSelectionActions {
   performHitTest: (uv: { u: number; v: number }, composedCanvas: HTMLCanvasElement | null) => string | null;
   
   // Selection management
-  selectStroke: (layerId: string) => void;
+  selectStroke: (layerId: string, multiSelect?: boolean) => void;
   clearSelection: () => void;
   
   // Get selected stroke data
@@ -49,6 +50,7 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
     // Initial state
       selectedStrokeId: null,
     selectedLayerId: null,
+    selectedLayerIds: [], // CRITICAL FIX: Support multi-select
     transformMode: null,
     transformHandle: null,
     dragStartPos: null,
@@ -103,8 +105,8 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
       return null;
     },
     
-    // Select a stroke by layer ID
-    selectStroke: (layerId: string) => {
+    // Select a stroke by layer ID (with multi-select support)
+    selectStroke: (layerId: string, multiSelect: boolean = false) => {
       const useAdvancedLayerStoreV2 = (window as any).__layerStore;
       if (!useAdvancedLayerStoreV2) {
         console.warn('⚠️ V2 layer store not available');
@@ -115,13 +117,33 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
       const layer = layers.find((l: any) => l.id === layerId);
       
       if (layer && layer.content?.strokeData) {
-        // Set selection state
-        set({ 
-          selectedStrokeId: layer.content.strokeData.id,
-          selectedLayerId: layerId 
-        });
+        const { selectedLayerIds } = get();
         
-        console.log('✅ Stroke selected:', layer.content.strokeData.id);
+        if (multiSelect) {
+          // Add to selection if not already selected
+          if (!selectedLayerIds.includes(layerId)) {
+            set({ 
+              selectedLayerIds: [...selectedLayerIds, layerId],
+              selectedLayerId: layerId, // Set as primary
+              selectedStrokeId: layer.content.strokeData.id
+            });
+            console.log('✅ Stroke added to multi-select:', layer.content.strokeData.id);
+          } else {
+            // Remove from selection if already selected
+            set({ 
+              selectedLayerIds: selectedLayerIds.filter(id => id !== layerId)
+            });
+            console.log('✅ Stroke removed from multi-select:', layer.content.strokeData.id);
+          }
+        } else {
+          // Single select - replace selection
+          set({ 
+            selectedStrokeId: layer.content.strokeData.id,
+            selectedLayerId: layerId,
+            selectedLayerIds: [layerId]
+          });
+          console.log('✅ Stroke selected:', layer.content.strokeData.id);
+        }
       } else {
         console.warn('⚠️ Could not find stroke for layer:', layerId);
       }
@@ -131,7 +153,8 @@ export const useStrokeSelection = create<StrokeSelectionState & StrokeSelectionA
     clearSelection: () => {
       set({ 
         selectedStrokeId: null,
-        selectedLayerId: null 
+        selectedLayerId: null,
+        selectedLayerIds: [] // CRITICAL FIX: Clear multi-select too
       });
       
       console.log('✅ Stroke deselected - border hidden');
