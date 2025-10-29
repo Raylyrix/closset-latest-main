@@ -1813,7 +1813,7 @@ export function ShirtRefactored({
               clearTimeout(timeoutId);
             }
           };
-        }, [selectedLayerId, transformMode, updateModelTexture]);
+        }, [selectedLayerId, transformMode]); // CRITICAL FIX: Removed updateModelTexture from deps to prevent excessive re-renders
   
   // PERFORMANCE OPTIMIZATION: Aggressively optimized painting function
   const paintAtEvent = useCallback((e: any) => {
