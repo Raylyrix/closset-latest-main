@@ -1729,12 +1729,16 @@ export function ShirtRefactored({
             return;
           }
           
+          // CRITICAL FIX: Store and restore the composed canvas state to avoid affecting it
+          // Save the current canvas state before drawing border
+          const currentImageData = ctx.getImageData(0, 0, composedCanvas.width, composedCanvas.height);
+          
           // Draw green dashed OUTLINE border - continuous smooth outline
           ctx.save();
           ctx.strokeStyle = '#00ff00';
           ctx.lineWidth = 3; // Slightly thicker for visibility
           ctx.setLineDash([15, 5]);
-          ctx.globalAlpha = 0.9;
+          // CRITICAL FIX: Don't set globalAlpha to avoid fading the underlying content
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           
