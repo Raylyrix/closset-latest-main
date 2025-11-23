@@ -191,6 +191,14 @@ export function ShirtRefactored({
   const lastVectorPathCountRef = useRef(0);
   const lastVectorPathsHashRef = useRef<string>('');
   
+  // PERFORMANCE: Throttle composeLayers and texture updates
+  const composeLayersTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textureUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastComposeTimeRef = useRef(0);
+  const lastTextureUpdateTimeRef = useRef(0);
+  const COMPOSE_THROTTLE_MS = 50; // Throttle composeLayers to max once per 50ms
+  const TEXTURE_UPDATE_THROTTLE_MS = 16; // Throttle texture updates to ~60fps
+  
   // Reduced logging frequency to prevent console spam
   if (Math.random() < 0.01) { // Only log 1% of the time
     // ShirtRefactored component mounting with props
@@ -1444,9 +1452,31 @@ export function ShirtRefactored({
       }
     }
     
-    // CRITICAL FIX: Always recompose layers first to get clean base, then render vectors on top
-    // This ensures vector paths are always visible on top of other layers
-    useApp.getState().composeLayers();
+    // PERFORMANCE FIX: Only recompose layers if needed (not on every render)
+    // Check if we need to recompose (path count changed, or first render)
+    const currentPathHash = JSON.stringify(freshVectorPaths.map(p => ({ id: p.id, pointCount: p.points.length })));
+    const needsRecompose = lastVectorPathsHashRef.current !== currentPathHash || lastVectorPathCountRef.current !== freshVectorPaths.length;
+    
+    if (needsRecompose) {
+      // PERFORMANCE: Throttle composeLayers calls
+      const now = Date.now();
+      if (now - lastComposeTimeRef.current >= COMPOSE_THROTTLE_MS) {
+        useApp.getState().composeLayers();
+        lastComposeTimeRef.current = now;
+      } else {
+        // Clear existing timeout and schedule new one
+        if (composeLayersTimeoutRef.current) {
+          clearTimeout(composeLayersTimeoutRef.current);
+        }
+        composeLayersTimeoutRef.current = setTimeout(() => {
+          useApp.getState().composeLayers();
+          lastComposeTimeRef.current = Date.now();
+        }, COMPOSE_THROTTLE_MS - (now - lastComposeTimeRef.current));
+      }
+      
+      lastVectorPathsHashRef.current = currentPathHash;
+      lastVectorPathCountRef.current = freshVectorPaths.length;
+    }
     
     // Re-get composedCanvas after composition to ensure we have the latest version
     composedCanvas = useApp.getState().composedCanvas;
@@ -1565,8 +1595,33 @@ export function ShirtRefactored({
       });
     }); // Close forEach
     
-    // CRITICAL FIX: Update texture immediately after rendering for real-time feedback
-    updateModelTexture(false, false);
+    // PERFORMANCE FIX: Throttle texture updates to ~60fps
+    const now = Date.now();
+    if (now - lastTextureUpdateTimeRef.current >= TEXTURE_UPDATE_THROTTLE_MS) {
+      updateModelTexture(false, false);
+      lastTextureUpdateTimeRef.current = now;
+    } else {
+      // Clear existing timeout and schedule new one
+      if (textureUpdateTimeoutRef.current) {
+        clearTimeout(textureUpdateTimeoutRef.current);
+      }
+      textureUpdateTimeoutRef.current = setTimeout(() => {
+        updateModelTexture(false, false);
+        lastTextureUpdateTimeRef.current = Date.now();
+      }, TEXTURE_UPDATE_THROTTLE_MS - (now - lastTextureUpdateTimeRef.current));
+    }
+    
+    // Cleanup function to clear timeouts
+    return () => {
+      if (composeLayersTimeoutRef.current) {
+        clearTimeout(composeLayersTimeoutRef.current);
+        composeLayersTimeoutRef.current = null;
+      }
+      if (textureUpdateTimeoutRef.current) {
+        clearTimeout(textureUpdateTimeoutRef.current);
+        textureUpdateTimeoutRef.current = null;
+      }
+    };
     }, [activeTool, vectorPaths, vectorEditMode, selectedAnchor, vectorStrokeColor, vectorStrokeWidth, vectorFillColor, vectorFill, showAnchorPoints, updateModelTexture]); // CRITICAL FIX: Include updateModelTexture in dependencies
   
   // PHASE 2: Get selected layer ID and transform mode for rendering
@@ -6340,28 +6395,32 @@ const canvasDimensions = {
       }
       
       // Handle vector anchor dragging
+      // PERFORMANCE: Throttle anchor dragging updates using requestAnimationFrame
       if (activeTool === 'vector' && isDraggingAnchorRef.current && dragStartPosRef.current) {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
-          const { selectedAnchor, vectorPaths } = useApp.getState();
-          if (selectedAnchor) {
-            const path = vectorPaths.find(p => p.id === selectedAnchor.pathId);
-            if (path && path.points[selectedAnchor.anchorIndex]) {
-              // Calculate delta in UV space (both are already in UV coordinates)
-              const deltaU = uv.x - dragStartPosRef.current.x;
-              const deltaV = uv.y - dragStartPosRef.current.y;
-              
-              // Move anchor
-              const currentPoint = path.points[selectedAnchor.anchorIndex];
-              const newU = Math.max(0, Math.min(1, currentPoint.u + deltaU));
-              const newV = Math.max(0, Math.min(1, currentPoint.v + deltaV));
-              
-              useApp.getState().moveAnchor(selectedAnchor.pathId, selectedAnchor.anchorIndex, newU, newV);
-              
-              // Update drag start position for next move (use current UV)
-              dragStartPosRef.current = { x: uv.x, y: uv.y };
+          // PERFORMANCE: Use requestAnimationFrame to batch updates
+          requestAnimationFrame(() => {
+            const { selectedAnchor, vectorPaths } = useApp.getState();
+            if (selectedAnchor) {
+              const path = vectorPaths.find(p => p.id === selectedAnchor.pathId);
+              if (path && path.points[selectedAnchor.anchorIndex]) {
+                // Calculate delta in UV space (both are already in UV coordinates)
+                const deltaU = uv.x - dragStartPosRef.current!.x;
+                const deltaV = uv.y - dragStartPosRef.current!.y;
+                
+                // Move anchor
+                const currentPoint = path.points[selectedAnchor.anchorIndex];
+                const newU = Math.max(0, Math.min(1, currentPoint.u + deltaU));
+                const newV = Math.max(0, Math.min(1, currentPoint.v + deltaV));
+                
+                useApp.getState().moveAnchor(selectedAnchor.pathId, selectedAnchor.anchorIndex, newU, newV);
+                
+                // Update drag start position for next move (use current UV)
+                dragStartPosRef.current = { x: uv.x, y: uv.y };
+              }
             }
-          }
+          });
         }
         return;
       }

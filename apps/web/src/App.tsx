@@ -1179,6 +1179,8 @@ export const useApp = create<AppState>((set, get) => ({
   setSelectedAnchor: (anchor) => set({ selectedAnchor: anchor }),
   setVectorEditMode: (mode) => set({ vectorEditMode: mode }),
   moveAnchor: (pathId, anchorIndex, newU, newV) => {
+    // PERFORMANCE: Update state only, let useEffect handle rendering
+    // composeLayers will be called by the rendering useEffect with throttling
     set(state => ({
       vectorPaths: state.vectorPaths.map(path => 
         path.id === pathId 
@@ -1193,6 +1195,7 @@ export const useApp = create<AppState>((set, get) => ({
           : path
       )
     }));
+    // PERFORMANCE: Don't call composeLayers here - let useEffect handle it with throttling
   },
   addCurveHandle: (pathId, anchorIndex, handleType, u, v) => {
     set(state => ({
@@ -1216,6 +1219,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
   
   moveCurveHandle: (pathId, anchorIndex, handleType, newU, newV) => {
+    // PERFORMANCE: Update state only, let useEffect handle rendering
+    // composeLayers will be called by the rendering useEffect with throttling
     set(state => ({
       vectorPaths: state.vectorPaths.map(path => 
         path.id === pathId 
@@ -1236,7 +1241,8 @@ export const useApp = create<AppState>((set, get) => ({
           : path
       )
     }));
-    get().composeLayers();
+    // PERFORMANCE: Don't call composeLayers here - let useEffect handle it with throttling
+    // This prevents excessive composeLayers calls during dragging
   },
 
   // Legacy layer system implementations - REMOVED (using simplified AdvancedLayerSystemV2)
@@ -1417,6 +1423,8 @@ try {
     const sel = get().selectedAnchor;
     if (!sel) return;
     if (process.env.NODE_ENV !== 'production') console.log('[Vector] moveVectorAnchor', { sel, uv: { u, v } });
+    // PERFORMANCE: Update state only, let useEffect handle rendering
+    // composeLayers will be called by the rendering useEffect with throttling
     set(state => ({
       vectorPaths: state.vectorPaths.map(p => {
         if (p.id !== sel.pathId) return p;
@@ -1426,7 +1434,8 @@ try {
         return { ...p, points: pts };
       })
     }));
-    get().composeLayers();
+    // PERFORMANCE: Don't call composeLayers here - let useEffect handle it with throttling
+    // This prevents excessive composeLayers calls during dragging
   },
   finishVectorPath: () => {
     const appState: any = get();
@@ -1635,7 +1644,11 @@ try {
         selectedAnchor: null
       };
     });
-    get().composeLayers();
+    // PERFORMANCE: Let useEffect handle composeLayers with throttling
+    // Only trigger immediate update for critical operations like deletion
+    requestAnimationFrame(() => {
+      get().composeLayers();
+    });
   },
   
   convertAnchorType: (pathId, anchorIndex, type) => {
@@ -1676,7 +1689,11 @@ try {
         )
       };
     });
-    get().composeLayers();
+    // PERFORMANCE: Let useEffect handle composeLayers with throttling
+    // Only trigger immediate update for critical operations
+    requestAnimationFrame(() => {
+      get().composeLayers();
+    });
   },
   
   closePath: (pathId) => {
