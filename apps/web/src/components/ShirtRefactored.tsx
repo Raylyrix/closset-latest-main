@@ -2670,36 +2670,53 @@ export function ShirtRefactored({
         layerCtx.globalAlpha = brushSettings.opacity * brushSettings.flow;
         
         // SMOOTH BRUSH: Interpolate between last and current position to prevent gaps
+        // CRITICAL FIX: Only interpolate if distance is reasonable (same stroke)
+        // If distance is too large, it's a new stroke - don't connect them
         const lastPos = lastPaintPositionRef.current;
         if (lastPos) {
-          const dx = canvasX - lastPos.x;
-          const dy = canvasY - lastPos.y;
+          const dx = finalX - lastPos.x;
+          const dy = finalY - lastPos.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
           
-          // Calculate minimum spacing between stamps for smooth continuous line
-          const minSpacing = brushSettings.size * brushSettings.spacing;
+          // CRITICAL FIX: Maximum distance threshold - if exceeded, it's a new stroke
+          // Use 3x brush size as threshold (if user moves more than 3 brush widths, it's a new stroke)
+          const maxStrokeDistance = brushSettings.size * 3;
           
-          if (distance > minSpacing) {
-            // Draw intermediate stamps to fill gaps
-            const steps = Math.ceil(distance / minSpacing);
-            for (let i = 1; i <= steps; i++) {
-              const t = i / steps;
-              const interpX = lastPos.x + t * dx;
-              const interpY = lastPos.y + t * dy;
-              
-              layerCtx.drawImage(
-                brushStamp,
-                interpX - brushSettings.size / 2,
-                interpY - brushSettings.size / 2
-              );
-            }
-          } else {
-            // Draw single stamp if points are close enough
+          if (distance > maxStrokeDistance) {
+            // New stroke detected - don't interpolate, just draw at current position
+            // Reset last position to current to prevent future connections
+            lastPaintPositionRef.current = { x: finalX, y: finalY };
             layerCtx.drawImage(
               brushStamp,
               finalX - brushSettings.size / 2,
               finalY - brushSettings.size / 2
             );
+          } else {
+            // Same stroke - interpolate to fill gaps
+            const minSpacing = brushSettings.size * brushSettings.spacing;
+            
+            if (distance > minSpacing) {
+              // Draw intermediate stamps to fill gaps
+              const steps = Math.ceil(distance / minSpacing);
+              for (let i = 1; i <= steps; i++) {
+                const t = i / steps;
+                const interpX = lastPos.x + t * dx;
+                const interpY = lastPos.y + t * dy;
+                
+                layerCtx.drawImage(
+                  brushStamp,
+                  interpX - brushSettings.size / 2,
+                  interpY - brushSettings.size / 2
+                );
+              }
+            } else {
+              // Draw single stamp if points are close enough
+              layerCtx.drawImage(
+                brushStamp,
+                finalX - brushSettings.size / 2,
+                finalY - brushSettings.size / 2
+              );
+            }
           }
         } else {
           // First point - just draw the stamp
