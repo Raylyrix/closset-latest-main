@@ -6919,6 +6919,11 @@ const canvasDimensions = {
     // SMOOTH BRUSH: Reset last paint position to prevent connecting different strokes
     lastPaintPositionRef.current = null;
     
+    // Reset velocity tracker and smudge state for next stroke
+    velocityTrackerRef.current = createVelocityTracker(10);
+    lastBrushPointRef.current = null;
+    smudgeStateRef.current = { lastX: 0, lastY: 0, initialized: false };
+    
     // Clear last embroidery point when mouse released
     if (activeTool === 'embroidery') {
       useApp.setState({ lastEmbroideryPoint: null });
