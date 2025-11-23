@@ -44,6 +44,7 @@ import {
   calculateAdvancedBrushDynamics 
 } from '../utils/AdvancedBrushFeatures';
 import { applySmudge, applyBlur, createSmudgeState } from '../utils/SmudgeBlurTools';
+import { applyWetBrushBlending, applyColorBleeding, createWetBrushState } from '../utils/WetBrushBlending';
 
 // Helper function to convert hex color to RGB
 const hexToRgb = (hex: string): {r: number, g: number, b: number} | null => {
@@ -196,6 +197,12 @@ export function ShirtRefactored({
   
   // SMUDGE/BLUR TOOLS: Track last position for directional effects
   const smudgeStateRef = useRef({ lastX: 0, lastY: 0, initialized: false });
+  
+  // WET BRUSH BLENDING: Track wet brush state for watercolor effects
+  const wetBrushStateRef = useRef<{ points: Array<{ x: number; y: number }>; initialized: boolean }>({
+    points: [],
+    initialized: false
+  });
   
   // SMOOTH BRUSH: Track last paint position for interpolation
   const lastPaintPositionRef = useRef<{ x: number; y: number } | null>(null);
