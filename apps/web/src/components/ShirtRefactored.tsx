@@ -6847,31 +6847,39 @@ const canvasDimensions = {
           let newPositionX = resizeStart.positionX;
           let newPositionY = resizeStart.positionY;
           
+          // CRITICAL FIX: Use same resize calculation pattern as image tool
+          // Calculate half size in UV for center calculation
+          const originalSizeU = resizeStart.size / canvasSize;
+          const halfSizeU = originalSizeU / 2;
+          const originalCenterU = resizeStart.positionX / 100;
+          const originalCenterV = resizeStart.positionY / 100;
+          
           switch (resizeStart.anchor) {
             // Corner anchors - resize size (maintains aspect ratio for square shapes)
             case 'topLeft':
               // Scale from bottom-right corner (opposite anchor stays fixed)
-              const sizeDelta1 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
-              newSize = Math.max(10, Math.min(500, resizeStart.size - sizeDelta1 * 2));
+              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaU * canvasSize * 2)));
               // Keep bottom-right corner fixed, so center moves
               newPositionX = resizeStart.positionX + (deltaU * 100);
               newPositionY = resizeStart.positionY + (deltaV * 100);
               break;
             case 'topRight':
-              const sizeDelta2 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
-              newSize = Math.max(10, Math.min(500, resizeStart.size - sizeDelta2 * 2));
+              // Scale from bottom-left corner
+              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaU * canvasSize * 2)));
+              // Keep bottom-left corner fixed
               newPositionX = resizeStart.positionX + (deltaU * 100);
-              newPositionY = resizeStart.positionY - (deltaV * 100);
+              newPositionY = resizeStart.positionY + (deltaV * 100);
               break;
             case 'bottomLeft':
-              const sizeDelta3 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
-              newSize = Math.max(10, Math.min(500, resizeStart.size - sizeDelta3 * 2));
-              newPositionX = resizeStart.positionX - (deltaU * 100);
+              // Scale from top-right corner
+              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaU * canvasSize * 2)));
+              // Keep top-right corner fixed
+              newPositionX = resizeStart.positionX + (deltaU * 100);
               newPositionY = resizeStart.positionY + (deltaV * 100);
               break;
             case 'bottomRight':
-              const sizeDelta4 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
-              newSize = Math.max(10, Math.min(500, resizeStart.size + sizeDelta4 * 2));
+              // Scale from top-left corner
+              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaU * canvasSize * 2)));
               // Keep top-left corner fixed
               newPositionX = resizeStart.positionX + (deltaU * 100);
               newPositionY = resizeStart.positionY + (deltaV * 100);
