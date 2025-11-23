@@ -995,7 +995,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createWatercolorBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
-    // Create realistic watercolor with water flow and bleeding effects
+    // REALISTIC WATERCOLOR: Transparent, luminous, with granulation and soft bleeding
+    // Key characteristics: 30-50% opacity, soft edges, paper texture visible, granulation
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1003,61 +1004,73 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const distance = Math.sqrt(dx * dx + dy * dy);
         const normalizedDistance = distance / radius;
         
-        if (normalizedDistance > 1.2) continue; // Allow some bleeding outside
+        if (normalizedDistance > 1.3) continue; // Extended bleeding area
         
         const index = (y * size + x) * 4;
         
-        // Create water flow patterns
+        // WATERCOLOR: High transparency (30-50% of normal opacity)
+        const baseTransparency = 0.4; // Watercolor is naturally transparent
+        const baseAlpha = settings.opacity * 255 * baseTransparency;
+        
+        // Create water flow patterns for realistic bleeding
         const flowX = Math.sin(x * 0.05) * Math.cos(y * 0.03);
         const flowY = Math.cos(x * 0.03) * Math.sin(y * 0.05);
         const flowMagnitude = Math.sqrt(flowX * flowX + flowY * flowY);
         
-        // Create bleeding effect - color spreads more in certain directions
-        const bleedingFactor = 1 + flowMagnitude * 0.4;
-        const waterSaturation = Math.sin(x * 0.08) * Math.cos(y * 0.08) + 
-                               Math.sin(x * 0.15) * Math.sin(y * 0.15);
+        // GRANULATION: Pigment settling into paper texture (grainy effect)
+        const granulation1 = Math.sin(x * 0.15) * Math.cos(y * 0.15);
+        const granulation2 = Math.sin(x * 0.25) * Math.sin(y * 0.2);
+        const granulation3 = Math.cos(x * 0.1) * Math.cos(y * 0.12);
+        const combinedGranulation = (granulation1 + granulation2 + granulation3) / 3;
+        const granulationFactor = 0.7 + combinedGranulation * 0.6; // Creates grainy texture
         
-        // Watercolor has variable opacity based on water content
-        const waterContent = 0.6 + waterSaturation * 0.4;
-        const baseAlpha = settings.opacity * 255 * waterContent;
+        // PAPER TEXTURE: Visible through transparent paint
+        const paperTexture1 = Math.sin(x * 0.3) * Math.cos(y * 0.3);
+        const paperTexture2 = Math.sin(x * 0.5) * Math.sin(y * 0.4);
+        const paperTexture = (paperTexture1 + paperTexture2) / 2;
+        const paperFactor = 0.85 + paperTexture * 0.3; // Paper shows through
         
-        // Create soft, organic falloff with bleeding
+        // SOFT EDGES: Very feathered, organic falloff
         let alpha = baseAlpha;
-        if (normalizedDistance <= 0.8) {
-          // Core area - full opacity
-          alpha = baseAlpha;
-        } else if (normalizedDistance <= 1.0) {
-          // Transition area - gradual falloff
-          const falloff = 1 - (normalizedDistance - 0.8) / 0.2;
-          alpha = baseAlpha * falloff;
+        if (normalizedDistance <= 0.6) {
+          // Core area - moderate opacity with granulation
+          alpha = baseAlpha * granulationFactor * paperFactor;
+        } else if (normalizedDistance <= 0.9) {
+          // Transition area - very soft falloff
+          const falloff = 1 - (normalizedDistance - 0.6) / 0.3;
+          alpha = baseAlpha * falloff * granulationFactor * paperFactor;
         } else {
-          // Bleeding area - very soft, directional
-          const bleedDistance = normalizedDistance - 1.0;
-          const bleedAlpha = baseAlpha * 0.3 * bleedingFactor * Math.exp(-bleedDistance * 5);
-          alpha = bleedAlpha;
+          // Bleeding area - very soft, directional bleeding
+          const bleedDistance = normalizedDistance - 0.9;
+          const bleedFactor = Math.exp(-bleedDistance * 3) * (1 + flowMagnitude * 0.5);
+          alpha = baseAlpha * 0.2 * bleedFactor * granulationFactor;
         }
         
-        // Add some paper texture variation
-        const paperTexture = Math.sin(x * 0.2) * Math.cos(y * 0.2);
-        const textureVariation = 0.9 + paperTexture * 0.2;
-        alpha *= textureVariation;
+        // LUMINOUS EFFECT: Watercolor glows (light passes through)
+        const luminousFactor = 1.1; // Slight brightness boost for glow
         
-        // Get color (solid or gradient)
+        // Get color (solid or gradient) - watercolor colors are more vibrant due to transparency
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // Apply luminous effect (slight brightness increase)
+        const finalR = Math.min(255, r * luminousFactor);
+        const finalG = Math.min(255, g * luminousFactor);
+        const finalB = Math.min(255, b * luminousFactor);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createOilBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
-    // Create realistic oil paint with thick, rich texture and brush stroke patterns
+    // REALISTIC OIL PAINT: Rich, thick, visible brush strokes, glossy sheen, impasto
+    // Key characteristics: 100% opacity, visible brush marks, thick texture, glossy finish
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1069,37 +1082,47 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         
         const index = (y * size + x) * 4;
         
-        // Create brush stroke patterns (oil paint shows brush marks)
+        // OIL PAINT: Full opacity (100%) - completely opaque
+        const baseOpacity = 1.0;
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // VISIBLE BRUSH STROKES: Oil paint shows brush marks clearly
         const strokeAngle = Math.atan2(dy, dx);
-        const strokePattern = Math.sin(strokeAngle * 8 + x * 0.1 + y * 0.1);
-        const strokeVariation = 0.85 + strokePattern * 0.3;
+        const strokePattern1 = Math.sin(strokeAngle * 6 + x * 0.15 + y * 0.1);
+        const strokePattern2 = Math.cos(strokeAngle * 4 - x * 0.1 + y * 0.15);
+        const combinedStroke = (strokePattern1 + strokePattern2) / 2;
+        const strokeVariation = 0.75 + combinedStroke * 0.5; // Strong brush mark variation
         
-        // Create thick paint texture with impasto effect
-        const paintThickness = Math.sin(x * 0.03) * Math.cos(y * 0.03) + 
-                              Math.sin(x * 0.07) * Math.sin(y * 0.07);
-        const thicknessVariation = 0.8 + paintThickness * 0.4;
+        // IMPASTO EFFECT: Thick paint application creates texture depth
+        const impasto1 = Math.sin(x * 0.04) * Math.cos(y * 0.04);
+        const impasto2 = Math.sin(x * 0.08) * Math.sin(y * 0.06);
+        const impasto3 = Math.cos(x * 0.06) * Math.cos(y * 0.08);
+        const combinedImpasto = (impasto1 + impasto2 + impasto3) / 3;
+        const thicknessVariation = 0.7 + combinedImpasto * 0.6; // Strong thickness variation
         
-        // Oil paint has rich, opaque coverage with some texture variation
-        const baseOpacity = settings.opacity * 255 * thicknessVariation * strokeVariation;
+        // RICH TEXTURE: Oil paint has more texture than acrylic
+        const textureVariation = Math.sin(x * 0.1) * Math.cos(y * 0.1) + 
+                                Math.sin(x * 0.05) * Math.sin(y * 0.05);
+        const textureFactor = 0.8 + textureVariation * 0.4;
         
-        // Create smooth falloff with slight texture
-        let alpha = baseOpacity;
-        if (normalizedDistance <= 0.7) {
-          // Core area - full rich coverage
-          alpha = baseOpacity;
+        // Calculate alpha with all variations
+        let alpha = baseAlpha * strokeVariation * thicknessVariation * textureFactor;
+        
+        // Smooth falloff
+        if (normalizedDistance <= 0.75) {
+          // Core area - full rich coverage with all texture
+          alpha = baseAlpha * strokeVariation * thicknessVariation * textureFactor;
         } else {
-          // Edge area - gradual falloff with paint texture
-          const falloff = 1 - (normalizedDistance - 0.7) / 0.3;
-          const edgeTexture = Math.sin(x * 0.1) * Math.cos(y * 0.1);
-          const textureFactor = 0.9 + edgeTexture * 0.2;
-          alpha = baseOpacity * falloff * textureFactor;
+          // Edge area - gradual falloff
+          const falloff = 1 - (normalizedDistance - 0.75) / 0.25;
+          alpha = baseAlpha * falloff * strokeVariation * thicknessVariation * textureFactor;
         }
         
-        // Add some random paint globules for realistic texture
+        // Add paint globules for impasto texture
         const globuleChance = Math.random();
-        if (globuleChance < 0.05) { // 5% chance of paint globule
-          const globuleIntensity = Math.random() * 0.3 + 0.7;
-          alpha += settings.opacity * 255 * globuleIntensity * 0.2;
+        if (globuleChance < 0.08) { // 8% chance - more globules than before
+          const globuleIntensity = Math.random() * 0.4 + 0.6;
+          alpha += settings.opacity * 255 * globuleIntensity * 0.3;
         }
         
         // Get color (solid or gradient)
@@ -1108,15 +1131,23 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // GLOSSY SHEEN: Oil paint has natural sheen (slight brightness boost)
+        const sheenFactor = 1.08; // 8% brightness for glossy effect
+        const finalR = Math.min(255, r * sheenFactor);
+        const finalG = Math.min(255, g * sheenFactor);
+        const finalB = Math.min(255, b * sheenFactor);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createAcrylicBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // REALISTIC ACRYLIC: Opaque, vibrant, smooth finish, sharp edges
+    // Key characteristics: 90-100% opacity, vibrant colors, smooth texture, defined edges
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1127,26 +1158,50 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Quick-drying acrylic with slight texture
-        const acrylicTexture = Math.sin(x * 0.12) * Math.cos(y * 0.12);
-        const textureFactor = 0.85 + acrylicTexture * 0.3;
-        const alpha = settings.opacity * 255 * textureFactor * Math.exp(-normalizedDistance * normalizedDistance * 0.9);
         
-        // Get color (solid or gradient)
+        // ACRYLIC: High opacity (90-100% of normal opacity) - opaque coverage
+        const baseOpacity = 0.95; // Acrylic is opaque
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // SMOOTH TEXTURE: Acrylic has smooth, even finish (less texture than oil)
+        const smoothTexture = Math.sin(x * 0.08) * Math.cos(y * 0.08);
+        const textureFactor = 0.92 + smoothTexture * 0.16; // Subtle texture variation
+        
+        // SHARP EDGES: Acrylic dries quickly, creating defined edges
+        let alpha = baseAlpha;
+        if (normalizedDistance <= 0.85) {
+          // Core area - full opaque coverage
+          alpha = baseAlpha * textureFactor;
+        } else {
+          // Edge area - sharper falloff than watercolor
+          const falloff = 1 - (normalizedDistance - 0.85) / 0.15;
+          alpha = baseAlpha * falloff * textureFactor;
+        }
+        
+        // VIBRANT COLORS: Acrylic colors are more saturated
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // Enhance color saturation for vibrant acrylic look
+        const saturationBoost = 1.15; // 15% more vibrant
+        const avgColor = (r + g + b) / 3;
+        const finalR = Math.min(255, avgColor + (r - avgColor) * saturationBoost);
+        const finalG = Math.min(255, avgColor + (g - avgColor) * saturationBoost);
+        const finalB = Math.min(255, avgColor + (b - avgColor) * saturationBoost);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createGouacheBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // REALISTIC GOUACHE: Opaque like acrylic but MATTE finish, flat coverage
+    // Key characteristics: 95% opacity, matte finish (no sheen), flat even coverage
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1157,8 +1212,25 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Matte gouache with flat coverage
-        const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 0.7);
+        
+        // GOUACHE: High opacity (95%) - opaque like acrylic
+        const baseOpacity = 0.95;
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // FLAT COVERAGE: Gouache has very even, flat coverage (no texture variation)
+        const flatCoverage = 0.98; // Very consistent
+        
+        // MATTE FINISH: No sheen/gloss (reduces brightness slightly)
+        const matteFactor = 0.92; // Slight darkening for matte effect
+        
+        // Smooth falloff
+        let alpha = baseAlpha * flatCoverage;
+        if (normalizedDistance <= 0.85) {
+          alpha = baseAlpha * flatCoverage;
+        } else {
+          const falloff = 1 - (normalizedDistance - 0.85) / 0.15;
+          alpha = baseAlpha * falloff * flatCoverage;
+        }
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1166,15 +1238,22 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // MATTE EFFECT: Reduce brightness for matte finish (opposite of oil's sheen)
+        const finalR = Math.min(255, r * matteFactor);
+        const finalG = Math.min(255, g * matteFactor);
+        const finalB = Math.min(255, b * matteFactor);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createInkBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // REALISTIC INK: Sharp, precise, very dark, hard edges, no transparency
+    // Key characteristics: 100% opacity, very sharp edges, deep dark colors, precise lines
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1185,8 +1264,21 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Sharp, precise ink brush
-        const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 3);
+        
+        // INK: Full opacity (100%) - completely opaque, no transparency
+        const baseOpacity = 1.0;
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // VERY SHARP EDGES: Ink has extremely sharp, defined edges
+        let alpha = baseAlpha;
+        if (normalizedDistance <= 0.9) {
+          // Core area - full opacity
+          alpha = baseAlpha;
+        } else {
+          // Edge area - very sharp falloff (much sharper than other brushes)
+          const falloff = 1 - (normalizedDistance - 0.9) / 0.1;
+          alpha = baseAlpha * falloff * falloff; // Squared for extra sharpness
+        }
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1194,9 +1286,16 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // DARK, RICH INK: Ink is typically very dark and rich
+        // Slightly darken colors for authentic ink look
+        const inkDarkness = 0.95; // Slight darkening for ink depth
+        const finalR = Math.max(0, r * inkDarkness);
+        const finalG = Math.max(0, g * inkDarkness);
+        const finalB = Math.max(0, b * inkDarkness);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
