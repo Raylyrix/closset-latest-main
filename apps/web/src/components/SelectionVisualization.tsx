@@ -180,14 +180,30 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !dragElement) return;
-
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // Update cursor based on hover state when not dragging
+    if (!isDragging && activeElement) {
+      const handle = getHandleAtPoint(x, y, activeElement.bounds);
+      if (handle) {
+        canvas.style.cursor = getCursorForHandle(handle);
+      } else {
+        // Check if hovering over element for move
+        const { bounds } = activeElement;
+        if (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
+          canvas.style.cursor = 'move';
+        } else {
+          canvas.style.cursor = 'default';
+        }
+      }
+    }
+
+    if (!isDragging || !dragElement) return;
 
     const deltaX = x - dragStart.x;
     const deltaY = y - dragStart.y;
