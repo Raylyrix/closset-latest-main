@@ -45,6 +45,7 @@ import {
 } from '../utils/AdvancedBrushFeatures';
 import { applySmudge, applyBlur, createSmudgeState } from '../utils/SmudgeBlurTools';
 import { applyWetBrushBlending, applyColorBleeding, createWetBrushState } from '../utils/WetBrushBlending';
+import { sampleAreaColor, rgbToHex, getColorHistory } from '../utils/AdvancedColorPicker';
 
 // Helper function to convert hex color to RGB
 const hexToRgb = (hex: string): {r: number, g: number, b: number} | null => {
@@ -1864,10 +1865,32 @@ export function ShirtRefactored({
       debugLog('🎨 Picker tool: Sampling color at pixel:', { x, y, canvasWidth: composedCanvas.width, canvasHeight: composedCanvas.height });
       
       try {
-        const data = ctx.getImageData(x, y, 1, 1).data;
-        const sampledColor = `#${[data[0], data[1], data[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+        // ADVANCED: Support area sampling mode (average color from region)
+        const samplingMode = (useApp.getState() as any).pickerSamplingMode || 'single'; // 'single' or 'area'
+        const samplingRadius = (useApp.getState() as any).pickerSamplingRadius || 3; // Pixels to sample around
         
-        debugLog('🎨 Picker tool: Sampled color:', sampledColor, 'RGB:', { r: data[0], g: data[1], b: data[2] });
+        let sampledColor: string;
+        
+        if (samplingMode === 'area') {
+          // Sample average color from area
+          const avgColor = sampleAreaColor(ctx, x, y, samplingRadius);
+          if (avgColor) {
+            sampledColor = rgbToHex(avgColor.r, avgColor.g, avgColor.b);
+          } else {
+            // Fallback to single pixel
+            const data = ctx.getImageData(x, y, 1, 1).data;
+            sampledColor = `#${[data[0], data[1], data[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+          }
+        } else {
+          // Single pixel sampling (original behavior)
+          const data = ctx.getImageData(x, y, 1, 1).data;
+          sampledColor = `#${[data[0], data[1], data[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+        }
+        
+        debugLog('🎨 Picker tool: Sampled color:', sampledColor, 'Mode:', samplingMode);
+        
+        // ADVANCED: Add to color history
+        getColorHistory().addColor(sampledColor);
         
         // PERFORMANCE: Batch state updates
         useApp.setState({ 
