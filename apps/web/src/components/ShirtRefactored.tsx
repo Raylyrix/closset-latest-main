@@ -172,7 +172,16 @@ export function ShirtRefactored({
   // CRITICAL FIX: Sync activeShapeId with selection system for resize handles
   const activeShapeId = useApp(s => s.activeShapeId);
   const shapeElements = useApp(s => s.shapeElements);
+  const prevActiveShapeIdRef = useRef<string | null>(null);
+  
   useEffect(() => {
+    // CRITICAL FIX: Only sync if activeShapeId actually changed to prevent infinite loops
+    if (activeShapeId === prevActiveShapeIdRef.current) {
+      return; // No change, skip update
+    }
+    
+    prevActiveShapeIdRef.current = activeShapeId;
+    
     if (activeShapeId) {
       const shapeEl = shapeElements.find(s => s.id === activeShapeId);
       if (shapeEl) {
@@ -206,19 +215,23 @@ export function ShirtRefactored({
           }
         };
         
-        // Clear previous selection and add this shape
-        clearSelection();
-        selectElement(shapeElement);
-        console.log('🔷 Synced activeShapeId to selection system:', activeShapeId, 'type:', shapeEl.type);
+        // Only update if shape is not already selected
+        const isAlreadySelected = selectedElements.some(el => el.id === activeShapeId);
+        if (!isAlreadySelected) {
+          // Clear previous selection and add this shape
+          clearSelection();
+          selectElement(shapeElement);
+          console.log('🔷 Synced activeShapeId to selection system:', activeShapeId, 'type:', shapeEl.type);
+        }
       }
     } else {
-      // Clear selection if no active shape
-      const hasShapeSelected = selectedElements.some(el => el.type === 'shape');
+      // Clear selection if no active shape - but only if there are shapes selected
+      const hasShapeSelected = selectedElements.length > 0 && selectedElements.some(el => el.type === 'shape');
       if (hasShapeSelected) {
         clearSelection();
       }
     }
-  }, [activeShapeId, shapeElements, selectElement, clearSelection, selectedElements]);
+  }, [activeShapeId, shapeElements, selectElement, clearSelection]);
   
   // Track modifier keys for selection behavior
   const [modifierKeys, setModifierKeys] = useState({

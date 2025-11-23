@@ -1072,11 +1072,11 @@ export const useApp = create<AppState>((set, get) => ({
   setPuffColor: (color) => set({ puffColor: color }),
   setPuffOpacity: (opacity) => set({ puffOpacity: opacity }),
   setPuffSoftness: (softness) => set({ puffSoftness: softness }),
-  setPuffHairs: (hairs) => set({ puffHairs: hairs }),
-  setPuffHairHeight: (height) => set({ puffHairHeight: height }),
-  setPuffHairDensity: (density) => set({ puffHairDensity: density }),
-  setPuffHairThickness: (thickness) => set({ puffHairThickness: thickness }),
-  setPuffHairVariation: (variation) => set({ puffHairVariation: variation }),
+  setPuffHairs: (hairs: boolean) => set({ puffHairs: hairs }),
+  setPuffHairHeight: (height: number) => set({ puffHairHeight: height }),
+  setPuffHairDensity: (density: number) => set({ puffHairDensity: density }),
+  setPuffHairThickness: (thickness: number) => set({ puffHairThickness: thickness }),
+  setPuffHairVariation: (variation: number) => set({ puffHairVariation: variation }),
   
   // Phase 1: Shape Customization Setters
   setPuffTopShape: (shape) => set({ puffTopShape: shape }),
@@ -2411,11 +2411,10 @@ try {
     paintDispCtx.fillStyle = 'rgb(128, 128, 128)'; // Neutral gray = no displacement
     paintDispCtx.fillRect(0, 0, paint.width, paint.height);
     
-    const layers = [
-      { id: 'paint', name: 'Paint', visible: true, canvas: paint, history: [], future: [], order: 0, displacementCanvas: paintDisplacementCanvas }
-    ];
+    // CRITICAL FIX: layers removed - using Advanced Layers V2 system instead
+    // const layers = [...]; // OLD CODE - removed, using V2 system
     console.log('🎨 High-quality canvases initialized with size:', w, 'x', h);
-    set({ layers, activeLayerId: 'paint', composedCanvas: composed });
+    set({ composedCanvas: composed });
     console.log('🎨 ComposedCanvas set, current store state:', {
       modelScene: !!get().modelScene,
       composedCanvas: !!get().composedCanvas
@@ -2502,7 +2501,7 @@ try {
       console.log('🎨 Creating single Texture Layer for all tools');
       const layerId = createLayer('paint', textureLayerName);
       setActiveLayer(layerId);
-      textureLayer = v2Store.layers.find(l => l.id === layerId) || null;
+      textureLayer = v2Store.layers.find(l => l.id === layerId) || undefined;
     } else {
       // Use existing texture layer
       if (activeLayerId !== textureLayer.id) {
@@ -2574,69 +2573,15 @@ try {
   },
 
   moveLayerUp: (layerId: string) => {
-    console.log('🎨 moveLayerUp called for layerId:', layerId);
-    const { layers } = get();
-    console.log('🎨 Current layers before move:', layers.map(l => ({ id: l.id, name: l.name, order: l.order })));
-    
-    const layerIndex = layers.findIndex(l => l.id === layerId);
-    if (layerIndex > 0) {
-      const newLayers = [...layers];
-      [newLayers[layerIndex], newLayers[layerIndex - 1]] = [newLayers[layerIndex - 1], newLayers[layerIndex]];
-      
-      // Update order property
-      const updatedLayers = newLayers.map((layer, index) => ({
-        ...layer,
-        order: index
-      }));
-      
-      console.log('🎨 Updated layers after move:', updatedLayers.map(l => ({ id: l.id, name: l.name, order: l.order })));
-      
-      set({ layers: updatedLayers });
-      
-      // Force composition and visual update
-      console.log('🎨 Calling composeLayers()');
-      get().composeLayers();
-      
-      // Displacement maps composition removed - will be rebuilt with new 3D geometry approach
-      
-      // Trigger immediate visual update on 3D model
-      setTimeout(() => {
-        const textureEvent = new CustomEvent('forceTextureUpdate', {
-          detail: { source: 'layer-reorder', layerId }
-        });
-        window.dispatchEvent(textureEvent);
-        console.log('🔄 Triggered texture update after layer reorder');
-      }, 50);
-      
-      // V2 system handles layer reordering automatically
-      
-      console.log(`🎨 Moved layer ${layerId} up`);
-    } else {
-      console.log('🎨 Cannot move layer up - already at top or not found');
-    }
+    // CRITICAL FIX: Use V2 system instead of old layers property
+    const v2Store = useAdvancedLayerStoreV2.getState();
+    v2Store.moveLayerUp(layerId);
   },
 
   moveLayerDown: (layerId: string) => {
-    console.log('🎨 moveLayerDown called for layerId:', layerId);
-    const { layers } = get();
-    console.log('🎨 Current layers before move:', layers.map(l => ({ id: l.id, name: l.name, order: l.order })));
-    
-    const layerIndex = layers.findIndex(l => l.id === layerId);
-    if (layerIndex < layers.length - 1) {
-      const newLayers = [...layers];
-      [newLayers[layerIndex], newLayers[layerIndex + 1]] = [newLayers[layerIndex + 1], newLayers[layerIndex]];
-      
-      // Update order property
-      const updatedLayers = newLayers.map((layer, index) => ({
-        ...layer,
-        order: index
-      }));
-      
-      console.log('🎨 Updated layers after move:', updatedLayers.map(l => ({ id: l.id, name: l.name, order: l.order })));
-      set({ layers: updatedLayers });
-      
-      // Force composition and visual update
-      get().composeLayers();
+    // CRITICAL FIX: Use V2 system instead of old layers property
+    const v2Store = useAdvancedLayerStoreV2.getState();
+    v2Store.moveLayerDown(layerId);
       
       // Displacement maps composition removed - will be rebuilt with new 3D geometry approach
       
@@ -3674,9 +3619,10 @@ export function App() {
     const appState = useApp.getState();
     const advancedLayerStore = useAdvancedLayerStoreV2.getState();
     
-    if (appState.layers.length === 0 && appState.addLayer) {
+    // CRITICAL FIX: Check V2 system instead of old layers property
+    if (advancedLayerStore.layers.length === 0) {
       console.log('🎨 Creating default paint layer...');
-      appState.addLayer('Paint Layer');
+      advancedLayerStore.createLayer('paint', 'Paint Layer');
       console.log('✅ Default paint layer created');
     }
     
