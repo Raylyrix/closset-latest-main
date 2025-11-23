@@ -6938,6 +6938,7 @@ const canvasDimensions = {
     if (activeTool === 'brush' && wetBrushStateRef.current.initialized && wetBrushStateRef.current.points.length > 0) {
       const layer = getActiveLayer();
       const layerCtx = layer?.canvas?.getContext('2d');
+      const currentBrushShape = useApp.getState().brushShape;
       if (layerCtx && currentBrushShape === 'watercolor') {
         const wetness = 0.8; // Default wetness for watercolor
         const brushSize = useApp.getState().brushSize;
