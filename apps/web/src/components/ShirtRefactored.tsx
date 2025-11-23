@@ -194,6 +194,9 @@ export function ShirtRefactored({
   const velocityTrackerRef = useRef(createVelocityTracker(10));
   const lastBrushPointRef = useRef<BrushPoint | null>(null);
   
+  // SMUDGE/BLUR TOOLS: Track last position for directional effects
+  const smudgeStateRef = useRef({ lastX: 0, lastY: 0, initialized: false });
+  
   // SMOOTH BRUSH: Track last paint position for interpolation
   const lastPaintPositionRef = useRef<{ x: number; y: number } | null>(null);
   
