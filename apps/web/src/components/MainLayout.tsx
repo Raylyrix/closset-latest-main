@@ -1419,8 +1419,10 @@ export function MainLayout({ children }: MainLayoutProps) {
                               const canvasPath = {
                                 ...path,
                                 points: canvasPoints,
+                                // CRITICAL FIX: Set the tool property so renderVectorPath knows which tool to use
+                                tool: currentTool || 'brush',
                                 settings: {
-                                  ...path.settings, // Use path's own settings from creation time
+                                  ...(path.settings || {}), // Use path's own settings from creation time
                                   // Only use current settings as fallback if path has no settings
                                   color: path.settings?.color || appState.brushColor || '#000000',
                                   size: path.settings?.size || appState.brushSize || 10,
@@ -1430,15 +1432,45 @@ export function MainLayout({ children }: MainLayoutProps) {
                                 }
                               };
                               
+                              console.log('🎨 Canvas path prepared:', {
+                                id: canvasPath.id,
+                                tool: canvasPath.tool,
+                                pointsCount: canvasPath.points?.length || 0,
+                                hasSettings: !!canvasPath.settings,
+                                settings: canvasPath.settings
+                              });
+                              
                               // CRITICAL FIX: Use the ctx we already got (don't get new one inside loop)
                               // Canvas is already cleared before loop, so just render to it
                               if (ctx) {
-                                // CRITICAL FIX: Render to layer canvas using brush engine
-                                brushEngine.renderVectorPath(canvasPath, ctx);
-                                console.log('🎨 Brush engine rendering completed');
-                                
-                                // CRITICAL FIX: Strokes rendered to layer.canvas - no brushStrokes array needed
-                                console.log('🎨 Rendered path to layer canvas:', path.id);
+                                try {
+                                  // CRITICAL FIX: Render to layer canvas using brush engine
+                                  brushEngine.renderVectorPath(canvasPath, ctx);
+                                  console.log('🎨 Brush engine rendering completed for path:', path.id);
+                                  
+                                  // CRITICAL FIX: Verify that something was actually drawn
+                                  // Check if canvas has any non-transparent pixels after rendering
+                                  const imageData = ctx.getImageData(0, 0, Math.min(100, layerCanvas.width), Math.min(100, layerCanvas.height));
+                                  const hasPixels = imageData.data.some((val, idx) => idx % 4 === 3 && val > 0); // Check alpha channel
+                                  console.log('🎨 Canvas content check:', { hasPixels, sampleSize: `${Math.min(100, layerCanvas.width)}x${Math.min(100, layerCanvas.height)}` });
+                                } catch (error) {
+                                  console.error('❌ Error rendering path with brush engine:', error);
+                                  // Fallback: Draw simple stroke
+                                  ctx.save();
+                                  ctx.strokeStyle = canvasPath.settings?.color || appState.brushColor || '#000000';
+                                  ctx.lineWidth = canvasPath.settings?.size || appState.brushSize || 10;
+                                  ctx.globalAlpha = canvasPath.settings?.opacity || appState.brushOpacity || 1.0;
+                                  ctx.lineCap = 'round';
+                                  ctx.lineJoin = 'round';
+                                  ctx.beginPath();
+                                  canvasPoints.forEach((point: any, index: number) => {
+                                    if (index === 0) ctx.moveTo(point.x, point.y);
+                                    else ctx.lineTo(point.x, point.y);
+                                  });
+                                  ctx.stroke();
+                                  ctx.restore();
+                                  console.log('✅ Fallback rendering completed');
+                                }
                               } else {
                                 console.warn('⚠️ Could not get canvas context from layer');
                               }

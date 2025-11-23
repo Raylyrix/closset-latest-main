@@ -2172,8 +2172,35 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         return;
       }
       
+      // CRITICAL FIX: Handle case where tool is not found or tool set is not available
+      // If tool set is not available or tool is not found, fall back to simple rendering
       const tool = vectorToolSetRef.current?.getTool(path.tool);
-      if (!tool) return;
+      if (!tool) {
+        console.warn(`⚠️ renderVectorPath: Tool "${path.tool}" not found in tool set, using fallback rendering`);
+        // Fallback: Draw simple path without brush engine
+        targetCtx.save();
+        targetCtx.strokeStyle = path.settings.color || '#000000';
+        targetCtx.lineWidth = path.settings.size || 2;
+        targetCtx.globalAlpha = path.settings.opacity || 1.0;
+        targetCtx.lineCap = 'round';
+        targetCtx.lineJoin = 'round';
+        targetCtx.beginPath();
+        path.points.forEach((point, index) => {
+          const px = point.x ?? (point.u * (targetCtx.canvas.width || 2048));
+          const py = point.y ?? (point.v * (targetCtx.canvas.height || 2048));
+          if (index === 0) {
+            targetCtx.moveTo(px, py);
+          } else {
+            targetCtx.lineTo(px, py);
+          }
+        });
+        if (path.closed) {
+          targetCtx.closePath();
+        }
+        targetCtx.stroke();
+        targetCtx.restore();
+        return;
+      }
       
       targetCtx.save();
       
