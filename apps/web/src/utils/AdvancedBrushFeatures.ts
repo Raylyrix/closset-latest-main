@@ -272,6 +272,59 @@ export function createVelocityTracker(maxHistory: number = 10): VelocityTracker 
 }
 
 /**
+ * Apply stroke stabilization to smooth out shaky strokes
+ */
+export function applyStabilization(
+  currentPoint: { x: number; y: number },
+  previousPoints: Array<{ x: number; y: number }>,
+  stabilization: number, // 0-1: How much stabilization to apply
+  radius: number = 10, // Maximum deviation allowed in pixels
+  windowSize: number = 5 // Number of recent points to average
+): { x: number; y: number } {
+  if (stabilization <= 0 || previousPoints.length === 0) {
+    return currentPoint;
+  }
+  
+  // Get recent points for averaging
+  const recentPoints = previousPoints.slice(-windowSize);
+  recentPoints.push(currentPoint);
+  
+  // Calculate weighted average (more weight to recent points)
+  let totalWeight = 0;
+  let weightedX = 0;
+  let weightedY = 0;
+  
+  recentPoints.forEach((point, index) => {
+    const weight = index + 1; // More recent = higher weight
+    totalWeight += weight;
+    weightedX += point.x * weight;
+    weightedY += point.y * weight;
+  });
+  
+  const avgX = weightedX / totalWeight;
+  const avgY = weightedY / totalWeight;
+  
+  // Interpolate between current point and average based on stabilization amount
+  const stabilizedX = currentPoint.x + (avgX - currentPoint.x) * stabilization;
+  const stabilizedY = currentPoint.y + (avgY - currentPoint.y) * stabilization;
+  
+  // Limit deviation to radius
+  const dx = stabilizedX - currentPoint.x;
+  const dy = stabilizedY - currentPoint.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  
+  if (distance > radius) {
+    const scale = radius / distance;
+    return {
+      x: currentPoint.x + dx * scale,
+      y: currentPoint.y + dy * scale
+    };
+  }
+  
+  return { x: stabilizedX, y: stabilizedY };
+}
+
+/**
  * Enhanced brush point creation with all advanced features
  */
 export function createEnhancedBrushPoint(
@@ -279,7 +332,10 @@ export function createEnhancedBrushPoint(
   canvasX: number,
   canvasY: number,
   velocityTracker: VelocityTracker,
-  previousPoint?: BrushPoint
+  previousPoint?: BrushPoint,
+  stabilization?: number,
+  stabilizationRadius?: number,
+  stabilizationWindow?: number
 ): BrushPoint {
   // Extract pressure
   let pressure = extractPressureFromEvent(event);
@@ -296,17 +352,33 @@ export function createEnhancedBrushPoint(
   // Calculate velocity
   const velocity = calculateVelocity(velocityTracker, canvasX, canvasY);
   
+  // Apply stabilization if enabled
+  let finalX = canvasX;
+  let finalY = canvasY;
+  
+  if (stabilization && stabilization > 0 && velocityTracker.points.length > 0) {
+    const stabilized = applyStabilization(
+      { x: canvasX, y: canvasY },
+      velocityTracker.points.map(p => ({ x: p.x, y: p.y })),
+      stabilization,
+      stabilizationRadius || 10,
+      stabilizationWindow || 5
+    );
+    finalX = stabilized.x;
+    finalY = stabilized.y;
+  }
+  
   // Calculate distance from previous point
   let distance = 0;
   if (previousPoint) {
-    const dx = canvasX - previousPoint.x;
-    const dy = canvasY - previousPoint.y;
+    const dx = finalX - previousPoint.x;
+    const dy = finalY - previousPoint.y;
     distance = Math.sqrt(dx * dx + dy * dy);
   }
   
   return {
-    x: canvasX,
-    y: canvasY,
+    x: finalX,
+    y: finalY,
     pressure: pressure || 1.0,
     tiltX,
     tiltY,

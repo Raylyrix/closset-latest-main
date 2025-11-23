@@ -43,6 +43,7 @@ import {
   createVelocityTracker,
   calculateAdvancedBrushDynamics 
 } from '../utils/AdvancedBrushFeatures';
+import { applySmudge, applyBlur, createSmudgeState } from '../utils/SmudgeBlurTools';
 
 // Helper function to convert hex color to RGB
 const hexToRgb = (hex: string): {r: number, g: number, b: number} | null => {
@@ -2541,18 +2542,30 @@ export function ShirtRefactored({
       const canvasX = Math.floor(uv.x * canvasWidth);
       const canvasY = Math.floor(uv.y * canvasHeight);
       
-      // ADVANCED: Create enhanced brush point with pressure, velocity, and tilt detection
+      // ADVANCED: Create enhanced brush point with pressure, velocity, tilt, and stabilization
+      // Get stabilization settings (defaults if not set)
+      const stabilization = (appState as any).brushStabilization || 0;
+      const stabilizationRadius = 10;
+      const stabilizationWindow = 5;
+      
       const brushPoint = createEnhancedBrushPoint(
         e,
         canvasX,
         canvasY,
         velocityTrackerRef.current,
-        lastBrushPointRef.current || undefined
+        lastBrushPointRef.current || undefined,
+        stabilization,
+        stabilizationRadius,
+        stabilizationWindow
       );
       
       // Update last brush point for next iteration
       lastBrushPointRef.current = brushPoint;
-
+      
+      // Use stabilized coordinates
+      const finalX = brushPoint.x;
+      const finalY = brushPoint.y;
+      
       // Get gradient settings if in gradient mode
       const gradientSettings = (window as any).getGradientSettings?.();
       const brushGradientData = gradientSettings?.brush;
@@ -2592,6 +2605,10 @@ export function ShirtRefactored({
         pressureMapSize: 1.0, // Map pressure to brush size (0.5-2.0)
         pressureMapOpacity: 1.0, // Map pressure to opacity (0.5-2.0)
         simulatePressureFromVelocity: true, // Simulate pressure from mouse velocity
+        // ADVANCED: Stroke stabilization for smooth lines
+        stabilization: (appState as any).brushStabilization || 0, // 0-1: How much stabilization
+        stabilizationRadius: 10, // Maximum deviation in pixels
+        stabilizationWindow: 5, // Number of points to average
         texture: { 
           enabled: false, 
           pattern: null, 
@@ -2647,43 +2664,43 @@ export function ShirtRefactored({
             // Draw single stamp if points are close enough
             layerCtx.drawImage(
               brushStamp,
-              canvasX - brushSettings.size / 2,
-              canvasY - brushSettings.size / 2
+              finalX - brushSettings.size / 2,
+              finalY - brushSettings.size / 2
             );
           }
         } else {
           // First point - just draw the stamp
           layerCtx.drawImage(
             brushStamp,
-            canvasX - brushSettings.size / 2,
-            canvasY - brushSettings.size / 2
+            finalX - brushSettings.size / 2,
+            finalY - brushSettings.size / 2
           );
         }
         
         layerCtx.restore();
         
-        // Update last paint position for next interpolation
-        lastPaintPositionRef.current = { x: canvasX, y: canvasY };
+        // Update last paint position for next interpolation (use stabilized coordinates)
+        lastPaintPositionRef.current = { x: finalX, y: finalY };
         
         // PHASE 1: Track this point in the stroke session
         if (strokeSessionRef.current) {
-          strokeSessionRef.current.points.push({ x: canvasX, y: canvasY });
+          strokeSessionRef.current.points.push({ x: finalX, y: finalY });
           strokeSessionRef.current.settings = brushSettings;
           
-          // Update bounds as we draw
+          // Update bounds as we draw (use stabilized coordinates)
           const brushRadius = brushSettings.size / 2;
           if (!strokeSessionRef.current.bounds) {
             strokeSessionRef.current.bounds = {
-              minX: canvasX - brushRadius,
-              minY: canvasY - brushRadius,
-              maxX: canvasX + brushRadius,
-              maxY: canvasY + brushRadius
+              minX: finalX - brushRadius,
+              minY: finalY - brushRadius,
+              maxX: finalX + brushRadius,
+              maxY: finalY + brushRadius
             };
           } else {
-            strokeSessionRef.current.bounds.minX = Math.min(strokeSessionRef.current.bounds.minX, canvasX - brushRadius);
-            strokeSessionRef.current.bounds.minY = Math.min(strokeSessionRef.current.bounds.minY, canvasY - brushRadius);
-            strokeSessionRef.current.bounds.maxX = Math.max(strokeSessionRef.current.bounds.maxX, canvasX + brushRadius);
-            strokeSessionRef.current.bounds.maxY = Math.max(strokeSessionRef.current.bounds.maxY, canvasY + brushRadius);
+            strokeSessionRef.current.bounds.minX = Math.min(strokeSessionRef.current.bounds.minX, finalX - brushRadius);
+            strokeSessionRef.current.bounds.minY = Math.min(strokeSessionRef.current.bounds.minY, finalY - brushRadius);
+            strokeSessionRef.current.bounds.maxX = Math.max(strokeSessionRef.current.bounds.maxX, finalX + brushRadius);
+            strokeSessionRef.current.bounds.maxY = Math.max(strokeSessionRef.current.bounds.maxY, finalY + brushRadius);
           }
         }
         
@@ -2694,13 +2711,13 @@ export function ShirtRefactored({
         layerCtx.fillStyle = actualBrushColor;
         layerCtx.globalAlpha = brushOpacity;
         layerCtx.beginPath();
-        layerCtx.arc(canvasX, canvasY, currentBrushSize / 2, 0, Math.PI * 2);
+        layerCtx.arc(finalX, finalY, currentBrushSize / 2, 0, Math.PI * 2);
         layerCtx.fill();
         layerCtx.restore();
         
-        // PHASE 1: Track this point
+        // PHASE 1: Track this point (use stabilized coordinates)
         if (strokeSessionRef.current) {
-          strokeSessionRef.current.points.push({ x: canvasX, y: canvasY });
+          strokeSessionRef.current.points.push({ x: finalX, y: finalY });
           strokeSessionRef.current.settings = brushSettings;
         }
         
@@ -3813,7 +3830,7 @@ export function ShirtRefactored({
   // Smart control management - only disable rotation/pan for tools that need it, but keep zoom enabled
   const shouldDisableControls = useCallback((tool: string) => {
     // Only disable controls for tools that need continuous drawing and would conflict with camera movement
-    const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'];
+    const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector', 'smudge', 'blur'];
     return continuousDrawingTools.includes(tool);
   }, []);
   
@@ -3928,7 +3945,7 @@ export function ShirtRefactored({
 
   // PROACTIVE CONTROL MANAGEMENT: Disable controls when a drawing tool is selected
   useEffect(() => {
-    const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'];
+    const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector', 'smudge', 'blur'];
     
     // CRITICAL: When vector tool is selected, default to 'pen' mode for immediate drawing
     // Also ensure composedCanvas is initialized
