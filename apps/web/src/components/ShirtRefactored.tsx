@@ -6789,7 +6789,103 @@ const canvasDimensions = {
         }
         return;
       }
-
+      
+      // Handle shape resizing (similar to image resizing)
+      if ((activeTool as string) === 'shapes' && (window as any).__shapeResizing && (window as any).__shapeResizeStart) {
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const currentU = uv.x;
+          const currentV = uv.y; // Note: shapes use same coordinate system, no flip
+          
+          const resizeStart = (window as any).__shapeResizeStart;
+          const deltaU = currentU - resizeStart.u;
+          const deltaV = currentV - resizeStart.v;
+          
+          // Convert original size from pixels to UV
+          const appState = useApp.getState();
+          const composedCanvas = appState.composedCanvas;
+          const canvasSize = composedCanvas ? composedCanvas.width : 1024;
+          
+          // Calculate new size and position based on anchor (Photoshop-style scaling)
+          let newSize = resizeStart.size;
+          let newPositionX = resizeStart.positionX;
+          let newPositionY = resizeStart.positionY;
+          
+          switch (resizeStart.anchor) {
+            // Corner anchors - resize size (maintains aspect ratio for square shapes)
+            case 'topLeft':
+              // Scale from bottom-right corner (opposite anchor stays fixed)
+              const sizeDelta1 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
+              newSize = Math.max(10, Math.min(500, resizeStart.size - sizeDelta1 * 2));
+              // Keep bottom-right corner fixed, so center moves
+              newPositionX = resizeStart.positionX + (deltaU * 100);
+              newPositionY = resizeStart.positionY + (deltaV * 100);
+              break;
+            case 'topRight':
+              const sizeDelta2 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
+              newSize = Math.max(10, Math.min(500, resizeStart.size - sizeDelta2 * 2));
+              newPositionX = resizeStart.positionX + (deltaU * 100);
+              newPositionY = resizeStart.positionY - (deltaV * 100);
+              break;
+            case 'bottomLeft':
+              const sizeDelta3 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
+              newSize = Math.max(10, Math.min(500, resizeStart.size - sizeDelta3 * 2));
+              newPositionX = resizeStart.positionX - (deltaU * 100);
+              newPositionY = resizeStart.positionY + (deltaV * 100);
+              break;
+            case 'bottomRight':
+              const sizeDelta4 = Math.sqrt(deltaU * deltaU + deltaV * deltaV) * canvasSize;
+              newSize = Math.max(10, Math.min(500, resizeStart.size + sizeDelta4 * 2));
+              // Keep top-left corner fixed
+              newPositionX = resizeStart.positionX + (deltaU * 100);
+              newPositionY = resizeStart.positionY + (deltaV * 100);
+              break;
+              
+            // Edge anchors - resize in one direction
+            case 'top':
+              // Scale size from bottom edge (top edge moves)
+              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaV * canvasSize * 2)));
+              newPositionY = resizeStart.positionY + (deltaV * 100);
+              break;
+            case 'bottom':
+              // Scale size from top edge (bottom edge moves)
+              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaV * canvasSize * 2)));
+              newPositionY = resizeStart.positionY + (deltaV * 100);
+              break;
+            case 'left':
+              // Scale size from right edge (left edge moves)
+              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaU * canvasSize * 2)));
+              newPositionX = resizeStart.positionX + (deltaU * 100);
+              break;
+            case 'right':
+              // Scale size from left edge (right edge moves)
+              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaU * canvasSize * 2)));
+              newPositionX = resizeStart.positionX + (deltaU * 100);
+              break;
+          }
+          
+          // Clamp position to valid range (0-100%)
+          newPositionX = Math.max(0, Math.min(100, newPositionX));
+          newPositionY = Math.max(0, Math.min(100, newPositionY));
+          
+          // Update shape element
+          const { composeLayers } = useApp.getState();
+          if (resizeStart.shapeId) {
+            appState.updateShapeElement(resizeStart.shapeId, {
+              size: newSize,
+              positionX: newPositionX,
+              positionY: newPositionY
+            });
+            
+            // Force layer composition and texture update for real-time feedback
+            console.log('🔷 Shape resizing - Forcing immediate layer composition');
+            composeLayers(true);
+            updateModelTexture(true, false);
+          }
+        }
+        return;
+      }
+      
       // Handle image dragging (separate from resizing)
       if ((activeTool as string) === 'image' && (window as any).__imageDragging && (window as any).__imageDragStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
