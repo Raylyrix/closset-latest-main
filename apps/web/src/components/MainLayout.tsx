@@ -1191,19 +1191,24 @@ export function MainLayout({ children }: MainLayoutProps) {
                       const v2ActiveLayerId = v2State?.activeLayerId;
                       const v2Layer = v2ActiveLayerId ? v2State.layers.find((l: any) => l.id === v2ActiveLayerId) : null;
                       
-                      if (!layer || !layer.canvas) {
-                        console.warn('⚠️ No active layer or canvas found');
+                      // CRITICAL FIX: Support V2 layer structure (layer.content.canvas) and legacy structure (layer.canvas)
+                      const layerCanvas = layer?.content?.canvas || layer?.canvas;
+                      
+                      if (!layer || !layerCanvas) {
+                        console.warn('⚠️ No active layer or canvas found. Layer:', layer, 'Canvas:', layerCanvas);
+                        alert('No active layer found. Please ensure you have an active layer to apply tools to.');
                         return;
                       }
                       
-                      console.log('🎨 Using layer:', layer.id, 'Canvas dimensions:', layer.canvas.width, 'x', layer.canvas.height);
+                      console.log('🎨 Using layer:', layer.id, 'Canvas dimensions:', layerCanvas.width, 'x', layerCanvas.height);
                       
                       // CRITICAL FIX: Get canvas context for rendering
                       // DO NOT clear the canvas - let strokes accumulate across multiple Applies
                       // Each Apply adds to the layer, it doesn't replace previous strokes
-                      const ctx = layer.canvas.getContext('2d');
+                      const ctx = layerCanvas.getContext('2d');
                       if (!ctx) {
                         console.warn('⚠️ Could not get canvas context from layer');
+                        alert('Could not get canvas context. Please try again.');
                         return;
                       }
                       
@@ -1266,8 +1271,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                             if (path.closed && points.length >= 3) {
                               // Fill closed paths
                               const composedCanvas = appState.composedCanvas;
-                              const canvasWidth = composedCanvas?.width || layer.canvas.width || 2048;
-                              const canvasHeight = composedCanvas?.height || layer.canvas.height || 2048;
+                              const canvasWidth = composedCanvas?.width || layerCanvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layerCanvas.height || 2048;
                               
                               ctx.save();
                               ctx.globalCompositeOperation = appState.blendMode || 'source-over';
@@ -1320,8 +1325,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                             // Erase along path
                             ctx.beginPath();
                             sampledPoints.forEach((point: any, index: number) => {
-                              const x = Math.round(point.u * layer.canvas.width);
-                              const y = Math.round(point.v * layer.canvas.height);
+                              const x = Math.round(point.u * layerCanvas.width);
+                              const y = Math.round(point.v * layerCanvas.height);
                               
                               if (index === 0) {
                                 ctx.moveTo(x, y);
@@ -1345,8 +1350,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                             if (puffBridge) {
                               // Convert UV points to canvas coordinates
                               const composedCanvas = appState.composedCanvas;
-                              const canvasWidth = composedCanvas?.width || layer.canvas.width || 2048;
-                              const canvasHeight = composedCanvas?.height || layer.canvas.height || 2048;
+                              const canvasWidth = composedCanvas?.width || layerCanvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layerCanvas.height || 2048;
                               
                               const canvasPoints = sampledPoints.map((point: any) => ({
                                 x: Math.floor(point.u * canvasWidth),
@@ -1374,8 +1379,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                               
                               ctx.beginPath();
                               sampledPoints.forEach((point: any, index: number) => {
-                                const x = Math.round(point.u * layer.canvas.width);
-                                const y = Math.round(point.v * layer.canvas.height);
+                                const x = Math.round(point.u * layerCanvas.width);
+                                const y = Math.round(point.v * layerCanvas.height);
                                 if (index === 0) ctx.moveTo(x, y);
                                 else ctx.lineTo(x, y);
                               });
@@ -1390,13 +1395,13 @@ export function MainLayout({ children }: MainLayoutProps) {
                             console.log('🎨 Applying brush tool to', sampledPoints.length, 'points');
                             const brushEngine = (window as any).__brushEngine;
                             
-                            if (brushEngine && brushEngine.renderVectorPath && layer && layer.canvas) {
+                            if (brushEngine && brushEngine.renderVectorPath && layer && layerCanvas) {
                               console.log('🎨 Using brush engine for gradient-aware rendering');
                               
                               // CRITICAL FIX: Get composed canvas dimensions instead of layer canvas
                               const composedCanvas = appState.composedCanvas;
-                              const canvasWidth = composedCanvas?.width || layer.canvas.width || 2048;
-                              const canvasHeight = composedCanvas?.height || layer.canvas.height || 2048;
+                              const canvasWidth = composedCanvas?.width || layerCanvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layerCanvas.height || 2048;
                               
                               // Create canvas coordinates for brush engine
                               const canvasPoints = path.points.map((p: any) => ({
@@ -1437,7 +1442,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                               } else {
                                 console.warn('⚠️ Could not get canvas context from layer');
                               }
-                            } else if (layer && layer.canvas && ctx) {
+                            } else if (layer && layerCanvas && ctx) {
                               // CRITICAL FIX: Use the SAME ctx we already have (don't get new one)
                               // Fallback to manual rendering without gradient
                               console.log('🎨 Drawing continuous brush stroke (fallback mode)');
@@ -1457,8 +1462,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                               // Draw continuous stroke
                               ctx.beginPath();
                               sampledPoints.forEach((point: any, index: number) => {
-                                const x = Math.round(point.u * layer.canvas.width);
-                                const y = Math.round(point.v * layer.canvas.height);
+                                const x = Math.round(point.u * layerCanvas.width);
+                                const y = Math.round(point.v * layerCanvas.height);
                                 
                                 if (index === 0) {
                                   ctx.moveTo(x, y);
@@ -1482,7 +1487,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                             console.log('🎨 Applying embroidery tool to', sampledPoints.length, 'points');
                             // Get stitch type from app state (default to satin)
                             const stitchType = appState.embroideryStitchType || 'satin';
-                            const embroideryCanvas = appState.embroideryCanvas || layer.canvas;
+                            const embroideryCanvas = appState.embroideryCanvas || layerCanvas;
                             
                             if (embroideryCanvas) {
                               const embCtx = embroideryCanvas.getContext('2d');
