@@ -2582,22 +2582,6 @@ try {
     // CRITICAL FIX: Use V2 system instead of old layers property
     const v2Store = useAdvancedLayerStoreV2.getState();
     v2Store.moveLayerDown(layerId);
-      
-      // Displacement maps composition removed - will be rebuilt with new 3D geometry approach
-      
-      // Trigger immediate visual update on 3D model
-      setTimeout(() => {
-        const textureEvent = new CustomEvent('forceTextureUpdate', {
-          detail: { source: 'layer-reorder', layerId }
-        });
-        window.dispatchEvent(textureEvent);
-        console.log('🔄 Triggered texture update after layer reorder');
-      }, 50);
-      
-      // V2 system handles layer reordering automatically
-      
-      console.log(`🎨 Moved layer ${layerId} down`);
-    }
   },
 
   duplicateLayer: (layerId: string) => {
@@ -3439,9 +3423,10 @@ try {
         symmetryAngle: projectState.symmetryAngle || 0,
         
         // Canvas settings
-        // puffCanvas removed - will be rebuilt with new 3D geometry approach
-        displacementCanvas: displacementCanvas, // Used for embroidery displacement
-        normalCanvas: normalCanvas // Used for embroidery normal maps
+        // CRITICAL FIX: displacementCanvas and normalCanvas removed from AppState
+        // These are stored in the V2 layer system instead
+        // displacementCanvas: displacementCanvas, // REMOVED - stored in V2 system
+        // normalCanvas: normalCanvas // REMOVED - stored in V2 system
       });
 
       console.log('💾 Project state loaded successfully');
