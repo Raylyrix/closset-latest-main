@@ -7,6 +7,7 @@ import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import * as THREE from 'three';
 import { useApp } from '../App';
+import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { Html } from '@react-three/drei';
 import { vectorStore } from '../vector/vectorState';
 import { renderStitchType } from '../utils/stitchRendering';
@@ -87,7 +88,14 @@ export function Shirt() {
   const modelRotation = useApp(s => s.modelRotation);
   const modelBoundsHeight = useApp(s => s.modelBoundsHeight);
   const composedCanvas = useApp(s => s.composedCanvas);
-  const getActiveLayer = useApp(s => s.getActiveLayer);
+  // PHASE 2: Use V2 system directly
+  const { layers, activeLayerId, setActiveLayer } = useAdvancedLayerStoreV2();
+  const getActiveLayer = () => {
+    if (activeLayerId) {
+      return layers.find(l => l.id === activeLayerId) || null;
+    }
+    return null;
+  };
   const composeLayers = useApp(s => s.composeLayers);
   const brushColor = useApp(s => s.brushColor);
   const brushSize = useApp(s => s.brushSize);
@@ -203,7 +211,7 @@ export function Shirt() {
   
   // Smart control management - only disable for tools that need it
   const shouldDisableControls = (tool: string) => {
-    const drawingTools = ['brush', 'eraser', 'puffPrint', 'embroidery', 'pen', 'line', 'rect', 'ellipse', 'gradient', 'text'];
+    const drawingTools = ['brush', 'eraser', 'embroidery', 'pen', 'line', 'rect', 'ellipse', 'gradient', 'text']; // puffPrint removed - will be rebuilt
     return drawingTools.includes(tool);
   };
   
@@ -361,11 +369,17 @@ export function Shirt() {
   const activeDecalId = useApp((s:any)=> s.activeDecalId || null);
   const updateDecal = (useApp.getState() as any).updateDecal;
   const selectDecal = (useApp.getState() as any).selectDecal;
-  const setActiveLayerId = (id: string | null) => useApp.setState({ activeLayerId: id as any });
+  // PHASE 2: Use V2 setActiveLayer instead of legacy setActiveLayerId
+  const setActiveLayerId = (id: string | null) => {
+    if (id) {
+      setActiveLayer(id);
+    }
+  };
   function getOrSelectActiveLayer() {
     const layer = getActiveLayer();
     if (layer) return layer;
-    const layersList = useApp.getState().layers as any[];
+    // PHASE 2: Use V2 layers directly
+    const layersList = layers;
     if (layersList && layersList.length) {
       const firstVisible = layersList.find(l => l.visible !== false) || layersList[0];
       if (firstVisible?.id) {
@@ -435,10 +449,9 @@ export function Shirt() {
         // Multiply to preserve surface details
         ctx.globalCompositeOperation = 'multiply';
         break;
-      case 'puffPrint':
-        // Screen to add puff effect
-        ctx.globalCompositeOperation = 'screen';
-        break;
+      // case 'puffPrint': // Removed - will be rebuilt with new 3D geometry approach
+      //   ctx.globalCompositeOperation = 'screen';
+      //   break;
       default:
         ctx.globalCompositeOperation = 'source-over';
     }
@@ -498,9 +511,9 @@ export function Shirt() {
             case 'embroidery':
               newMaterial = materialManager.createEmbroideryMaterial(mat, layeredTexture);
               break;
-            case 'puffPrint':
-              newMaterial = materialManager.createPuffPrintMaterial(mat, layeredTexture);
-              break;
+            // case 'puffPrint': // Removed - will be rebuilt with new 3D geometry approach
+            //   newMaterial = materialManager.createPuffPrintMaterial(mat, layeredTexture);
+            //   break;
             default:
               // For other tools, use base material with layered texture
               newMaterial = materialManager.createBaseMaterial(mat);
@@ -796,7 +809,7 @@ export function Shirt() {
     }
     
     // Disable controls immediately for drawing tools to prevent model rotation
-    if (['brush', 'eraser', 'puffPrint'].includes(activeTool)) {
+    if (['brush', 'eraser'].includes(activeTool)) { // puffPrint removed - will be rebuilt
       console.log('🎨 Early control disable for:', activeTool);
       console.log('🎨 Current controls state before disable:', useApp.getState().controlsEnabled);
       manageControls(activeTool, true);
@@ -805,7 +818,7 @@ export function Shirt() {
       e.preventDefault();
       e.stopPropagation();
       // Handle brush tool immediately to prevent model rotation
-      if (activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'puffPrint') {
+      if (activeTool === 'brush' || activeTool === 'eraser') { // puffPrint removed - will be rebuilt
         console.log('🎨 Handling brush tool immediately, preventing model rotation');
         e.stopPropagation();
         e.preventDefault();
@@ -1306,11 +1319,14 @@ export function Shirt() {
       }
     }
     // If no decal, pick the topmost painted layer by alpha at UV
-    const layers = useApp.getState().layers;
+    // PHASE 2: Use V2 layers directly (already available from hook)
     const x = Math.floor(u * texW), y = Math.floor(v * texH);
     for (let i = layers.length - 1; i >= 0; i--) {
       const layer = layers[i]; if (!layer.visible) continue;
-      const ctx = layer.canvas.getContext('2d')!;
+      // PHASE 2: V2 layers use content.canvas instead of canvas
+      const layerCanvas = (layer as any).content?.canvas || (layer as any).canvas;
+      if (!layerCanvas) continue;
+      const ctx = layerCanvas.getContext('2d')!;
       const a = ctx.getImageData(x, y, 1, 1).data[3];
       if (a > 0) { setActiveLayerId(layer.id); selectDecal && selectDecal(null); (useApp.getState() as any).selectTextElement(null); return; }
     }
@@ -1609,7 +1625,7 @@ export function Shirt() {
     if (activeTool === 'embroidery' && !vectorMode) { moveEmbroidery(e); return; }
     if ((activeTool === 'transform' || activeTool === 'move') && activeDecalId) { moveTransformDecal(e); return; }
     if ((activeTool === 'transform' || activeTool === 'move' || activeTool === 'moveText') && (useApp.getState() as any).activeTextId) { moveTransformText(e); return; }
-    if (activeTool !== 'brush' && activeTool !== 'eraser' && activeTool !== 'puffPrint') return;
+    if (activeTool !== 'brush' && activeTool !== 'eraser') return; // puffPrint removed - will be rebuilt
     e.stopPropagation();
     paintAtEvent(e);
   };
@@ -1715,7 +1731,7 @@ export function Shirt() {
     }
     
     // lasso removed
-    if (activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'puffPrint' || activeTool === 'smudge' || activeTool === 'blur' || (activeTool === 'embroidery' && !vectorMode) || activeTool === 'transform' || activeTool === 'move') commit();
+    if (activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'smudge' || activeTool === 'blur' || (activeTool === 'embroidery' && !vectorMode) || activeTool === 'transform' || activeTool === 'move') commit(); // puffPrint removed - will be rebuilt
     
     // Reset lastX and lastY for straight line drawing
     lastX = -1;
@@ -1930,7 +1946,7 @@ export function Shirt() {
   
 
     // Handle straight line drawing when Alt is pressed
-    if (isAltPressed && (activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'puffPrint' || (activeTool === 'embroidery' && !vectorMode))) {
+    if (isAltPressed && (activeTool === 'brush' || activeTool === 'eraser' || (activeTool === 'embroidery' && !vectorMode))) { // puffPrint removed - will be rebuilt
       const canvas = layer.canvas;
       const ctx = canvas.getContext('2d')!;
       const x = Math.floor(uv.x * canvas.width);
@@ -1959,8 +1975,8 @@ export function Shirt() {
       return;
     }
     
-    // Handle puff print painting
-    if (activeTool === 'puffPrint') {
+    // Handle puff print painting - Removed, will be rebuilt with new 3D geometry approach
+    if (false && activeTool === 'puffPrint') {
       console.log('Dispatching puff paint event:', { u: uv.x, v: 1 - uv.y });
       // Dispatch custom event for puff print painting
       const puffPaintEvent = new CustomEvent('puffPaint', {
@@ -2543,9 +2559,8 @@ export function Shirt() {
           ctx.stroke();
           break;
           
-        case 'puffPrint':
-          // Puff tool - delegated to UnifiedPuffPrintSystem
-          console.log('🎈 Puff tool delegated to UnifiedPuffPrintSystem');
+        // case 'puffPrint': // Removed - will be rebuilt with new 3D geometry approach
+        //   console.log('🎈 Puff tool delegated to UnifiedPuffPrintSystem');
           break;
           
         case 'print':

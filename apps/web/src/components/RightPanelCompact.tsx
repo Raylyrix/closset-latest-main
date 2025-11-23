@@ -8,6 +8,7 @@ import { useApp } from '../App';
 import { useAdvancedLayerStoreV2, AdvancedLayer, LayerGroup, BlendMode, LayerEffect, LayerMask } from '../core/AdvancedLayerSystemV2';
 import { useLayerSelectionSystem } from '../core/LayerSelectionSystem';
 import { EnhancedTextSettings } from './EnhancedTextSettings';
+// PuffSettings removed - will be rebuilt with new 3D geometry approach
 
 // Enhanced Layer Item Component
 interface EnhancedLayerItemProps {
@@ -1324,15 +1325,61 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     setEmbroiderySpacing,
     setEmbroideryDensity,
     setEmbroideryPattern,
-    // Puff print settings
+    // Puff tool settings
+    puffSize,
     puffHeight,
-    puffSoftness,
-    puffOpacity,
     puffColor,
+    puffOpacity,
+    puffSoftness,
+    puffHairs,
+    puffHairHeight,
+    puffHairDensity,
+    puffHairThickness,
+    puffHairVariation,
+    setPuffSize,
     setPuffHeight,
-    setPuffSoftness,
-    setPuffOpacity,
     setPuffColor,
+    setPuffOpacity,
+    setPuffSoftness,
+    setPuffHairs,
+    setPuffHairHeight,
+    setPuffHairDensity,
+    setPuffHairThickness,
+    setPuffHairVariation,
+    // Phase 1: Shape Customization
+    puffTopShape,
+    puffBottomShape,
+    puffCrossSectionShape,
+    puffProfileCurve,
+    puffEdgeRadius,
+    puffTaperAmount,
+    setPuffTopShape,
+    setPuffBottomShape,
+    setPuffCrossSectionShape,
+    setPuffProfileCurve,
+    setPuffEdgeRadius,
+    setPuffTaperAmount,
+    // Phase 3: Material & Texture
+    puffFabricType,
+    puffRoughness,
+    puffTextureIntensity,
+    puffEnableNormalMap,
+    setPuffFabricType,
+    setPuffRoughness,
+    setPuffTextureIntensity,
+    setPuffEnableNormalMap,
+    // Phase 4: Edge Details
+    puffEdgeType,
+    puffEdgeWidth,
+    puffEdgeColor,
+    setPuffEdgeType,
+    setPuffEdgeWidth,
+    setPuffEdgeColor,
+    // Phase 5: Advanced
+    puffDetailLevel,
+    puffSmoothness,
+    setPuffDetailLevel,
+    setPuffSmoothness,
     // Text settings
     textSize,
     textFont,
@@ -1363,7 +1410,41 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     // Image settings
     selectedImageId,
     setSelectedImageId,
-    removeImportedImage
+    removeImportedImage,
+    // Vector tool settings
+    vectorEditMode,
+    setVectorEditMode,
+    vectorPaths,
+    activePathId,
+    selectedAnchor,
+    vectorStrokeColor,
+    vectorStrokeWidth,
+    vectorFillColor,
+    vectorFill,
+    setVectorStrokeColor,
+    setVectorStrokeWidth,
+    setVectorFillColor,
+    setVectorFill,
+    setSelectedAnchor,
+    addAnchorAtPoint,
+    removeAnchor,
+    convertAnchorType,
+    closePath,
+    openPath,
+    joinPaths,
+    splitPath,
+    reversePath,
+    simplifyPath,
+    smoothPath,
+    offsetPath,
+    unionPaths,
+    subtractPaths,
+    intersectPaths,
+    excludePaths,
+    scalePath,
+    rotatePath,
+    flipPath,
+    alignAnchors
   } = useApp();
 
   // Advanced Layer Store V2
@@ -1587,10 +1668,10 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
 
   const [puffGradient, setPuffGradient] = React.useState({
     type: 'linear' as 'linear' | 'radial' | 'angular' | 'diamond',
-    angle: 90,
+    angle: 45,
     stops: [
-      { id: '1', color: '#ffffff', position: 0 },
-      { id: '2', color: '#ff69b4', position: 100 }
+      { id: '1', color: '#ff69b4', position: 0 },
+      { id: '2', color: '#ff1493', position: 100 }
     ] as ColorStop[]
   });
 
@@ -1656,6 +1737,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     
     console.log('🎨 GRADIENT DATA EXPOSED:', gradientData);
     console.log('🎨 BRUSH GRADIENT DATA:', gradientData.brush);
+    console.log('🎨 PUFF GRADIENT DATA:', gradientData.puff);
     console.log('🎨 BRUSH COLOR MODE:', brushColorMode);
     console.log('🎨 BRUSH GRADIENT STOPS:', brushGradient.stops);
     
@@ -2325,352 +2407,10 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           </div>
         )}
 
-        {/* Puff Print Settings */}
-        {activeTool === 'puffPrint' && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <div style={{
-              fontSize: '10px',
-              color: '#999',
-              fontWeight: '600',
-              marginBottom: '8px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Puff Print Settings
-            </div>
+        {/* Puff Print Settings removed - will be rebuilt with new 3D geometry approach */}
 
-            {/* Puff Height */}
-            <div style={{ marginBottom: '8px' }}>
-              <div style={{
-                fontSize: '9px',
-                color: '#CCC',
-                marginBottom: '4px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <span>Height</span>
-                <span style={{ fontSize: '8px', color: '#999' }}>{puffHeight}px</span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="50"
-                value={puffHeight}
-                onChange={(e) => setPuffHeight(Number(e.target.value))}
-                style={{
-                  width: '100%',
-                  accentColor: '#0066CC'
-                }}
-              />
-            </div>
-
-            {/* Puff Softness */}
-            <div style={{ marginBottom: '8px' }}>
-              <div style={{
-                fontSize: '9px',
-                color: '#CCC',
-                marginBottom: '4px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <span>Softness</span>
-                <span style={{ fontSize: '8px', color: '#999' }}>{Math.round(puffSoftness * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={puffSoftness}
-                onChange={(e) => setPuffSoftness(Number(e.target.value))}
-                style={{
-                  width: '100%',
-                  accentColor: '#0066CC'
-                }}
-              />
-            </div>
-
-            {/* Puff Opacity */}
-            <div style={{ marginBottom: '8px' }}>
-              <div style={{
-                fontSize: '9px',
-                color: '#CCC',
-                marginBottom: '4px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <span>Opacity</span>
-                <span style={{ fontSize: '8px', color: '#999' }}>{Math.round(puffOpacity * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={puffOpacity}
-                onChange={(e) => setPuffOpacity(Number(e.target.value))}
-                style={{
-                  width: '100%',
-                  accentColor: '#0066CC'
-                }}
-              />
-            </div>
-
-            {/* Puff Color/Gradient Mode */}
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{
-                fontSize: '9px',
-                color: '#CCC',
-                marginBottom: '6px'
-              }}>
-                Color Mode
-              </div>
-              
-              {/* Tab Buttons */}
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
-                <button
-                  onClick={() => setPuffColorMode('solid')}
-                  style={{
-                    flex: 1,
-                    padding: '6px',
-                    fontSize: '9px',
-                    background: puffColorMode === 'solid' ? '#0066CC' : 'rgba(255,255,255,0.1)',
-                    color: puffColorMode === 'solid' ? '#FFFFFF' : '#CCC',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
-                >
-                  🎨 Solid Color
-                </button>
-                <button
-                  onClick={() => setPuffColorMode('gradient')}
-                  style={{
-                    flex: 1,
-                    padding: '6px',
-                    fontSize: '9px',
-                    background: puffColorMode === 'gradient' ? '#BA55D3' : 'rgba(255,255,255,0.1)',
-                    color: puffColorMode === 'gradient' ? '#FFFFFF' : '#CCC',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
-                >
-                  🌈 Gradient
-                </button>
-              </div>
-
-              {/* Solid Color Content */}
-              {puffColorMode === 'solid' && (
-                <div>
-              <div style={{
-                width: '100%',
-                height: '200px',
-                borderRadius: '4px',
-                overflow: 'hidden',
-                border: '1px solid #333'
-              }}>
-                <HexColorPicker
-                  color={puffColor}
-                  onChange={setPuffColor}
-                  style={{ width: '100%', height: '100%' }}
-                />
-              </div>
-              
-              {/* Color Code Input */}
-              <div style={{
-                marginTop: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <div style={{
-                  fontSize: '8px',
-                  color: '#999',
-                  minWidth: '30px'
-                }}>
-                  Code:
-                </div>
-                <input
-                  type="text"
-                  value={puffColor}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (/^#[0-9A-Fa-f]{6}$/.test(value) || /^#[0-9A-Fa-f]{3}$/.test(value)) {
-                      setPuffColor(value);
-                    }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '4px 6px',
-                    fontSize: '8px',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '3px',
-                    color: '#fff',
-                    fontFamily: 'monospace'
-                  }}
-                  placeholder="#000000"
-                />
-                <div style={{
-                  width: '20px',
-                  height: '16px',
-                  background: puffColor,
-                  borderRadius: '2px',
-                  border: '1px solid rgba(255, 255, 255, 0.3)',
-                  flexShrink: 0
-                }} />
-              </div>
-                </div>
-              )}
-
-              {/* Gradient Content */}
-              {puffColorMode === 'gradient' && (
-                <div style={{ padding: '8px', background: 'rgba(138,43,226,0.05)', borderRadius: '4px', border: '1px solid rgba(138,43,226,0.3)' }}>
-                  {/* Gradient Type */}
-                  <div style={{ marginBottom: '8px' }}>
-                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Type</div>
-                    <select
-                      value={puffGradient.type}
-                      onChange={(e) => setPuffGradient({ ...puffGradient, type: e.target.value as any })}
-                      style={{
-                        width: '100%',
-                        padding: '4px',
-                        background: '#000000',
-                        color: '#FFFFFF',
-                        border: '1px solid rgba(138,43,226,0.3)',
-                        borderRadius: '3px',
-                        fontSize: '8px'
-                      }}
-                    >
-                      <option value="linear">Linear</option>
-                      <option value="radial">Radial</option>
-                      <option value="angular">Angular</option>
-                      <option value="diamond">Diamond</option>
-                    </select>
-                  </div>
-
-                  {/* Gradient Angle */}
-                  <div style={{ marginBottom: '8px' }}>
-                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Angle</span>
-                      <span style={{ color: '#999' }}>{puffGradient.angle}°</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="360"
-                      value={puffGradient.angle}
-                      onChange={(e) => setPuffGradient({ ...puffGradient, angle: parseInt(e.target.value) })}
-                      style={{ width: '100%', accentColor: '#BA55D3' }}
-                    />
-                  </div>
-
-                  {/* Color Stops */}
-                  <div style={{ marginBottom: '8px' }}>
-                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Color Stops</div>
-                    
-                    {puffGradient.stops.map((stop, index) => (
-                      <div key={stop.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
-                        <input
-                          type="color"
-                          value={stop.color}
-                          onChange={(e) => {
-                            const newStops = [...puffGradient.stops];
-                            newStops[index] = { ...stop, color: e.target.value };
-                            setPuffGradient({ ...puffGradient, stops: newStops });
-                          }}
-                          style={{
-                            width: '24px',
-                            height: '24px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            borderRadius: '3px'
-                          }}
-                        />
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={stop.position}
-                          onChange={(e) => {
-                            const newStops = [...puffGradient.stops];
-                            newStops[index] = { ...stop, position: parseInt(e.target.value) };
-                            setPuffGradient({ ...puffGradient, stops: newStops });
-                          }}
-                          style={{ flex: 1, accentColor: '#BA55D3' }}
-                        />
-                        <span style={{ fontSize: '7px', color: '#999', minWidth: '24px' }}>{stop.position}%</span>
-                        <button
-                          onClick={() => {
-                            if (puffGradient.stops.length > 2) {
-                              const newStops = puffGradient.stops.filter((_, i) => i !== index);
-                              setPuffGradient({ ...puffGradient, stops: newStops });
-                            }
-                          }}
-                          disabled={puffGradient.stops.length <= 2}
-                          style={{
-                            padding: '2px 6px',
-                            fontSize: '7px',
-                            background: puffGradient.stops.length <= 2 ? 'rgba(100,100,100,0.2)' : 'rgba(220,53,69,0.2)',
-                            color: puffGradient.stops.length <= 2 ? '#666' : '#dc3545',
-                            border: '1px solid rgba(220,53,69,0.3)',
-                            borderRadius: '2px',
-                            cursor: puffGradient.stops.length <= 2 ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-
-                    {/* Add Color Stop Button */}
-                    <button
-                      onClick={() => {
-                        const newStop = {
-                          id: Date.now().toString(),
-                          color: '#888888',
-                          position: 50
-                        };
-                        setPuffGradient({ ...puffGradient, stops: [...puffGradient.stops, newStop] });
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '4px',
-                        fontSize: '8px',
-                        background: 'rgba(138,43,226,0.2)',
-                        color: '#BA55D3',
-                        border: '1px solid rgba(138,43,226,0.3)',
-                        borderRadius: '3px',
-                        cursor: 'pointer',
-                        marginTop: '2px'
-                      }}
-                    >
-                      + Add Color Stop
-                    </button>
-                  </div>
-
-                  {/* Preview */}
-                  <div style={{ marginTop: '8px' }}>
-                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Preview</div>
-                    <div style={{
-                      width: '100%',
-                      height: '30px',
-                      background: getGradientCSS(puffGradient),
-                      borderRadius: '3px',
-                      border: '1px solid rgba(255,255,255,0.2)'
-                    }} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* OLD PUFF SETTINGS - REMOVED - Now using PuffSettings component */}
+        {/* This entire block was removed - using PuffSettings component from ToolRouter instead */}
 
         {/* Embroidery Settings */}
         {activeTool === 'embroidery' && (
@@ -3025,6 +2765,984 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   accentColor: '#0066CC'
                 }}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Puff Tool Settings */}
+        {activeTool === 'puffPrint' && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <div style={{
+              fontSize: '11px',
+              color: '#a0aec0',
+              fontWeight: '700',
+              marginBottom: '10px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+            }}>
+              ☁️ Puff Settings
+            </div>
+
+            {/* Color/Gradient Mode Tabs */}
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '6px'
+              }}>
+                Color Mode
+              </div>
+              
+              {/* Tab Buttons */}
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+                <button
+                  onClick={() => setPuffColorMode('solid')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    fontSize: '9px',
+                    background: puffColorMode === 'solid' ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                    color: puffColorMode === 'solid' ? '#FFFFFF' : '#CCC',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: '600'
+                  }}
+                >
+                  🎨 Solid Color
+                </button>
+                <button
+                  onClick={() => setPuffColorMode('gradient')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    fontSize: '9px',
+                    background: puffColorMode === 'gradient' ? '#BA55D3' : 'rgba(255,255,255,0.1)',
+                    color: puffColorMode === 'gradient' ? '#FFFFFF' : '#CCC',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: '600'
+                  }}
+                >
+                  🌈 Gradient {puffColorMode === 'gradient' ? '✓' : ''}
+                </button>
+              </div>
+
+              {/* Solid Color Content */}
+              {puffColorMode === 'solid' && (
+                <div>
+                  <div style={{
+                    width: '100%',
+                    height: '150px',
+                    borderRadius: '4px',
+                    overflow: 'hidden',
+                    border: '1px solid #333'
+                  }}>
+                    <HexColorPicker
+                      color={puffColor}
+                      onChange={setPuffColor}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  </div>
+                  
+                  {/* Color Code Input */}
+                  <div style={{
+                    marginTop: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <div style={{
+                      fontSize: '8px',
+                      color: '#999',
+                      minWidth: '30px'
+                    }}>
+                      Code:
+                    </div>
+                    <input
+                      type="text"
+                      value={puffColor}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (/^#[0-9A-Fa-f]{6}$/.test(value) || /^#[0-9A-Fa-f]{3}$/.test(value)) {
+                          setPuffColor(value);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '4px 6px',
+                        fontSize: '8px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '3px',
+                        color: '#fff',
+                        fontFamily: 'monospace'
+                      }}
+                      placeholder="#ff69b4"
+                    />
+                    <div style={{
+                      width: '20px',
+                      height: '16px',
+                      background: puffColor,
+                      borderRadius: '2px',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      flexShrink: 0
+                    }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Gradient Content */}
+              {puffColorMode === 'gradient' && (
+                <div style={{ padding: '8px', background: 'rgba(138,43,226,0.05)', borderRadius: '4px', border: '1px solid rgba(138,43,226,0.3)' }}>
+                  {/* Gradient Type */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Type</div>
+                    <select
+                      value={puffGradient.type}
+                      onChange={(e) => setPuffGradient({ ...puffGradient, type: e.target.value as any })}
+                      style={{
+                        width: '100%',
+                        padding: '4px',
+                        background: '#000000',
+                        color: '#FFFFFF',
+                        border: '1px solid rgba(138,43,226,0.3)',
+                        borderRadius: '3px',
+                        fontSize: '8px'
+                      }}
+                    >
+                      <option value="linear">Linear</option>
+                      <option value="radial">Radial</option>
+                      <option value="angular">Angular</option>
+                      <option value="diamond">Diamond</option>
+                    </select>
+                  </div>
+
+                  {/* Gradient Angle */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Angle</span>
+                      <span style={{ color: '#999' }}>{puffGradient.angle}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      value={puffGradient.angle}
+                      onChange={(e) => setPuffGradient({ ...puffGradient, angle: parseInt(e.target.value) })}
+                      style={{ width: '100%', accentColor: '#BA55D3' }}
+                    />
+                  </div>
+
+                  {/* Gradient Colors */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Color Stops</div>
+                    
+                    {puffGradient.stops.map((stop, index) => (
+                      <div key={stop.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                        <input
+                          type="color"
+                          value={stop.color}
+                          onChange={(e) => {
+                            const newStops = [...puffGradient.stops];
+                            newStops[index] = { ...stop, color: e.target.value };
+                            setPuffGradient({ ...puffGradient, stops: newStops });
+                          }}
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            borderRadius: '3px'
+                          }}
+                        />
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={stop.position}
+                          onChange={(e) => {
+                            const newStops = [...puffGradient.stops];
+                            newStops[index] = { ...stop, position: parseInt(e.target.value) };
+                            setPuffGradient({ ...puffGradient, stops: newStops });
+                          }}
+                          style={{ flex: 1, accentColor: '#BA55D3' }}
+                        />
+                        <span style={{ fontSize: '7px', color: '#999', minWidth: '24px' }}>{stop.position}%</span>
+                        <button
+                          onClick={() => {
+                            if (puffGradient.stops.length > 2) {
+                              const newStops = puffGradient.stops.filter((_, i) => i !== index);
+                              setPuffGradient({ ...puffGradient, stops: newStops });
+                            } else {
+                              alert('Gradient must have at least 2 color stops');
+                            }
+                          }}
+                          disabled={puffGradient.stops.length <= 2}
+                          style={{
+                            padding: '2px 6px',
+                            fontSize: '7px',
+                            background: puffGradient.stops.length <= 2 ? 'rgba(100,100,100,0.2)' : 'rgba(220,53,69,0.2)',
+                            color: puffGradient.stops.length <= 2 ? '#666' : '#dc3545',
+                            border: '1px solid rgba(220,53,69,0.3)',
+                            borderRadius: '2px',
+                            cursor: puffGradient.stops.length <= 2 ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Add Color Stop Button */}
+                    <button
+                      onClick={() => {
+                        const newStop = {
+                          id: Date.now().toString(),
+                          color: '#888888',
+                          position: 50
+                        };
+                        setPuffGradient({ ...puffGradient, stops: [...puffGradient.stops, newStop] });
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '4px',
+                        fontSize: '8px',
+                        background: 'rgba(138,43,226,0.2)',
+                        color: '#BA55D3',
+                        border: '1px solid rgba(138,43,226,0.3)',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        marginTop: '2px'
+                      }}
+                    >
+                      + Add Color Stop
+                    </button>
+                  </div>
+
+                  {/* Gradient Preview */}
+                  <div style={{ marginTop: '8px' }}>
+                    <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Preview</div>
+                    <div style={{
+                      width: '100%',
+                      height: '30px',
+                      background: getGradientCSS(puffGradient),
+                      borderRadius: '3px',
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Size */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>Size</span>
+                <span style={{ fontSize: '8px', color: '#999' }}>{puffSize}px</span>
+              </div>
+              <input
+                type="range"
+                min="5"
+                max="200"
+                value={puffSize}
+                onChange={(e) => setPuffSize(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: '#ff69b4'
+                }}
+              />
+            </div>
+
+            {/* Height */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>Height</span>
+                <span style={{ fontSize: '8px', color: '#999' }}>{puffHeight.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="5.0"
+                step="0.1"
+                value={puffHeight}
+                onChange={(e) => setPuffHeight(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: '#ff69b4'
+                }}
+              />
+            </div>
+
+            {/* Opacity */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>Opacity</span>
+                <span style={{ fontSize: '8px', color: '#999' }}>{Math.round(puffOpacity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={puffOpacity}
+                onChange={(e) => setPuffOpacity(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: '#ff69b4'
+                }}
+              />
+            </div>
+
+            {/* Softness */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>Softness</span>
+                <span style={{ fontSize: '8px', color: '#999' }}>{Math.round(puffSoftness * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={puffSoftness}
+                onChange={(e) => setPuffSoftness(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: '#ff69b4'
+                }}
+              />
+            </div>
+
+            {/* Hairs Toggle */}
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '9px',
+                color: '#CCC',
+                marginBottom: '4px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>🧵 Hairs</span>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  gap: '4px'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={puffHairs}
+                    onChange={(e) => setPuffHairs(e.target.checked)}
+                    style={{
+                      cursor: 'pointer',
+                      accentColor: '#ff69b4'
+                    }}
+                  />
+                  <span style={{ fontSize: '8px', color: puffHairs ? '#ff69b4' : '#999' }}>
+                    {puffHairs ? 'Enabled' : 'Disabled'}
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Hair Settings (only show if hairs enabled) */}
+            {puffHairs && (
+              <>
+                {/* Hair Height */}
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{
+                    fontSize: '9px',
+                    color: '#CCC',
+                    marginBottom: '4px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span>Hair Height</span>
+                    <span style={{ fontSize: '8px', color: '#999' }}>{(puffHairHeight * 100).toFixed(0)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.1"
+                    value={puffHairHeight}
+                    onChange={(e) => setPuffHairHeight(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      accentColor: '#ff69b4'
+                    }}
+                  />
+                </div>
+
+                {/* Hair Density */}
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{
+                    fontSize: '9px',
+                    color: '#CCC',
+                    marginBottom: '4px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span>Hair Density</span>
+                    <span style={{ fontSize: '8px', color: '#999' }}>{puffHairDensity}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="20000"
+                    step="50"
+                    value={puffHairDensity}
+                    onChange={(e) => setPuffHairDensity(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      accentColor: '#ff69b4'
+                    }}
+                  />
+                </div>
+
+                {/* Hair Thickness */}
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{
+                    fontSize: '9px',
+                    color: '#CCC',
+                    marginBottom: '4px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span>Hair Thickness</span>
+                    <span style={{ fontSize: '8px', color: '#999' }}>{(puffHairThickness * 100).toFixed(1)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.005"
+                    max="0.1"
+                    step="0.005"
+                    value={puffHairThickness}
+                    onChange={(e) => setPuffHairThickness(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      accentColor: '#ff69b4'
+                    }}
+                  />
+                </div>
+
+                {/* Hair Variation */}
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{
+                    fontSize: '9px',
+                    color: '#CCC',
+                    marginBottom: '4px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span>Hair Variation</span>
+                    <span style={{ fontSize: '8px', color: '#999' }}>{(puffHairVariation * 100).toFixed(0)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={puffHairVariation}
+                    onChange={(e) => setPuffHairVariation(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      accentColor: '#ff69b4'
+                    }}
+                  />
+                  <div style={{ fontSize: '7px', color: '#888', marginTop: '2px' }}>
+                    Controls random rotation & scale variation
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Phase 1: Shape Customization */}
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{
+                fontSize: '10px',
+                color: '#a0aec0',
+                fontWeight: '600',
+                marginBottom: '10px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                🎭 Shape Customization
+              </div>
+
+              {/* Top Shape */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Top Shape</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['flat', 'rounded', 'pointed', 'beveled'] as const).map((shape) => (
+                    <button
+                      key={shape}
+                      onClick={() => setPuffTopShape(shape)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffTopShape === shape ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffTopShape === shape ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffTopShape === shape ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {shape}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Bottom Shape */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Bottom Shape</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['square', 'rounded', 'beveled', 'tapered'] as const).map((shape) => (
+                    <button
+                      key={shape}
+                      onClick={() => setPuffBottomShape(shape)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffBottomShape === shape ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffBottomShape === shape ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffBottomShape === shape ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {shape}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cross-Section Shape */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Cross-Section</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['circle', 'square', 'roundedSquare', 'oval'] as const).map((shape) => (
+                    <button
+                      key={shape}
+                      onClick={() => setPuffCrossSectionShape(shape)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffCrossSectionShape === shape ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffCrossSectionShape === shape ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffCrossSectionShape === shape ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {shape === 'roundedSquare' ? 'Rounded Sq' : shape}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Profile Curve */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Profile Curve</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['linear', 'quadratic', 'cubic', 'exponential'] as const).map((curve) => (
+                    <button
+                      key={curve}
+                      onClick={() => setPuffProfileCurve(curve)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffProfileCurve === curve ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffProfileCurve === curve ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffProfileCurve === curve ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {curve}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Edge Radius */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{
+                  fontSize: '9px',
+                  color: '#CCC',
+                  marginBottom: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>Edge Radius</span>
+                  <span style={{ fontSize: '8px', color: '#999' }}>{puffEdgeRadius}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={puffEdgeRadius}
+                  onChange={(e) => setPuffEdgeRadius(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: '#ff69b4'
+                  }}
+                />
+              </div>
+
+              {/* Taper Amount */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{
+                  fontSize: '9px',
+                  color: '#CCC',
+                  marginBottom: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>Taper Amount</span>
+                  <span style={{ fontSize: '8px', color: '#999' }}>{puffTaperAmount}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={puffTaperAmount}
+                  onChange={(e) => setPuffTaperAmount(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: '#ff69b4'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Phase 3: Material & Texture */}
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{
+                fontSize: '10px',
+                color: '#a0aec0',
+                fontWeight: '600',
+                marginBottom: '10px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                🎨 Material & Texture
+              </div>
+
+              {/* Fabric Type */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Fabric Type</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['cotton', 'silk', 'denim', 'leather', 'custom'] as const).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setPuffFabricType(type)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffFabricType === type ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffFabricType === type ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffFabricType === type ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Roughness */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{
+                  fontSize: '9px',
+                  color: '#CCC',
+                  marginBottom: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>Roughness</span>
+                  <span style={{ fontSize: '8px', color: '#999' }}>{(puffRoughness * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={puffRoughness}
+                  onChange={(e) => setPuffRoughness(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: '#ff69b4'
+                  }}
+                />
+              </div>
+
+              {/* Texture Intensity */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{
+                  fontSize: '9px',
+                  color: '#CCC',
+                  marginBottom: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>Texture Intensity</span>
+                  <span style={{ fontSize: '8px', color: '#999' }}>{(puffTextureIntensity * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={puffTextureIntensity}
+                  onChange={(e) => setPuffTextureIntensity(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: '#ff69b4'
+                  }}
+                />
+              </div>
+
+              {/* Enable Normal Map */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  fontSize: '9px',
+                  color: '#CCC'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={puffEnableNormalMap}
+                    onChange={(e) => setPuffEnableNormalMap(e.target.checked)}
+                    style={{
+                      cursor: 'pointer',
+                      accentColor: '#ff69b4'
+                    }}
+                  />
+                  <span>Enable Normal Map</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Phase 4: Edge Details */}
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{
+                fontSize: '10px',
+                color: '#a0aec0',
+                fontWeight: '600',
+                marginBottom: '10px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                ✂️ Edge Details
+              </div>
+
+              {/* Edge Type */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Edge Type</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['none', 'stitching', 'hemming', 'binding', 'raw'] as const).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setPuffEdgeType(type)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffEdgeType === type ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffEdgeType === type ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffEdgeType === type ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Edge Width (only show if edge type is not 'none') */}
+              {puffEdgeType !== 'none' && (
+                <>
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{
+                      fontSize: '9px',
+                      color: '#CCC',
+                      marginBottom: '4px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <span>Edge Width</span>
+                      <span style={{ fontSize: '8px', color: '#999' }}>{puffEdgeWidth}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={puffEdgeWidth}
+                      onChange={(e) => setPuffEdgeWidth(Number(e.target.value))}
+                      style={{
+                        width: '100%',
+                        accentColor: '#ff69b4'
+                      }}
+                    />
+                  </div>
+
+                  {/* Edge Color */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Edge Color</div>
+                    <div style={{
+                      width: '100%',
+                      height: '40px',
+                      borderRadius: '4px',
+                      overflow: 'hidden',
+                      border: '1px solid #333'
+                    }}>
+                      <HexColorPicker
+                        color={puffEdgeColor}
+                        onChange={setPuffEdgeColor}
+                        style={{ width: '100%', height: '100%' }}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Phase 5: Advanced */}
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{
+                fontSize: '10px',
+                color: '#a0aec0',
+                fontWeight: '600',
+                marginBottom: '10px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                🌟 Advanced
+              </div>
+
+              {/* Detail Level */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Detail Level</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(['low', 'medium', 'high', 'auto'] as const).map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setPuffDetailLevel(level)}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        padding: '6px 8px',
+                        fontSize: '8px',
+                        background: puffDetailLevel === level ? '#ff69b4' : 'rgba(255,255,255,0.1)',
+                        color: puffDetailLevel === level ? '#FFFFFF' : '#CCC',
+                        border: `1px solid ${puffDetailLevel === level ? '#ff69b4' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Smoothness */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{
+                  fontSize: '9px',
+                  color: '#CCC',
+                  marginBottom: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>Smoothness</span>
+                  <span style={{ fontSize: '8px', color: '#999' }}>{puffSmoothness}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={puffSmoothness}
+                  onChange={(e) => setPuffSmoothness(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: '#ff69b4'
+                  }}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -4794,6 +5512,542 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
             </div>
           );
         })()}
+
+        {/* Vector Tool Settings */}
+        {activeTool === 'vector' && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <div style={{
+              fontSize: '11px',
+              color: '#a0aec0',
+              fontWeight: '700',
+              marginBottom: '10px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+            }}>
+              🎯 Vector Tool
+            </div>
+
+            {/* Edit Mode Selection */}
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '6px' }}>Edit Mode</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+                {[
+                  { mode: 'pen', icon: '✏️', label: 'Pen' },
+                  { mode: 'select', icon: '👆', label: 'Select' },
+                  { mode: 'move', icon: '↔️', label: 'Move' },
+                  { mode: 'curve', icon: '🌊', label: 'Curve' },
+                  { mode: 'addAnchor', icon: '➕', label: 'Add' },
+                  { mode: 'removeAnchor', icon: '➖', label: 'Remove' },
+                  { mode: 'convertAnchor', icon: '🔄', label: 'Convert' }
+                ].map(({ mode, icon, label }) => (
+                  <button
+                    key={mode}
+                    onClick={() => setVectorEditMode(mode as any)}
+                    style={{
+                      padding: '6px',
+                      fontSize: '8px',
+                      background: vectorEditMode === mode ? '#0066CC' : 'rgba(255,255,255,0.1)',
+                      color: vectorEditMode === mode ? '#FFFFFF' : '#CCC',
+                      border: `1px solid ${vectorEditMode === mode ? '#0066CC' : 'rgba(255,255,255,0.2)'}`,
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                    title={label}
+                  >
+                    <span>{icon}</span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Stroke Settings */}
+            <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(0,102,204,0.1)', borderRadius: '4px', border: '1px solid rgba(0,102,204,0.3)' }}>
+              <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#0066CC' }}>
+                🎨 Stroke Settings
+              </div>
+              
+              {/* Stroke Color */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Color</div>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <input
+                    type="color"
+                    value={vectorStrokeColor}
+                    onChange={(e) => setVectorStrokeColor(e.target.value)}
+                    style={{ width: '40px', height: '24px', border: 'none', borderRadius: '3px', cursor: 'pointer' }}
+                  />
+                  <input
+                    type="text"
+                    value={vectorStrokeColor}
+                    onChange={(e) => {
+                      if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+                        setVectorStrokeColor(e.target.value);
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '4px',
+                      fontSize: '8px',
+                      background: 'rgba(255,255,255,0.1)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      color: '#fff',
+                      fontFamily: 'monospace'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Stroke Width */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Width</span>
+                  <span style={{ color: '#999' }}>{vectorStrokeWidth}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
+                  value={vectorStrokeWidth}
+                  onChange={(e) => setVectorStrokeWidth(parseInt(e.target.value))}
+                  style={{ width: '100%', accentColor: '#0066CC' }}
+                />
+              </div>
+            </div>
+
+            {/* Fill Settings */}
+            <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,0,128,0.1)', borderRadius: '4px', border: '1px solid rgba(255,0,128,0.3)' }}>
+              <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#FF0080' }}>
+                🎨 Fill Settings
+              </div>
+              
+              {/* Fill Toggle */}
+              <div style={{ marginBottom: '6px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '8px', color: '#CCC' }}>
+                  <input
+                    type="checkbox"
+                    checked={vectorFill}
+                    onChange={(e) => setVectorFill(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>Enable Fill</span>
+                </label>
+              </div>
+
+              {/* Fill Color (only show if fill is enabled) */}
+              {vectorFill && (
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>Fill Color</div>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <input
+                      type="color"
+                      value={vectorFillColor}
+                      onChange={(e) => setVectorFillColor(e.target.value)}
+                      style={{ width: '40px', height: '24px', border: 'none', borderRadius: '3px', cursor: 'pointer' }}
+                    />
+                    <input
+                      type="text"
+                      value={vectorFillColor}
+                      onChange={(e) => {
+                        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+                          setVectorFillColor(e.target.value);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '4px',
+                        fontSize: '8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '3px',
+                        color: '#fff',
+                        fontFamily: 'monospace'
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Fill Instructions */}
+              {vectorFill && (
+                <div style={{ fontSize: '7px', color: '#999', marginTop: '6px', padding: '4px', background: 'rgba(0,0,0,0.2)', borderRadius: '3px' }}>
+                  💡 Tip: Close the path (🔒 button) to see the fill effect
+                </div>
+              )}
+            </div>
+
+            {/* Path Operations */}
+            {activePathId && (
+              <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,165,0,0.1)', borderRadius: '4px', border: '1px solid rgba(255,165,0,0.3)' }}>
+                <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#FFA500' }}>
+                  📐 Path Operations
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginBottom: '6px' }}>
+                  <button
+                    onClick={() => {
+                      const path = vectorPaths.find(p => p.id === activePathId);
+                      if (path) {
+                        if (path.closed) {
+                          openPath(activePathId);
+                        } else {
+                          closePath(activePathId);
+                        }
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {vectorPaths.find(p => p.id === activePathId)?.closed ? '🔓 Open' : '🔒 Close'}
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      if (activePathId) {
+                        reversePath(activePathId);
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🔄 Reverse
+                  </button>
+                </div>
+
+                {/* Path Optimization */}
+                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ fontSize: '8px', color: '#999', marginBottom: '4px' }}>Optimization</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          simplifyPath(activePathId, 0.01);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(0,255,0,0.1)',
+                        color: '#0F0',
+                        border: '1px solid rgba(0,255,0,0.3)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ✂️ Simplify
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          smoothPath(activePathId, 0.5);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(0,255,255,0.1)',
+                        color: '#0FF',
+                        border: '1px solid rgba(0,255,255,0.3)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🌊 Smooth
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Anchor Operations */}
+            {selectedAnchor && (
+              <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(138,43,226,0.1)', borderRadius: '4px', border: '1px solid rgba(138,43,226,0.3)' }}>
+                <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#BA55D3' }}>
+                  📍 Anchor Operations
+                </div>
+                
+                <div style={{ fontSize: '8px', color: '#CCC', marginBottom: '4px' }}>
+                  Path: {selectedAnchor.pathId.slice(0, 8)}... | Anchor: {selectedAnchor.anchorIndex}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                  <button
+                    onClick={() => {
+                      if (selectedAnchor) {
+                        convertAnchorType(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'corner');
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                    title="Corner (sharp)"
+                  >
+                    ⬜ Corner
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedAnchor) {
+                        convertAnchorType(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'smooth');
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                    title="Smooth (bezier)"
+                  >
+                    🌊 Smooth
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedAnchor) {
+                        convertAnchorType(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'symmetric');
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                    title="Symmetric handles"
+                  >
+                    ⚖️ Symmetric
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (selectedAnchor) {
+                      const path = vectorPaths.find(p => p.id === selectedAnchor.pathId);
+                      if (path && path.points.length > 2) {
+                        removeAnchor(selectedAnchor.pathId, selectedAnchor.anchorIndex);
+                        setSelectedAnchor(null);
+                      }
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    marginTop: '6px',
+                    padding: '4px',
+                    fontSize: '7px',
+                    background: 'rgba(255,0,0,0.2)',
+                    color: '#FF6666',
+                    border: '1px solid rgba(255,0,0,0.3)',
+                    borderRadius: '3px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🗑️ Remove Anchor
+                </button>
+              </div>
+            )}
+
+            {/* Transform Operations */}
+            {activePathId && (
+              <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,0,150,0.1)', borderRadius: '4px', border: '1px solid rgba(255,0,150,0.3)' }}>
+                <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#FF0096' }}>
+                  🔄 Transform
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginBottom: '6px' }}>
+                  <button
+                    onClick={() => {
+                      if (activePathId) {
+                        flipPath(activePathId, 'horizontal');
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ↔️ Flip H
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (activePathId) {
+                        flipPath(activePathId, 'vertical');
+                      }
+                    }}
+                    style={{
+                      padding: '4px',
+                      fontSize: '7px',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#CCC',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '3px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ↕️ Flip V
+                  </button>
+                </div>
+
+                <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ fontSize: '8px', color: '#999', marginBottom: '4px' }}>Scale</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          scalePath(activePathId, 1.1, 1.1);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(0,255,0,0.1)',
+                        color: '#0F0',
+                        border: '1px solid rgba(0,255,0,0.3)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⬆️ Scale Up
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          scalePath(activePathId, 0.9, 0.9);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(255,0,0,0.1)',
+                        color: '#F00',
+                        border: '1px solid rgba(255,0,0,0.3)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⬇️ Scale Down
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ fontSize: '8px', color: '#999', marginBottom: '4px' }}>Rotate</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          rotatePath(activePathId, -Math.PI / 4);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#CCC',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ↶ -45°
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          rotatePath(activePathId, Math.PI / 2);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#CCC',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ↻ 90°
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (activePathId) {
+                          rotatePath(activePathId, Math.PI / 4);
+                        }
+                      }}
+                      style={{
+                        padding: '4px',
+                        fontSize: '7px',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#CCC',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ↷ +45°
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Path Info */}
+            <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(100,100,100,0.1)', borderRadius: '4px', border: '1px solid rgba(100,100,100,0.3)' }}>
+              <div style={{ fontSize: '9px', fontWeight: '600', marginBottom: '6px', color: '#999' }}>
+                ℹ️ Path Info
+              </div>
+              <div style={{ fontSize: '8px', color: '#CCC', lineHeight: '1.4' }}>
+                <div>Total Paths: {vectorPaths.length}</div>
+                {activePathId && (
+                  <>
+                    <div>Active Path: {activePathId.slice(0, 8)}...</div>
+                    <div>Points: {vectorPaths.find(p => p.id === activePathId)?.points.length || 0}</div>
+                    <div>Closed: {vectorPaths.find(p => p.id === activePathId)?.closed ? 'Yes' : 'No'}</div>
+                  </>
+                )}
+                {selectedAnchor && (
+                  <div>Selected: Path {selectedAnchor.pathId.slice(0, 6)}..., Anchor {selectedAnchor.anchorIndex}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Text Path Features */}
         {activeTool === 'text' && activeTextId && (() => {

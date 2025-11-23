@@ -104,33 +104,7 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
   const fabric = useProjectStore(state => state.exportFormat); // TODO: Add fabricPreset to project store
 
   // Puff Print settings from main App store
-  const {
-    puffBrushSize,
-    puffBrushOpacity,
-    puffHeight,
-    puffCurvature,
-    puffShape,
-    puffColor,
-    setPuffBrushSize,
-    setPuffBrushOpacity,
-    setPuffHeight,
-    setPuffCurvature,
-    setPuffShape,
-    setPuffColor
-  } = useApp(state => ({
-    puffBrushSize: state.puffBrushSize,
-    puffBrushOpacity: state.puffBrushOpacity,
-    puffHeight: state.puffHeight,
-    puffCurvature: state.puffCurvature,
-    puffShape: state.puffShape,
-    puffColor: state.puffColor,
-    setPuffBrushSize: state.setPuffBrushSize,
-    setPuffBrushOpacity: state.setPuffBrushOpacity,
-    setPuffHeight: state.setPuffHeight,
-    setPuffCurvature: state.setPuffCurvature,
-    setPuffShape: state.setPuffShape,
-    setPuffColor: state.setPuffColor
-  }));
+  // Puff Print settings removed - will be rebuilt with new 3D geometry approach
 
   return (
     <div>
@@ -195,64 +169,14 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
         />
       </Section>
 
+      {/* Puff Print Settings - Removed, will be rebuilt with new 3D geometry approach */}
+      {false && (
       <Section title="🎈 Puff Print Settings" defaultOpen={activeTool === 'puffPrint' as any}>
-        <div className="label">Puff Color</div>
-        <HexColorPicker
-          color={puffColor}
-          onChange={(value) => setPuffColor(value)}
-        />
-
-        <div className="label" style={{ marginTop: 10 }}>Puff Brush Size: {puffBrushSize}px</div>
-        <input
-          type="range"
-          min={5}
-          max={100}
-          value={puffBrushSize}
-          onChange={(e) => setPuffBrushSize(Number(e.target.value))}
-        />
-
-        <div className="label">Puff Opacity: {Math.round(puffBrushOpacity * 100)}%</div>
-        <input
-          type="range"
-          min={0.1}
-          max={1}
-          step={0.05}
-          value={puffBrushOpacity}
-          onChange={(e) => setPuffBrushOpacity(Number(e.target.value))}
-        />
-
-        <div className="label">Puff Height: {puffHeight.toFixed(1)}x</div>
-        <input
-          type="range"
-          min={0.5}
-          max={5}
-          step={0.1}
-          value={puffHeight}
-          onChange={(e) => setPuffHeight(Number(e.target.value))}
-        />
-
-        <div className="label">Puff Curvature: {Math.round(puffCurvature * 100)}%</div>
-        <input
-          type="range"
-          min={0.1}
-          max={1}
-          step={0.05}
-          value={puffCurvature}
-          onChange={(e) => setPuffCurvature(Number(e.target.value))}
-        />
-
-        <div className="label">Puff Shape</div>
-        <CustomSelect
-          value={puffShape}
-          onChange={(value) => setPuffShape(value as 'cube' | 'sphere' | 'cylinder' | 'pipe')}
-          options={[
-            { value: 'sphere', label: 'Sphere' },
-            { value: 'cube', label: 'Cube' },
-            { value: 'cylinder', label: 'Cylinder' },
-            { value: 'pipe', label: 'Pipe' },
-          ]}
-        />
+        <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+          Puff tool settings removed - will be rebuilt with new 3D geometry approach
+        </div>
       </Section>
+      )}
 
       <Section title="🧵 Embroidery Settings" defaultOpen={activeTool === 'embroidery'}>
         <div className="label">Stitch Type</div>

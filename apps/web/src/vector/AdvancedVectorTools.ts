@@ -599,14 +599,88 @@ export class AdvancedVectorTools {
   }
   
   // ============================================================================
-  // PLACEHOLDER TOOL IMPLEMENTATIONS
+  // PATH SELECTION TOOL IMPLEMENTATION
   // ============================================================================
   
   private handlePathSelectionTool(event: MouseEvent, point: VectorPoint, shapes: VectorPath[]): ToolResult {
-    return { success: true, message: 'Path selection tool activated' };
+    // Find paths that intersect with the selection point
+    const hitPaths: VectorPath[] = [];
+    
+    for (const shape of shapes) {
+      if (this.calculateDistanceToShape(point, shape) < this.state.precision * 10) {
+        hitPaths.push(shape);
+      }
+    }
+    
+    if (hitPaths.length > 0) {
+      // Select the closest path
+      const closestPath = hitPaths.reduce((closest, path) => {
+        const closestDist = this.calculateDistanceToShape(point, closest);
+        const pathDist = this.calculateDistanceToShape(point, path);
+        return pathDist < closestDist ? path : closest;
+      }, hitPaths[0]);
+      
+      // Add to selection (toggle if already selected)
+      if (this.selection.selectedPaths.has(closestPath.id)) {
+        this.selection.selectedPaths.delete(closestPath.id);
+      } else {
+        this.selection.selectedPaths.add(closestPath.id);
+      }
+      
+      return {
+        success: true,
+        message: `Path ${closestPath.id} ${this.selection.selectedPaths.has(closestPath.id) ? 'selected' : 'deselected'}`,
+        data: { action: 'select', path: closestPath },
+        requiresSelectionUpdate: true
+      };
+    }
+    
+    // No path hit - clear selection if clicking empty space
+    if (!event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      this.selection.selectedPaths.clear();
+      return {
+        success: true,
+        message: 'Selection cleared',
+        requiresSelectionUpdate: true
+      };
+    }
+    
+    return { success: true, message: 'No path found at selection point' };
   }
   
   private handlePathSelectionToolMove(event: MouseEvent, point: VectorPoint, shapes: VectorPath[]): ToolResult {
+    // During move, update selection box or drag selected paths
+    if (this.dragState.isDragging && this.dragState.dragType === 'move') {
+      const deltaX = point.x - (this.dragState.startPoint?.x || 0);
+      const deltaY = point.y - (this.dragState.startPoint?.y || 0);
+      
+      // Move all selected paths
+      const movedPaths: VectorPath[] = [];
+      for (const pathId of this.selection.selectedPaths) {
+        const path = shapes.find(p => p.id === pathId);
+        if (path) {
+          // Move all points in the path
+          const updatedPoints = path.points.map(p => ({
+            ...p,
+            x: p.x + deltaX,
+            y: p.y + deltaY
+          }));
+          
+          movedPaths.push({
+            ...path,
+            points: updatedPoints
+          });
+        }
+      }
+      
+      return {
+        success: true,
+        message: `Moving ${movedPaths.length} paths`,
+        data: { action: 'move', paths: movedPaths },
+        requiresSelectionUpdate: true
+      };
+    }
+    
     return { success: true };
   }
   

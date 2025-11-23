@@ -20,6 +20,7 @@ import { SmartFillTool } from './SmartFillTool';
 // Embroidery settings now in RightPanelNew.tsx - no separate component needed
 import { ProfessionalVectorTool } from './ProfessionalVectorTool';
 import UniversalSelectTool from './UniversalSelectTool';
+// Removed PuffSettings import - now rendered in RightPanelCompact.tsx
 
 interface ToolRouterProps {
   active: boolean;
@@ -83,7 +84,7 @@ export function ToolRouter({ active }: ToolRouterProps) {
     'colorGrading': ColorGrading,
 
     // Textile Design
-    'puffPrint': null, // Handled by UnifiedPuffPrintSystem
+    // 'puffPrint' removed - will be rebuilt with new 3D geometry approach
     'patternMaker': PatternMaker,
     'embroidery': null, // Settings in RightPanelNew.tsx, drawing on 3D model
 

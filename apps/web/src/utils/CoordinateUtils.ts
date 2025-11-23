@@ -68,3 +68,47 @@ export const getCanvasDimensions = (): { width: number; height: number } => {
   // Fallback to default dimensions
   return { width: 4096, height: 4096 };
 };
+
+/**
+ * SOLUTION 4: Check if a canvas is white (or very close to white)
+ * Used to validate base texture - if base texture is white, it means extraction failed
+ * @param canvas Canvas element to check
+ * @returns True if canvas appears to be white/empty
+ */
+export const isWhiteCanvas = (canvas: HTMLCanvasElement | HTMLImageElement | null): boolean => {
+  if (!canvas) return true;
+  
+  try {
+    // Use willReadFrequently for better performance when calling getImageData multiple times
+    const ctx = (canvas as HTMLCanvasElement).getContext?.('2d', { willReadFrequently: true });
+    if (!ctx) return true;
+    
+    // Sample multiple pixels to check if canvas is white
+    const samplePoints = [
+      { x: canvas.width / 2, y: canvas.height / 2 }, // Center
+      { x: canvas.width / 4, y: canvas.height / 4 }, // Top-left quadrant
+      { x: (canvas.width * 3) / 4, y: canvas.height / 4 }, // Top-right quadrant
+      { x: canvas.width / 4, y: (canvas.height * 3) / 4 }, // Bottom-left quadrant
+      { x: (canvas.width * 3) / 4, y: (canvas.height * 3) / 4 }, // Bottom-right quadrant
+    ];
+    
+    let whitePixels = 0;
+    for (const point of samplePoints) {
+      const imageData = ctx.getImageData(Math.floor(point.x), Math.floor(point.y), 1, 1);
+      const [r, g, b] = imageData.data;
+      
+      // Check if pixel is white (or very close to white, > 250)
+      if (r > 250 && g > 250 && b > 250) {
+        whitePixels++;
+      }
+    }
+    
+    // CRITICAL FIX: Only consider canvas white if ALL sampled pixels are white
+    // This prevents valid textures (like white shirts) from being incorrectly rejected
+    // A valid texture might have white areas but should have some non-white pixels
+    return whitePixels === samplePoints.length; // ALL pixels must be white
+  } catch (error) {
+    console.warn('⚠️ Error checking if canvas is white:', error);
+    return true; // Assume white if check fails
+  }
+};

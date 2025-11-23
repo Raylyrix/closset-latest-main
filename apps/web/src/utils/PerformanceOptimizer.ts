@@ -127,6 +127,7 @@ class PerformanceOptimizer {
 
   /**
    * Update FPS tracking
+   * Should be called every frame from useFrame hook
    */
   updateFPS(): void {
     this.frameCount++;

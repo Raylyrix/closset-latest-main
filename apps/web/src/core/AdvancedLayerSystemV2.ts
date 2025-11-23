@@ -3,7 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import * as THREE from 'three';
 import { createLayerCanvas, createComposedCanvas, createDisplacementCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { useApp } from '../App';
-import { convertUVToPixel, getCanvasDimensions } from '../utils/CoordinateUtils';
+import { convertUVToPixel, getCanvasDimensions, isWhiteCanvas } from '../utils/CoordinateUtils';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 
 // Layer Types - SIMPLIFIED: Only what we actually use
@@ -634,10 +634,9 @@ const createDefaultLocking = (): LayerLocking => ({
 const createDefaultContent = (type: LayerType): LayerContent => {
   switch (type) {
     case 'paint':
-      // CRITICAL FIX: Use composed canvas dimensions for layer canvas to ensure perfect alignment
-      const appState = useApp.getState();
-      const composedCanvas = appState.composedCanvas;
-      const canvasSize = composedCanvas ? composedCanvas.width : 1024; // Fallback to 1024
+      // CRITICAL FIX: Use same dimensions as composed canvas to ensure perfect UV alignment
+      // Always use CANVAS_CONFIG.COMPOSED dimensions to match composedCanvas
+      const canvasSize = CANVAS_CONFIG.COMPOSED.width; // Use same size as composed canvas
       
       const canvas = document.createElement('canvas');
       canvas.width = canvasSize;
@@ -1095,27 +1094,28 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         const newOrder = [...state.layerOrder];
         [newOrder[currentIndex], newOrder[currentIndex - 1]] = [newOrder[currentIndex - 1], newOrder[currentIndex]];
         
-        return {
-          layerOrder: newOrder,
-          layers: state.layers.map((layer, index) => ({
+        // CRITICAL FIX: Create new layers array with updated order to ensure React re-renders
+        const updatedLayers = state.layers.map((layer) => ({
             ...layer,
             order: newOrder.indexOf(layer.id)
-          }))
+        }));
+        
+        return {
+          layerOrder: newOrder,
+          layers: updatedLayers
         };
       });
       
-      // Force composition and visual update using App's composeLayers
+      // CRITICAL FIX: Force immediate composition and visual update
       const { composeLayers } = useApp.getState();
       composeLayers();
       
-      // Trigger immediate visual update on 3D model
-      setTimeout(() => {
+      // Trigger immediate visual update on 3D model (no delay for real-time updates)
         const textureEvent = new CustomEvent('forceTextureUpdate', {
           detail: { source: 'layer-reorder-up-v2', layerId: id }
         });
         window.dispatchEvent(textureEvent);
         console.log('🔄 Triggered texture update after layer move up (V2)');
-      }, 50);
       
       console.log(`⬆️ Moved layer ${id} up`);
     },
@@ -1128,27 +1128,28 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         const newOrder = [...state.layerOrder];
         [newOrder[currentIndex], newOrder[currentIndex + 1]] = [newOrder[currentIndex + 1], newOrder[currentIndex]];
         
-        return {
-          layerOrder: newOrder,
-          layers: state.layers.map((layer, index) => ({
+        // CRITICAL FIX: Create new layers array with updated order to ensure React re-renders
+        const updatedLayers = state.layers.map((layer) => ({
             ...layer,
             order: newOrder.indexOf(layer.id)
-          }))
+        }));
+        
+        return {
+          layerOrder: newOrder,
+          layers: updatedLayers
         };
       });
       
-      // Force composition and visual update using App's composeLayers
+      // CRITICAL FIX: Force immediate composition and visual update
       const { composeLayers } = useApp.getState();
       composeLayers();
       
-      // Trigger immediate visual update on 3D model
-      setTimeout(() => {
+      // Trigger immediate visual update on 3D model (no delay for real-time updates)
         const textureEvent = new CustomEvent('forceTextureUpdate', {
           detail: { source: 'layer-reorder-down-v2', layerId: id }
         });
         window.dispatchEvent(textureEvent);
         console.log('🔄 Triggered texture update after layer move down (V2)');
-      }, 50);
       
       console.log(`⬇️ Moved layer ${id} down`);
     },
@@ -1158,14 +1159,28 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         const newOrder = state.layerOrder.filter(layerId => layerId !== id);
         newOrder.unshift(id);
         
-        return {
-          layerOrder: newOrder,
-          layers: state.layers.map((layer, index) => ({
+        // CRITICAL FIX: Create new layers array with updated order to ensure React re-renders
+        const updatedLayers = state.layers.map((layer) => ({
             ...layer,
             order: newOrder.indexOf(layer.id)
-          }))
+        }));
+        
+        return {
+          layerOrder: newOrder,
+          layers: updatedLayers
         };
       });
+      
+      // CRITICAL FIX: Force immediate composition and visual update
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'layer-reorder-to-top-v2', layerId: id }
+      });
+      window.dispatchEvent(textureEvent);
+      console.log('🔄 Triggered texture update after layer move to top (V2)');
       
       console.log(`🔝 Moved layer ${id} to top`);
     },
@@ -1175,26 +1190,56 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         const newOrder = state.layerOrder.filter(layerId => layerId !== id);
         newOrder.push(id);
         
-        return {
-          layerOrder: newOrder,
-          layers: state.layers.map((layer, index) => ({
+        // CRITICAL FIX: Create new layers array with updated order to ensure React re-renders
+        const updatedLayers = state.layers.map((layer) => ({
             ...layer,
             order: newOrder.indexOf(layer.id)
-          }))
+        }));
+        
+        return {
+          layerOrder: newOrder,
+          layers: updatedLayers
         };
       });
+      
+      // CRITICAL FIX: Force immediate composition and visual update
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'layer-reorder-to-bottom-v2', layerId: id }
+      });
+      window.dispatchEvent(textureEvent);
+      console.log('🔄 Triggered texture update after layer move to bottom (V2)');
       
       console.log(`🔻 Moved layer ${id} to bottom`);
     },
     
     reorderLayers: (newOrder: string[]) => {
-      set(state => ({
-        layerOrder: newOrder,
-        layers: state.layers.map(layer => ({
+      set(state => {
+        // CRITICAL FIX: Create new layers array with updated order to ensure React re-renders
+        const updatedLayers = state.layers.map(layer => ({
           ...layer,
           order: newOrder.length - 1 - newOrder.indexOf(layer.id) // Reverse order for descending sort
-        }))
-      }));
+        }));
+        
+        return {
+          layerOrder: newOrder,
+          layers: updatedLayers
+        };
+      });
+      
+      // CRITICAL FIX: Force immediate composition and visual update
+      const { composeLayers } = useApp.getState();
+      composeLayers();
+      
+      // Trigger immediate visual update on 3D model
+      const textureEvent = new CustomEvent('forceTextureUpdate', {
+        detail: { source: 'layer-reorder-v2', newOrder }
+      });
+      window.dispatchEvent(textureEvent);
+      console.log('🔄 Triggered texture update after layer reorder (V2)');
       
       console.log(`🔄 Reordered layers:`, newOrder);
     },
@@ -2404,50 +2449,63 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     // Update the lastCompositionTime
     set(state => ({ ...state, lastCompositionTime: now }));
     
-    const composedCanvas = createComposedCanvas();
-    const ctx = composedCanvas.getContext('2d');
-      
-      if (!ctx) return null;
-      
-      // CRITICAL FIX: Clear the canvas completely before drawing
-      ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
-      console.log('🎨 Canvas cleared before composition');
-      
-      // CRITICAL: Preserve the base model texture first at FULL opacity
-      const appState = useApp.getState();
-      if (appState.baseTexture) {
-        ctx.save();
-        ctx.globalAlpha = 1.0; // Always draw base texture at full opacity
-        ctx.globalCompositeOperation = 'source-over'; // Ensure base texture is drawn properly
-        ctx.drawImage(appState.baseTexture, 0, 0, composedCanvas.width, composedCanvas.height);
-        ctx.restore();
-        console.log('🎨 Preserved base model texture in composition at full opacity');
-      } else {
-        // CRITICAL FIX: Generate base texture if it doesn't exist
-        console.log('🎨 No base texture found, attempting to generate from model...');
-        const { generateBaseLayer } = appState;
-        if (generateBaseLayer) {
-          generateBaseLayer();
-          // Try again after generation
-          const updatedAppState = useApp.getState();
-          if (updatedAppState.baseTexture) {
-            ctx.save();
-            ctx.globalAlpha = 1.0;
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.drawImage(updatedAppState.baseTexture, 0, 0, composedCanvas.width, composedCanvas.height);
-            ctx.restore();
-            console.log('🎨 Generated and applied base texture');
-          } else {
-            // Fallback: Use transparent background to preserve model texture
-            ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
-            console.log('🎨 Using transparent background to preserve model texture');
-          }
+    // CRITICAL FIX: Check for baseTexture BEFORE creating new canvas
+    // This prevents faded texture when baseTexture is missing
+    const appState = useApp.getState();
+    
+    // Try to extract base texture from model if missing (BEFORE creating canvas)
+    if (!appState.baseTexture && appState.modelScene) {
+      console.log('🎨 No base texture found, extracting from model immediately...');
+      const { generateBaseLayer } = appState;
+      if (generateBaseLayer) {
+        generateBaseLayer();
+        // Re-read state after generation
+        const updatedAppState = useApp.getState();
+        if (updatedAppState.baseTexture) {
+          console.log('🎨 Successfully extracted base texture from model');
         } else {
-          // Fallback: Use transparent background to preserve model texture
-          ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
-          console.log('🎨 Using transparent background to preserve model texture');
+          console.warn('⚠️ Failed to extract base texture - composition may result in faded texture');
         }
       }
+    }
+    
+    // CRITICAL FIX: Always create new canvas for clean composition
+    // But preserve base texture from existing canvas if baseTexture is missing/invalid
+    const existingComposedCanvas = state.composedCanvas;
+    const composedCanvas = createComposedCanvas();
+    const ctx = composedCanvas.getContext('2d');
+    if (!ctx) return null;
+    
+    // Always clear the new canvas
+    ctx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
+    
+    // CRITICAL FIX: Check if we have a valid base texture
+    const hasValidBaseTexture = appState.baseTexture && !isWhiteCanvas(appState.baseTexture);
+    
+    if (hasValidBaseTexture) {
+      // We have valid base texture - restore it
+      ctx.save();
+      ctx.globalAlpha = 1.0; // Always draw base texture at full opacity
+      ctx.globalCompositeOperation = 'source-over'; // Ensure base texture is drawn properly
+      ctx.drawImage(appState.baseTexture, 0, 0, composedCanvas.width, composedCanvas.height);
+      ctx.restore();
+      console.log('🎨 Preserved base model texture in composition at full opacity');
+    } else if (existingComposedCanvas) {
+      // Base texture missing/invalid - copy from existing composedCanvas to preserve content
+      // This prevents intermittent fading when baseTexture check fails
+      ctx.save();
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(existingComposedCanvas, 0, 0, composedCanvas.width, composedCanvas.height);
+      ctx.restore();
+      console.log('🎨 Base texture missing/invalid - preserving existing composedCanvas content to prevent fading');
+    } else {
+      // No base texture and no existing canvas - this is the first composition
+      // Fill with white as fallback (shouldn't happen if baseTexture was captured)
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, composedCanvas.width, composedCanvas.height);
+      console.warn('⚠️ Base texture missing and no existing canvas - using white fallback');
+    }
       
       // Sort layers by order
       const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
@@ -2481,9 +2539,34 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         ctx.globalCompositeOperation = compositeOp;
         console.log(`🎨 Layer ${layer.name} blend mode: ${layer.blendMode} -> ${compositeOp}`);
         
-        // Draw layer canvas if it exists
+        // CRITICAL FIX: Draw layer canvas with proper dimensions to prevent UV mismatch
+        // Ensure layer canvas matches composed canvas dimensions
         if (layer.content.canvas) {
-          ctx.drawImage(layer.content.canvas, 0, 0);
+          const layerCanvas = layer.content.canvas;
+          
+          // DEBUG: Check if canvas has content before drawing
+          const canvasCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+          if (canvasCtx) {
+            const sampleImageData = canvasCtx.getImageData(0, 0, Math.min(100, layerCanvas.width), Math.min(100, layerCanvas.height));
+            const hasNonTransparentPixels = Array.from(sampleImageData.data).some((val, idx) => idx % 4 === 3 && val > 0);
+            console.log(`🎨 Layer ${layer.name} (${layer.id}): Drawing canvas`, {
+              dimensions: `${layerCanvas.width}x${layerCanvas.height}`,
+              hasContent: hasNonTransparentPixels,
+              composedDimensions: `${composedCanvas.width}x${composedCanvas.height}`
+            });
+          }
+          
+          // CRITICAL FIX: Check if dimensions match - if not, scale to match
+          if (layerCanvas.width !== composedCanvas.width || layerCanvas.height !== composedCanvas.height) {
+            console.warn(`⚠️ Layer canvas dimensions (${layerCanvas.width}x${layerCanvas.height}) don't match composed canvas (${composedCanvas.width}x${composedCanvas.height}) - scaling to match`);
+            // Scale layer canvas to match composed canvas dimensions
+            ctx.drawImage(layerCanvas, 0, 0, composedCanvas.width, composedCanvas.height);
+          } else {
+            // Dimensions match - draw directly
+            ctx.drawImage(layerCanvas, 0, 0);
+          }
+        } else {
+          console.warn(`⚠️ Layer ${layer.name} (${layer.id}): No canvas found in layer.content`);
         }
         
         // Apply layer effects
@@ -2567,6 +2650,17 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           
           ctx.save();
           
+          // CRITICAL FIX: Flip Y-axis for text rendering to match canvas coordinate system
+          // Canvas Y increases downward, but texture on 3D model may be flipped
+          const canvasHeight = composedCanvas.height;
+          
+          // Flip the entire canvas context vertically
+          ctx.translate(0, canvasHeight);
+          ctx.scale(1, -1);
+          
+          // Adjust Y coordinate for flipped coordinate system
+          const flippedY = canvasHeight - textEl.y;
+          
           // Set text properties with enhanced typography support
           const fontWeight = textEl.fontWeight || (textEl.bold ? 'bold' : 'normal');
           const fontStyle = textEl.fontStyle || (textEl.italic ? 'italic' : 'normal');
@@ -2605,7 +2699,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               const pathPosition = TextPathManager.getTextPositionOnPath(textEl.pathId!, textEl.pathOffset || 0);
               if (pathPosition) {
                 ctx.save();
-                ctx.translate(pathPosition.x, pathPosition.y);
+                // Flip path Y coordinate as well
+                const flippedPathY = canvasHeight - pathPosition.y;
+                ctx.translate(pathPosition.x, flippedPathY);
                 ctx.rotate(pathPosition.angle);
                 
                 // Apply text effects for path text
@@ -2621,21 +2717,21 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
                 
                 ctx.restore();
               } else {
-                // Fallback to regular text rendering if path not found
-                ctx.fillText(displayText, textEl.x, textEl.y);
+                // Fallback to regular text rendering if path not found (use flippedY)
+                ctx.fillText(displayText, textEl.x, flippedY);
               }
             }).catch(() => {
-              // Fallback to regular text rendering if TextPathManager fails
-              ctx.fillText(displayText, textEl.x, textEl.y);
+              // Fallback to regular text rendering if TextPathManager fails (use flippedY)
+              ctx.fillText(displayText, textEl.x, flippedY);
             });
           } else {
             // Regular text rendering (not on path)
             
-            // Apply rotation if needed
+            // Apply rotation if needed (use flippedY for rotation center)
             if (textEl.rotation && textEl.rotation !== 0) {
-              ctx.translate(textEl.x, textEl.y);
+              ctx.translate(textEl.x, flippedY);
               ctx.rotate((textEl.rotation * Math.PI) / 180);
-              ctx.translate(-textEl.x, -textEl.y);
+              ctx.translate(-textEl.x, -flippedY);
             }
             
             // Apply advanced typography features
@@ -2649,7 +2745,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               const lineHeight = (textEl.lineHeight || 1.2) * textEl.fontSize;
               
               lines.forEach((line, index) => {
-                const y = textEl.y + (index * lineHeight);
+                const y = flippedY + (index * lineHeight);
                 
                 // Apply text effects for each line
                 if (textEl.effects) {
@@ -2663,24 +2759,24 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
                 }
               });
             } else {
-              // Single line text rendering
+              // Single line text rendering (use flippedY)
               if (textEl.effects) {
                 import('../utils/TextEffects').then(({ TextEffectsRenderer }) => {
-                  TextEffectsRenderer.applyEffects(ctx, displayText, textEl.x, textEl.y, textEl.effects!);
+                  TextEffectsRenderer.applyEffects(ctx, displayText, textEl.x, flippedY, textEl.effects!);
                 }).catch(() => {
-                  ctx.fillText(displayText, textEl.x, textEl.y);
+                  ctx.fillText(displayText, textEl.x, flippedY);
                 });
               } else {
-                console.log(`🎨 Drawing text at position:`, { x: textEl.x, y: textEl.y, text: displayText });
-                ctx.fillText(displayText, textEl.x, textEl.y);
+                console.log(`🎨 Drawing text at position:`, { x: textEl.x, y: flippedY, originalY: textEl.y, text: displayText });
+                ctx.fillText(displayText, textEl.x, flippedY);
                 console.log(`🎨 Text drawn successfully`);
               }
             }
             
-            // Apply text decoration
+            // Apply text decoration (use flippedY)
             if (textEl.textDecoration && textEl.textDecoration !== 'none') {
-              const metrics = ctx.measureText(textEl.text);
-              const decorationY = textEl.y + textEl.fontSize * 0.8; // Position decoration line
+              const metrics = ctx.measureText(displayText);
+              const decorationY = flippedY + textEl.fontSize * 0.8; // Position decoration line
               
               ctx.strokeStyle = textEl.color;
               ctx.lineWidth = 1;
@@ -2690,11 +2786,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
                 ctx.moveTo(textEl.x, decorationY);
                 ctx.lineTo(textEl.x + metrics.width, decorationY);
               } else if (textEl.textDecoration === 'line-through') {
-                const strikeY = textEl.y + textEl.fontSize * 0.5;
+                const strikeY = flippedY + textEl.fontSize * 0.5;
                 ctx.moveTo(textEl.x, strikeY);
                 ctx.lineTo(textEl.x + metrics.width, strikeY);
               } else if (textEl.textDecoration === 'overline') {
-                const overlineY = textEl.y + textEl.fontSize * 0.2;
+                const overlineY = flippedY + textEl.fontSize * 0.2;
                 ctx.moveTo(textEl.x, overlineY);
                 ctx.lineTo(textEl.x + metrics.width, overlineY);
               }
@@ -2720,6 +2816,15 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             });
             
             ctx.save();
+            
+            // CRITICAL FIX: Apply the same Y-axis flip as text rendering
+            // This ensures the border appears in the same coordinate system as the text
+            const canvasHeight = composedCanvas.height;
+            ctx.translate(0, canvasHeight);
+            ctx.scale(1, -1);
+            
+            // Calculate flipped Y coordinate (same as text rendering)
+            const flippedY = canvasHeight - selectedTextEl.y;
             
             // Set up border styling
             ctx.strokeStyle = '#007acc'; // Blue border matching UI theme
@@ -2759,33 +2864,34 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             const textPixelHeight = selectedTextEl.fontSize * 1.2; // Approximate text height
             
             // Calculate border position based on actual text alignment behavior
+            // Use flippedY to match text rendering
             let borderX, borderY, borderWidth, borderHeight;
             
             if (selectedTextEl.align === 'left') {
-              // Left align: text starts at x, y
+              // Left align: text starts at x, flippedY
               borderX = selectedTextEl.x;
-              borderY = selectedTextEl.y;
+              borderY = flippedY;
               borderWidth = textPixelWidth;
               borderHeight = textPixelHeight;
             } else if (selectedTextEl.align === 'right') {
-              // Right align: text ends at x, y
+              // Right align: text ends at x, flippedY
               borderX = selectedTextEl.x - textPixelWidth;
-              borderY = selectedTextEl.y;
+              borderY = flippedY;
               borderWidth = textPixelWidth;
               borderHeight = textPixelHeight;
             } else {
-              // Center align: text is centered at x, y
+              // Center align: text is centered at x, flippedY
               borderX = selectedTextEl.x - (textPixelWidth / 2);
-              borderY = selectedTextEl.y;
+              borderY = flippedY;
               borderWidth = textPixelWidth;
               borderHeight = textPixelHeight;
             }
             
-            // Apply rotation if needed (same as text rendering)
+            // CRITICAL FIX: Apply rotation using the same center as text rendering (x, flippedY)
             if (selectedTextEl.rotation && selectedTextEl.rotation !== 0) {
-              ctx.translate(selectedTextEl.x, selectedTextEl.y);
+              ctx.translate(selectedTextEl.x, flippedY);
               ctx.rotate((selectedTextEl.rotation * Math.PI) / 180);
-              ctx.translate(-selectedTextEl.x, -selectedTextEl.y);
+              ctx.translate(-selectedTextEl.x, -flippedY);
             }
             
             // Draw the selection border
@@ -2793,11 +2899,64 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.rect(borderX, borderY, borderWidth, borderHeight);
             ctx.stroke();
             
-            console.log(`🎨 Selection border drawn:`, {
+            // Draw corner anchors (resize handles)
+            const anchorSize = 12; // 12px square anchors
+            const anchorHalfSize = anchorSize / 2;
+            
+            // Corner anchor positions
+            const corners = [
+              { x: borderX, y: borderY }, // topLeft
+              { x: borderX + borderWidth, y: borderY }, // topRight
+              { x: borderX, y: borderY + borderHeight }, // bottomLeft
+              { x: borderX + borderWidth, y: borderY + borderHeight } // bottomRight
+            ];
+            
+            // Draw corner anchors (filled squares)
+            ctx.fillStyle = '#007acc'; // Same blue as border
+            ctx.setLineDash([]); // Solid for anchors
+            for (const corner of corners) {
+              ctx.fillRect(corner.x - anchorHalfSize, corner.y - anchorHalfSize, anchorSize, anchorSize);
+            }
+            
+            // Draw edge anchors (smaller circles)
+            const edgeAnchorSize = 10; // 10px diameter
+            const edgeAnchorRadius = edgeAnchorSize / 2;
+            const edges = [
+              { x: borderX + borderWidth / 2, y: borderY }, // top
+              { x: borderX + borderWidth / 2, y: borderY + borderHeight }, // bottom
+              { x: borderX, y: borderY + borderHeight / 2 }, // left
+              { x: borderX + borderWidth, y: borderY + borderHeight / 2 } // right
+            ];
+            
+            for (const edge of edges) {
+              ctx.beginPath();
+              ctx.arc(edge.x, edge.y, edgeAnchorRadius, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            
+            // Draw rotation handle (above the text)
+            const rotationHandleDistance = 40;
+            const rotationHandleY = borderY - rotationHandleDistance;
+            const rotationHandleX = borderX + borderWidth / 2;
+            const rotationHandleSize = 12;
+            
+            ctx.beginPath();
+            ctx.arc(rotationHandleX, rotationHandleY, rotationHandleSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw rotation handle line (connecting to top edge)
+            ctx.strokeStyle = '#007acc';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(rotationHandleX, borderY);
+            ctx.lineTo(rotationHandleX, rotationHandleY);
+            ctx.stroke();
+            
+            console.log(`🎨 Selection border and anchors drawn:`, {
               border: { x: borderX, y: borderY, width: borderWidth, height: borderHeight },
               text: { x: selectedTextEl.x, y: selectedTextEl.y, width: textPixelWidth, height: textPixelHeight },
               alignment: selectedTextEl.align,
-              calculation: `Border ${selectedTextEl.align} aligned at (${borderX}, ${borderY})`
+              anchors: { cornerSize: anchorSize, edgeSize: edgeAnchorSize, rotationHandleSize }
             });
             
             ctx.restore();

@@ -1336,12 +1336,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                             }
                             break;
                             
-                          case 'puffPrint':
-                            console.log('🎨 REMOVED: Duplicate puff print implementation - using UnifiedPuffPrintSystem instead');
-                            // This implementation was causing conflicts with the main puff print system
-                            // The UnifiedPuffPrintSystem now handles all puff print operations correctly
-                            break;
-                            
+                          // case 'puffPrint': // Removed - will be rebuilt with new 3D geometry approach
                           case 'embroidery':
                             console.log('🎨 Applying embroidery tool to', sampledPoints.length, 'points');
                             // Apply embroidery to each sampled point

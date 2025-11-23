@@ -132,7 +132,17 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
 
   // 🎯 Enhanced Pointer Event Handlers with UV Calculation
   const handlePointerDown = useCallback((event: any) => {
-    console.log('🎯 ShirtRenderer: handlePointerDown triggered');
+    console.log('🎯 ShirtRenderer: handlePointerDown triggered', {
+      hasEvent: !!event,
+      clientX: event?.clientX,
+      clientY: event?.clientY,
+      type: event?.type,
+      target: event?.target
+    });
+    
+    // CRITICAL FIX: Get activeTool to check if we should process this event
+    const activeTool = useApp.getState().activeTool;
+    console.log('🎯 ShirtRenderer: Current activeTool:', activeTool);
     
     const uvData = calculateUVFromPointerEvent(event);
     if (uvData) {
@@ -154,12 +164,16 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
         hasUV: !!enhancedEvent.uv,
         uv: enhancedEvent.uv ? { x: enhancedEvent.uv.x, y: enhancedEvent.uv.y } : null,
         hasPoint: !!enhancedEvent.point,
-        intersectionsCount: enhancedEvent.intersections?.length || 0
+        intersectionsCount: enhancedEvent.intersections?.length || 0,
+        activeTool
       });
       
       onPointerDown?.(enhancedEvent);
     } else {
-      console.warn('🎯 ShirtRenderer: No UV data available, skipping pointer down');
+      console.warn('🎯 ShirtRenderer: No UV data available, skipping pointer down', {
+        activeTool,
+        hasEvent: !!event
+      });
     }
   }, [calculateUVFromPointerEvent, onPointerDown]);
 
@@ -286,11 +300,10 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
         useApp.setState({ modelScene: scene });
         console.log('🎯 ModelScene set in main store:', !!scene);
         
-        // Generate base layer from the model texture
-        setTimeout(() => {
-          console.log('🎨 Generating base layer from loaded model...');
-          useApp.getState().generateBaseLayer();
-        }, 100);
+        // SOLUTION 3: Capture base texture IMMEDIATELY on model load (no delay)
+        // This prevents race condition where composition happens before base texture is captured
+        console.log('🎨 Generating base layer from loaded model immediately...');
+        useApp.getState().generateBaseLayer();
         
         onModelLoaded?.(modelData);
         setIsLoading(false);
@@ -370,6 +383,276 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
     };
   }, []);
 
+  // CRITICAL FIX: Manual event handler for when React Three Fiber events are blocked
+  // This happens when controls are disabled for drawing tools
+  // Always set up handlers - they check the current tool dynamically
+  useEffect(() => {
+    const canvas = gl.domElement as HTMLCanvasElement;
+    if (!canvas || !modelScene || !camera) {
+      return;
+    }
+    
+    console.log('🎯 ShirtRenderer: Setting up manual event handlers (always active, checks tool dynamically)');
+    
+    const handleManualPointerDown = (event: PointerEvent) => {
+      // CRITICAL FIX: Allow rotation (right-click/middle-click) even when puff tool is active
+      // Only block left-click events for drawing
+      const isLeftClick = event.button === 0;
+      const isRightClick = event.button === 2;
+      const isMiddleClick = event.button === 1;
+      
+      // Allow rotation controls for right-click and middle-click
+      if (isRightClick || isMiddleClick) {
+        return; // Let OrbitControls handle rotation
+      }
+      
+      // Only handle left-click for drawing tools
+      if (!isLeftClick) {
+        return;
+      }
+      
+      // Only handle for drawing tools, picker tool, and vector tool
+      const currentActiveTool = useApp.getState().activeTool;
+      if (!['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'picker', 'vector'].includes(currentActiveTool)) {
+        return;
+      }
+      
+      console.log('🎯 ShirtRenderer: Manual pointer down event received', {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        activeTool: currentActiveTool,
+        button: event.button
+      });
+      
+      // Calculate UV using raycaster (same as calculateUVFromPointerEvent)
+      try {
+        const rect = canvas.getBoundingClientRect();
+        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+        
+        const modelMeshes: THREE.Mesh[] = [];
+        modelScene.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            modelMeshes.push(child);
+          }
+        });
+        
+        const intersects = raycaster.intersectObjects(modelMeshes, true);
+        
+        if (intersects.length > 0) {
+          const intersection = intersects[0];
+          const uv = intersection.uv;
+          const point = intersection.point;
+          const face = intersection.face;
+          
+          if (uv && point && face) {
+            console.log('🎯 ShirtRenderer: Manual event - UV found, calling onPointerDown');
+            
+            // CRITICAL: Only stop event propagation for left-click drawing
+            // Right-click and middle-click are allowed through for rotation
+            event.stopPropagation();
+            event.preventDefault();
+            
+            // Create enhanced event matching React Three Fiber event format
+            const enhancedEvent = {
+              clientX: event.clientX,
+              clientY: event.clientY,
+              uv: new THREE.Vector2(uv.x, uv.y),
+              point: point.clone(),
+              face: face,
+              faceIndex: intersection.faceIndex,
+              object: intersection.object,
+              intersections: intersects,
+              nativeEvent: event,
+              stopPropagation: () => event.stopPropagation(),
+              preventDefault: () => event.preventDefault()
+            };
+            
+            // Call the parent's onPointerDown handler
+            onPointerDown?.(enhancedEvent);
+          }
+        }
+      } catch (error) {
+        console.error('🎯 ShirtRenderer: Error in manual pointer down handler:', error);
+      }
+    };
+    
+    // Also handle pointer move for continuous drawing
+    const handleManualPointerMove = (event: PointerEvent) => {
+      // CRITICAL FIX: Allow rotation (right-click/middle-click drag) even when puff tool is active
+      // Only block left-click drag for drawing
+      const isLeftButton = (event.buttons & 1) === 1; // Left button
+      const isRightButton = (event.buttons & 2) === 2; // Right button
+      const isMiddleButton = (event.buttons & 4) === 4; // Middle button
+      
+      // Allow rotation controls for right-click and middle-click drag
+      if (isRightButton || isMiddleButton) {
+        return; // Let OrbitControls handle rotation
+      }
+      
+      // Only process left-click drag for drawing tools (picker is one-click, no move needed)
+      if (!isLeftButton) {
+        return;
+      }
+      
+      const currentActiveTool = useApp.getState().activeTool;
+      // Picker tool doesn't need move handling - it's a one-click action
+      if (!['brush', 'eraser', 'embroidery', 'fill', 'puffPrint'].includes(currentActiveTool)) {
+        return;
+      }
+      
+      // Only process if we're actively drawing (left button was down)
+      // This prevents move events from firing when just hovering
+      if (event.buttons === 0) {
+        return; // No buttons pressed, just hovering
+      }
+      
+      try {
+        const rect = canvas.getBoundingClientRect();
+        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+        
+        const modelMeshes: THREE.Mesh[] = [];
+        modelScene.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            modelMeshes.push(child);
+          }
+        });
+        
+        const intersects = raycaster.intersectObjects(modelMeshes, true);
+        
+        if (intersects.length > 0) {
+          const intersection = intersects[0];
+          const uv = intersection.uv;
+          const point = intersection.point;
+          const face = intersection.face;
+          
+          if (uv && point && face) {
+            // CRITICAL: Only stop event propagation for left-click drawing
+            // Right-click and middle-click are allowed through for rotation
+            if (isLeftButton) {
+              event.stopPropagation();
+              event.preventDefault();
+            }
+            
+            const enhancedEvent = {
+              clientX: event.clientX,
+              clientY: event.clientY,
+              uv: new THREE.Vector2(uv.x, uv.y),
+              point: point.clone(),
+              face: face,
+              faceIndex: intersection.faceIndex,
+              object: intersection.object,
+              intersections: intersects,
+              nativeEvent: event,
+              stopPropagation: () => event.stopPropagation(),
+              preventDefault: () => event.preventDefault()
+            };
+            
+            // Only call onPointerMove for left-click drawing
+            if (isLeftButton) {
+              onPointerMove?.(enhancedEvent);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('🎯 ShirtRenderer: Error in manual pointer move handler:', error);
+      }
+    };
+    
+    const handleManualPointerUp = (event: PointerEvent) => {
+      // CRITICAL FIX: Allow rotation (right-click/middle-click) even when puff tool is active
+      // Only handle left-click up events for drawing
+      const isLeftClick = event.button === 0;
+      const isRightClick = event.button === 2;
+      const isMiddleClick = event.button === 1;
+      
+      // Allow rotation controls for right-click and middle-click
+      if (isRightClick || isMiddleClick) {
+        return; // Let OrbitControls handle rotation
+      }
+      
+      // Only handle left-click for drawing tools
+      if (!isLeftClick) {
+        return;
+      }
+      
+      const currentActiveTool = useApp.getState().activeTool;
+      if (!['brush', 'eraser', 'embroidery', 'fill', 'puffPrint'].includes(currentActiveTool)) {
+        return;
+      }
+      
+      try {
+        const rect = canvas.getBoundingClientRect();
+        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+        
+        const modelMeshes: THREE.Mesh[] = [];
+        modelScene.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            modelMeshes.push(child);
+          }
+        });
+        
+        const intersects = raycaster.intersectObjects(modelMeshes, true);
+        
+        if (intersects.length > 0) {
+          const intersection = intersects[0];
+          const uv = intersection.uv;
+          const point = intersection.point;
+          const face = intersection.face;
+          
+          if (uv && point && face) {
+            // CRITICAL: Stop event propagation to prevent OrbitControls from handling it
+            event.stopPropagation();
+            event.preventDefault();
+            
+            const enhancedEvent = {
+              clientX: event.clientX,
+              clientY: event.clientY,
+              uv: new THREE.Vector2(uv.x, uv.y),
+              point: point.clone(),
+              face: face,
+              faceIndex: intersection.faceIndex,
+              object: intersection.object,
+              intersections: intersects,
+              nativeEvent: event,
+              stopPropagation: () => event.stopPropagation(),
+              preventDefault: () => event.preventDefault()
+            };
+            
+            onPointerUp?.(enhancedEvent);
+          }
+        }
+      } catch (error) {
+        console.error('🎯 ShirtRenderer: Error in manual pointer up handler:', error);
+      }
+    };
+    
+    // Attach to canvas element directly (bypasses React Three Fiber)
+    canvas.addEventListener('pointerdown', handleManualPointerDown);
+    canvas.addEventListener('pointermove', handleManualPointerMove);
+    canvas.addEventListener('pointerup', handleManualPointerUp);
+    
+    console.log('🎯 ShirtRenderer: Manual event handlers attached to canvas');
+    
+    return () => {
+      canvas.removeEventListener('pointerdown', handleManualPointerDown);
+      canvas.removeEventListener('pointermove', handleManualPointerMove);
+      canvas.removeEventListener('pointerup', handleManualPointerUp);
+      console.log('🎯 ShirtRenderer: Manual event handlers removed');
+    };
+  }, [gl, modelScene, camera, onPointerDown]);
+  
   // Cleanup on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
@@ -388,6 +671,10 @@ export const ShirtRenderer: React.FC<ShirtRendererProps> = ({
         position={modelPosition}
         rotation={modelRotation}
         scale={modelScale}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
       >
         <primitive 
           object={modelScene} 

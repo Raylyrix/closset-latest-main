@@ -14,7 +14,8 @@ import { useAdvancedLayerStoreV2, BlendMode } from '../core/AdvancedLayerSystemV
 import { useStrokeSelection } from '../core/StrokeSelectionSystem';
 import { StrokeSelectionCanvas } from './StrokeVisuals';
 import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../constants/CanvasSizes';
-import { convertUVToPixel, convertPixelToUV, getCanvasDimensions } from '../utils/CoordinateUtils';
+import { convertUVToPixel, convertPixelToUV, getCanvasDimensions, isWhiteCanvas } from '../utils/CoordinateUtils';
+import { puffGeometryManager, PuffSettings, PuffStrokePoint } from '../utils/puff/PuffGeometryManager';
 
 // Import new modular components
 import { ShirtRenderer } from './Shirt/ShirtRenderer';
@@ -46,6 +47,74 @@ const hexToRgb = (hex: string): {r: number, g: number, b: number} | null => {
     g: parseInt(result[2], 16),
     b: parseInt(result[3], 16)
   } : null;
+};
+
+// ============================================================================
+// VECTOR TOOL HELPER FUNCTIONS
+// ============================================================================
+
+// Standardized anchor detection threshold in UV space (2% of canvas)
+const VECTOR_ANCHOR_DETECTION_THRESHOLD = 0.02;
+
+// Calculate distance between two UV coordinates
+const distanceInUV = (uv1: {u: number, v: number}, uv2: {u: number, v: number}): number => {
+  return Math.sqrt((uv1.u - uv2.u) ** 2 + (uv1.v - uv2.v) ** 2);
+};
+
+// Convert UV to pixel coordinates
+const uvToPixel = (uv: {u: number, v: number}, canvas: HTMLCanvasElement): {x: number, y: number} => {
+  return {
+    x: Math.floor(uv.u * canvas.width),
+    y: Math.floor(uv.v * canvas.height)
+  };
+};
+
+// Convert pixel to UV coordinates
+const pixelToUV = (pixel: {x: number, y: number}, canvas: HTMLCanvasElement): {u: number, v: number} => {
+  return {
+    u: pixel.x / canvas.width,
+    v: pixel.y / canvas.height
+  };
+};
+
+// Find nearest anchor to a UV point
+const findNearestAnchor = (
+  vectorPaths: Array<{id: string; points: Array<{u: number; v: number}>}>,
+  targetUV: {u: number, v: number},
+  threshold: number = VECTOR_ANCHOR_DETECTION_THRESHOLD
+): { pathId: string; anchorIndex: number; distance: number } | null => {
+  let nearestAnchor: { pathId: string; anchorIndex: number; distance: number } | null = null;
+  let minDistance = threshold;
+
+  vectorPaths.forEach(path => {
+    path.points.forEach((point, index) => {
+      const distance = distanceInUV(targetUV, { u: point.u, v: point.v });
+      if (distance < minDistance) {
+        nearestAnchor = { pathId: path.id, anchorIndex: index, distance };
+        minDistance = distance;
+      }
+    });
+  });
+
+  return nearestAnchor;
+};
+
+// Debug logging utilities (conditional based on DEBUG_TOOLS flag)
+const DEBUG_TOOLS = (window as any).DEBUG_TOOLS !== false; // Default to true for development
+const debugLog = (...args: any[]) => {
+  if (DEBUG_TOOLS) {
+    console.log(...args);
+  }
+};
+const debugWarn = (...args: any[]) => {
+  if (DEBUG_TOOLS) {
+    console.warn(...args);
+  }
+};
+const debugError = (...args: any[]) => {
+  if (DEBUG_TOOLS) {
+    console.error(...args);
+  }
 };
 
 interface ShirtRefactoredProps {
@@ -118,6 +187,10 @@ export function ShirtRefactored({
   // SMOOTH BRUSH: Track last paint position for interpolation
   const lastPaintPositionRef = useRef<{ x: number; y: number } | null>(null);
   
+  // VECTOR TOOL: Track path count for optimized rendering
+  const lastVectorPathCountRef = useRef(0);
+  const lastVectorPathsHashRef = useRef<string>('');
+  
   // Reduced logging frequency to prevent console spam
   if (Math.random() < 0.01) { // Only log 1% of the time
     // ShirtRefactored component mounting with props
@@ -137,7 +210,14 @@ export function ShirtRefactored({
   });
 
   // PERFORMANCE: Enhanced FPS tracking and adaptive optimization
-  useFrame(() => {
+  useFrame((state, delta) => {
+    // CRITICAL FIX: Record actual frame time for accurate FPS tracking
+    const frameTime = delta * 1000; // Convert to milliseconds
+    unifiedPerformanceManager.recordFrameTime(frameTime);
+    
+    // Also update PerformanceOptimizer FPS tracking
+    performanceOptimizer.updateFPS();
+    
     // PERFORMANCE: Adaptive optimization based on actual performance
     if (performanceOptimizer.shouldUseAggressiveOptimizations()) {
       performanceOptimizer.forceGarbageCollection();
@@ -220,6 +300,87 @@ export function ShirtRefactored({
           e.stopPropagation();
         }
       }
+      
+      // VECTOR TOOL KEYBOARD SHORTCUTS
+      if (activeTool === 'vector') {
+        const appState = useApp.getState();
+        
+        // P - Pen mode (create/edit paths)
+        if (e.key === 'p' || e.key === 'P') {
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            appState.setVectorEditMode('pen');
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('🎯 Vector: Switched to pen mode');
+          }
+        }
+        
+        // V - Select mode
+        if (e.key === 'v' || e.key === 'V') {
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            appState.setVectorEditMode('select');
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('🎯 Vector: Switched to select mode');
+          }
+        }
+        
+        // C - Curve mode (edit bezier handles)
+        if (e.key === 'c' || e.key === 'C') {
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            appState.setVectorEditMode('curve');
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('🎯 Vector: Switched to curve mode');
+          }
+        }
+        
+        // A - Add anchor (when path is selected)
+        if (e.key === 'a' || e.key === 'A') {
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            const { vectorPaths, activePathId } = appState;
+            if (activePathId) {
+              // Switch to addAnchor mode temporarily
+              appState.setVectorEditMode('addAnchor');
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('🎯 Vector: Add anchor mode activated');
+            }
+          }
+        }
+        
+        // Delete/Backspace - Remove selected anchor
+        if ((e.key === 'Delete' || e.key === 'Backspace') && appState.selectedAnchor) {
+          const { selectedAnchor, vectorPaths } = appState;
+          if (selectedAnchor) {
+            const path = vectorPaths.find(p => p.id === selectedAnchor.pathId);
+            if (path && path.points.length > 2) {
+              appState.removeAnchor(selectedAnchor.pathId, selectedAnchor.anchorIndex);
+              appState.setSelectedAnchor(null);
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('🎯 Vector: Removed anchor');
+            }
+          }
+        }
+        
+        // Enter - Close/open path
+        if (e.key === 'Enter' && appState.activePathId) {
+          const { activePathId, vectorPaths } = appState;
+          const path = vectorPaths.find(p => p.id === activePathId);
+          if (path && path.points.length > 2) {
+            if (path.closed) {
+              appState.openPath(activePathId);
+              console.log('🎯 Vector: Opened path');
+            } else {
+              appState.closePath(activePathId);
+              console.log('🎯 Vector: Closed path');
+            }
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -246,7 +407,7 @@ export function ShirtRefactored({
   // Get current tool state for conditional rendering
   const activeTool = useApp(state => state.activeTool);
   const vectorPaths = useApp(state => state.vectorPaths || []);
-  const vectorMode = useApp(state => state.vectorMode);
+  // Vector mode removed - vector tool is now a standalone tool
   
   // Brush tool state management
   const paintingActiveRef = useRef(false);
@@ -313,20 +474,20 @@ export function ShirtRefactored({
     const data = imageData.data;
     const dispData = dispImageData.data;
 
-    // Get puff settings for enhanced displacement
-    const puffSettings = useApp.getState();
-    const puffHeight = puffSettings.puffHeight || 1.0;
-    const puffCurvature = puffSettings.puffCurvature || 0.5;
-
     // Convert painted areas to height values for displacement
+    // Puff settings removed - will be rebuilt with new 3D geometry approach
+    // Using default values for now
+    const puffHeight = 0.3; // mm (default)
+    const puffSoftness = 0.5; // (default)
+    
     for (let i = 0; i < data.length; i += 4) {
       const alpha = data[i + 3];
       if (alpha > 0) {
         // Create height based on alpha and puff settings with enhanced scaling for embroidery
         const baseHeight = (alpha / 255) * puffHeight;
         
-        // Apply curvature-based height variation for more realistic 3D effect
-        const curvatureFactor = THREE.MathUtils.lerp(0.3, 1.0, puffCurvature);
+        // NEW PUFF TOOL: Use softness instead of curvature for height variation
+        const curvatureFactor = THREE.MathUtils.lerp(0.3, 1.0, puffSoftness);
         
         // Enhanced displacement scaling for embroidery - much stronger 3D effect
         const displacementMultiplier = 1.5; // Increased from 0.3 to 1.5 for stronger effect
@@ -475,10 +636,11 @@ export function ShirtRefactored({
       }
 
       // Add UVs if available
-      if (uvs) {
-        const uvA = new THREE.Vector2(uvs[a * 2], uvs[a * 2 + 1]);
-        const uvB = new THREE.Vector2(uvs[b * 2], uvs[b * 2 + 1]);
-        const uvC = new THREE.Vector2(uvs[c * 2], uvs[c * 2 + 1]);
+      if (uvs && uvs.length >= (Math.max(a, b, c) + 1) * 2) {
+        // CRITICAL FIX: Check bounds before accessing UV coordinates to prevent errors
+        const uvA = new THREE.Vector2(uvs[a * 2] || 0, uvs[a * 2 + 1] || 0);
+        const uvB = new THREE.Vector2(uvs[b * 2] || 0, uvs[b * 2 + 1] || 0);
+        const uvC = new THREE.Vector2(uvs[c * 2] || 0, uvs[c * 2 + 1] || 0);
         
         const midUV_AB = new THREE.Vector2().addVectors(uvA, uvB).multiplyScalar(0.5);
         const midUV_BC = new THREE.Vector2().addVectors(uvB, uvC).multiplyScalar(0.5);
@@ -515,83 +677,6 @@ export function ShirtRefactored({
 
   // ShirtRefactored: subdivideGeometry function defined successfully
 
-  // Create separate puff print displacement and normal maps (optimized to reuse canvases)
-  // ShirtRefactored: About to define createPuffDisplacementMap function...
-  const createPuffDisplacementMap = useCallback(() => {
-    if (!modelScene) return null;
-    
-    // Use the new layered displacement system
-    const composedDisplacementCanvas = useApp.getState().composeDisplacementMaps();
-    if (composedDisplacementCanvas) {
-      // Using layered displacement maps from composeDisplacementMaps()
-      return composedDisplacementCanvas;
-    }
-    
-    // Fallback to old single puffCanvas system for backward compatibility
-    // Using fallback single puffCanvas system
-    
-    // Get or create displacement canvas (reuse if exists)
-    let displacementCanvas = useApp.getState().displacementCanvas;
-    if (!displacementCanvas) {
-      displacementCanvas = createDisplacementCanvas();
-      useApp.setState({ displacementCanvas });
-    }
-    
-    const dispCtx = displacementCanvas.getContext('2d');
-    if (!dispCtx) return null;
-
-    // CRITICAL FIX: Use BLACK (0,0,0) as base for NO displacement, then use WHITE (255) for puff areas
-    // This way, with bias 0, black = 0 displacement, white = max displacement
-    const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize();
-    dispCtx.clearRect(0, 0, canvasSize.width, canvasSize.height);
-    dispCtx.fillStyle = 'rgb(0, 0, 0)'; // Black = no displacement
-    dispCtx.fillRect(0, 0, canvasSize.width, canvasSize.height);
-    console.log('🎨 Displacement canvas filled with black (0) - represents zero displacement');
-
-    // Get puff print data from a separate puff canvas
-    const puffCanvas = useApp.getState().puffCanvas;
-    if (puffCanvas) {
-        // Get puff settings for displacement calculation
-        const puffSettings = useApp.getState();
-        const puffHeight = puffSettings.puffHeight || 1.0;
-        const puffCurvature = puffSettings.puffCurvature || 0.5;
-
-      // Convert puff canvas to proper displacement map by drawing only where there's puff
-      const puffImageData = puffCanvas.getContext('2d')?.getImageData(0, 0, puffCanvas.width, puffCanvas.height);
-      if (puffImageData) {
-        const data = puffImageData.data;
-        
-        // CRITICAL FIX: Only draw displacement for pixels that have puff content
-        // Use white (255) for maximum displacement, scaled by alpha and settings
-        for (let y = 0; y < puffCanvas.height; y++) {
-          for (let x = 0; x < puffCanvas.width; x++) {
-            const i = (y * puffCanvas.width + x) * 4;
-          const alpha = data[i + 3];
-            
-            if (alpha > 10) { // Threshold to avoid noise
-            // Create height based on alpha and puff settings
-            const baseHeight = (alpha / 255) * puffHeight;
-            const curvatureFactor = THREE.MathUtils.lerp(0.3, 1.0, puffCurvature);
-              const height = baseHeight * curvatureFactor;
-              
-              // Calculate displacement value (0-255, where 0 = no displacement, 255 = max)
-              const displacementValue = Math.floor(THREE.MathUtils.clamp(height * 255, 0, 255));
-              
-              // Draw this single pixel with the displacement value
-              dispCtx.fillStyle = `rgb(${displacementValue}, ${displacementValue}, ${displacementValue})`;
-              dispCtx.fillRect(x, y, 1, 1);
-            }
-            // If alpha <= 10, leave it as black (0) - no displacement
-          }
-        }
-        console.log('🎨 Displacement map created from puff canvas - black = no displacement, white = max puff');
-      }
-    }
-
-    return displacementCanvas;
-  }, [modelScene]);
-
-  console.log('🎯 ShirtRefactored: createPuffDisplacementMap function defined successfully');
 
   // Helper function to check if canvas has actual content
   const checkIfCanvasHasContent = useCallback((canvas: HTMLCanvasElement): boolean => {
@@ -604,263 +689,38 @@ export function ShirtRefactored({
     });
     if (!ctx) return false;
     
+    // CRITICAL FIX: Sample only a subset of pixels for performance
+    // Check every 100th pixel to avoid performance issues
+    const sampleRate = 100;
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    // FIXED: Check for displacement content, not just alpha
     // For displacement maps, we need to check if any pixel deviates from neutral gray (128, 128, 128)
-    for (let i = 0; i < data.length; i += 4) {
+    // Three.js format: 128 = neutral (no displacement), values > 128 = outward displacement
+    for (let i = 0; i < data.length; i += 4 * sampleRate) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
-      const a = data[i + 3];
       
-      // Check if pixel has alpha > 0 AND is not neutral black (0, 0, 0)
-      // CRITICAL FIX: We use black (0) as base, not gray (128)
-      // Allow tolerance for rounding errors
-      const isNeutral = Math.abs(r - 0) < 10 && Math.abs(g - 0) < 10 && Math.abs(b - 0) < 10;
+      // Check if pixel deviates from neutral gray (128) by more than tolerance
+      // Allow tolerance for rounding errors and blur effects
+      const tolerance = 5; // Allow ±5 for rounding errors
+      const isNeutral = Math.abs(r - 128) < tolerance && 
+                        Math.abs(g - 128) < tolerance && 
+                        Math.abs(b - 128) < tolerance;
       
-      if (a > 0 && !isNeutral) {
-        console.log('🎨 Canvas has displacement content - found pixel:', { r, g, b, a, isNeutral });
+      if (!isNeutral) {
+        // Found non-neutral pixel - has displacement content
         return true;
       }
     }
     
-    console.log('🎨 Canvas is empty - no displacement content found');
+    // All sampled pixels are neutral - no displacement content
     return false;
   }, []);
 
-  console.log('🎯 ShirtRefactored: About to define createPuffNormalMap function...');
-  const createPuffNormalMap = useCallback(() => {
-    if (!modelScene) return null;
-    
-    // Get or create normal canvas (reuse if exists)
-    let normalCanvas = useApp.getState().normalCanvas;
-    if (!normalCanvas) {
-      normalCanvas = document.createElement('canvas');
-      normalCanvas.width = 2048;
-      normalCanvas.height = 2048;
-      useApp.setState({ normalCanvas });
-    }
-    
-    const normalCtx = normalCanvas.getContext('2d');
-    if (!normalCtx) return null;
+  // Puff normal/displacement map functions removed - will be rebuilt with new 3D geometry approach
 
-    // Clear and fill with default normal (pointing up)
-    const canvasSize = unifiedPerformanceManager.getOptimalCanvasSize();
-    normalCtx.clearRect(0, 0, canvasSize.width, canvasSize.height);
-    normalCtx.fillStyle = 'rgb(128, 128, 255)';
-    normalCtx.fillRect(0, 0, canvasSize.width, canvasSize.height);
-
-    // Get puff print data from a separate puff canvas
-    const puffCanvas = useApp.getState().puffCanvas;
-    if (puffCanvas) {
-      // Generate normal map from puff print data
-      const imageData = puffCanvas.getContext('2d')?.getImageData(0, 0, puffCanvas.width, puffCanvas.height);
-      if (imageData) {
-        const normalImageData = normalCtx.createImageData(canvasSize.width, canvasSize.height);
-        const data = imageData.data;
-        const normalData = normalImageData.data;
-
-        // Generate normal vectors for 3D lighting
-        for (let y = 0; y < canvasSize.height; y++) {
-          for (let x = 0; x < canvasSize.width; x++) {
-            const idx = (y * canvasSize.width + x) * 4;
-            const alpha = data[idx + 3];
-            
-            if (alpha > 0) {
-              // Calculate normal vector based on surrounding pixels
-              const left = x > 0 ? data[((y * canvasSize.width + (x - 1)) * 4) + 3] : 0;
-              const right = x < canvasSize.width - 1 ? data[((y * canvasSize.width + (x + 1)) * 4) + 3] : 0;
-              const up = y > 0 ? data[(((y - 1) * canvasSize.width + x) * 4) + 3] : 0;
-              const down = y < canvasSize.height - 1 ? data[(((y + 1) * canvasSize.width + x) * 4) + 3] : 0;
-              
-              // Calculate gradient
-              const dx = (right - left) / 255;
-              const dy = (down - up) / 255;
-              const dz = Math.sqrt(1 - dx * dx - dy * dy);
-              
-              // Convert to normal map format (0-255 range)
-              normalData[idx] = Math.floor((dx + 1) * 127.5);     // R (X component)
-              normalData[idx + 1] = Math.floor((dy + 1) * 127.5); // G (Y component)
-              normalData[idx + 2] = Math.floor((dz + 1) * 127.5); // B (Z component)
-              normalData[idx + 3] = 255;                          // A
-            } else {
-              // Default normal (pointing up)
-              normalData[idx] = 128;     // R
-              normalData[idx + 1] = 128; // G
-              normalData[idx + 2] = 255; // B
-              normalData[idx + 3] = 255; // A
-            }
-          }
-        }
-
-        normalCtx.putImageData(normalImageData, 0, 0);
-      }
-    }
-
-    return normalCanvas;
-  }, [modelScene]);
-
-  console.log('🎯 ShirtRefactored: createPuffNormalMap function defined successfully');
-
-  // Update model with puff displacement and normal maps
-  const updateModelWithPuffMaps = useCallback((puffDisplacementCanvas: HTMLCanvasElement, puffNormalCanvas: HTMLCanvasElement) => {
-    if (!modelScene) return;
-    
-    // FIXED: Don't override PuffPrintTool's displacement maps when it's active
-    const appState = useApp.getState();
-    if (appState.activeTool === 'puffPrint') {
-      console.log('🎨 PuffPrintTool is active - skipping displacement map override');
-      return;
-    }
-    
-    console.log('🎨 Updating model with puff displacement and normal maps');
-    
-    // Create textures from canvases
-    const displacementTexture = new THREE.CanvasTexture(puffDisplacementCanvas);
-    displacementTexture.flipY = false;
-    displacementTexture.needsUpdate = true;
-    displacementTexture.wrapS = THREE.ClampToEdgeWrapping;
-    displacementTexture.wrapT = THREE.ClampToEdgeWrapping;
-    displacementTexture.repeat.set(1, 1);
-    
-    const normalTexture = new THREE.CanvasTexture(puffNormalCanvas);
-    normalTexture.flipY = false;
-    normalTexture.needsUpdate = true;
-    normalTexture.wrapS = THREE.ClampToEdgeWrapping;
-    normalTexture.wrapT = THREE.ClampToEdgeWrapping;
-    normalTexture.repeat.set(1, 1);
-    
-    // CRITICAL: Get the current composed texture (includes all layers)
-    const composedCanvas = useApp.getState().composedCanvas;
-    if (!composedCanvas) {
-      console.log('🎨 No composed canvas found, skipping puff map update');
-      return;
-    }
-    
-    const colorTexture = new THREE.CanvasTexture(composedCanvas);
-    colorTexture.flipY = false;
-    colorTexture.needsUpdate = true;
-    colorTexture.wrapS = THREE.ClampToEdgeWrapping;
-    colorTexture.wrapT = THREE.ClampToEdgeWrapping;
-    colorTexture.repeat.set(1, 1);
-    
-    // Get puff settings
-    const puffSettings = useApp.getState();
-    const puffHeight = puffSettings.puffHeight || 1.0;
-    const puffCurvature = puffSettings.puffCurvature || 0.5;
-    
-    // Check if there's actual puff content
-    const puffCanvas = useApp.getState().puffCanvas;
-    const hasPuffContent = puffCanvas ? checkIfCanvasHasContent(puffCanvas) : false;
-    
-    // Apply textures and maps to model
-    modelScene.traverse((child: any) => {
-      if (child.isMesh && child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach((mat: any) => {
-            if (mat.isMeshStandardMaterial) {
-              // ALWAYS apply the color texture (this is critical for tool input)
-              mat.map = colorTexture;
-              mat.map.needsUpdate = true;
-              
-              // CRITICAL: Ensure material settings don't cause white model
-              mat.transparent = true;
-              mat.opacity = 1.0;
-              mat.alphaTest = 0.0;
-              mat.emissive.setHex(0x000000); // Reset emissive to prevent washing out
-              
-              if (hasPuffContent) {
-                // Apply displacement and normal maps only when there's puff content
-                mat.displacementMap = displacementTexture;
-                mat.displacementScale = puffHeight * 1; // Increased scale for better visibility
-                mat.displacementBias = 0;
-                
-                mat.normalMap = normalTexture;
-                mat.normalScale = new THREE.Vector2(puffCurvature * 0.5, puffCurvature * 0.5);
-                
-                mat.displacementMap.needsUpdate = true;
-                mat.normalMap.needsUpdate = true;
-                
-                // REALISTIC PBR MATERIAL PROPERTIES FOR PUFF PRINT
-                // Real puff prints have a matte, velvety finish (low metalness, medium-high roughness)
-                mat.metalness = 0.0; // No metallic shine, foam is matte
-                mat.roughness = 0.75; // Slightly rough surface, not perfectly matte
-                
-                // Subtle ambient occlusion effect for depth perception
-                mat.aoMapIntensity = 0.3;
-              }
-              
-              // Check for embroidery content and apply silk-like material properties
-              const embroideryCanvas = useApp.getState().embroideryCanvas;
-              const hasEmbroideryContent = embroideryCanvas ? checkIfCanvasHasContent(embroideryCanvas) : false;
-              
-              if (hasEmbroideryContent) {
-                // REALISTIC PBR MATERIAL PROPERTIES FOR EMBROIDERY
-                // Real embroidery threads (silk/polyester) have a silky sheen with directional reflection
-                mat.metalness = 0.15; // Slight metallic quality for silk threads
-                mat.roughness = 0.35; // Smoother than puff, reflects more light
-                
-                // Enhance the sheen effect
-                mat.envMapIntensity = 1.2; // Increase environment reflection
-                mat.aoMapIntensity = 0.5; // More pronounced depth
-                
-                console.log('🎨 Applied embroidery PBR properties for silk-like finish');
-              }
-              
-              if (!hasPuffContent) {
-                // Remove displacement and normal maps if no puff content
-                mat.displacementMap = null;
-                mat.displacementScale = 0;
-                mat.displacementBias = 0;
-                mat.normalMap = null;
-                mat.normalScale = new THREE.Vector2(1, 1);
-              }
-              
-              mat.needsUpdate = true;
-            }
-          });
-        } else if (child.material.isMeshStandardMaterial) {
-          // ALWAYS apply the color texture (this is critical for tool input)
-          child.material.map = colorTexture;
-          child.material.map.needsUpdate = true;
-          
-          // CRITICAL: Ensure material settings don't cause white model
-          child.material.transparent = true;
-          child.material.opacity = 1.0;
-          child.material.alphaTest = 0.0;
-          child.material.emissive.setHex(0x000000); // Reset emissive to prevent washing out
-          
-          if (hasPuffContent) {
-            // Apply displacement and normal maps only when there's puff content
-            child.material.displacementMap = displacementTexture;
-            child.material.displacementScale = puffHeight * 0.5; // Increased scale for better visibility
-            child.material.displacementBias = 0;
-            
-            child.material.normalMap = normalTexture;
-            child.material.normalScale = new THREE.Vector2(puffCurvature * 0.5, puffCurvature * 0.5);
-            
-            child.material.displacementMap.needsUpdate = true;
-            child.material.normalMap.needsUpdate = true;
-            
-            console.log('🎨 Applied puff displacement maps to single material - scale:', child.material.displacementScale);
-          } else {
-            // Remove displacement and normal maps if no content
-            child.material.displacementMap = null;
-            child.material.displacementScale = 0;
-            child.material.displacementBias = 0;
-            child.material.normalMap = null;
-            child.material.normalScale = new THREE.Vector2(1, 1);
-          }
-          
-          child.material.needsUpdate = true;
-        }
-      }
-    });
-    
-    console.log('🎨 Model updated with color texture and puff displacement maps');
-  }, [modelScene, checkIfCanvasHasContent, createPuffDisplacementMap, createPuffNormalMap]);
 
   // PERFORMANCE: Smart texture update system - only update what's needed
   const TEXTURE_UPDATE_THROTTLE = 16; // ~60fps max
@@ -896,6 +756,23 @@ export function ShirtRefactored({
       return;
     }
     
+    // CRITICAL FIX: Ensure base texture exists BEFORE composing layers
+    // This prevents faded texture during strokes
+    const appState = useApp.getState();
+    
+    // Ensure base texture is captured before composition
+    if (!appState.baseTexture && appState.modelScene) {
+      console.log('🎨 Base texture missing during texture update - extracting from model...');
+      if (appState.generateBaseLayer) {
+        appState.generateBaseLayer();
+        // Re-read state after generation
+        const updatedState = useApp.getState();
+        if (updatedState.baseTexture) {
+          console.log('🎨 Base texture extracted successfully');
+        }
+      }
+    }
+    
     // CRITICAL FIX: Ensure composedCanvas exists by triggering layer composition if needed
     let { composedCanvas } = useApp.getState();
     
@@ -909,6 +786,30 @@ export function ShirtRefactored({
         return;
       }
     }
+    
+    // CRITICAL FIX: Check if composedCanvas has content before updating
+    // We should update the model if composedCanvas has content, even if baseTexture is null
+    // Only skip if composedCanvas is empty/white AND baseTexture is missing
+    
+    // Check if composedCanvas has content (not white/empty)
+    const composedCanvasHasContent = !isWhiteCanvas(composedCanvas);
+    
+    if (!composedCanvasHasContent) {
+      // ComposedCanvas is empty/white - check if we should preserve original texture
+      if (!appState.baseTexture) {
+        console.warn('⚠️ ComposedCanvas is empty and baseTexture is missing - skipping texture update to preserve model texture');
+        return;
+      }
+      
+      // Base texture exists but composedCanvas is empty - this shouldn't happen, but skip update
+      console.warn('⚠️ ComposedCanvas is empty despite baseTexture existing - skipping texture update');
+      return;
+    }
+    
+    // ComposedCanvas has content - proceed with texture update
+    // Note: We don't require baseTexture to exist here because composedCanvas already has content
+    // The base texture might be null if extraction failed, but layers have been drawn on top
+    console.log('🎨 ComposedCanvas has content - proceeding with texture update');
     
     console.log('🎨 Using composedCanvas directly for perfect UV alignment:', {
       width: composedCanvas.width,
@@ -997,8 +898,10 @@ export function ShirtRefactored({
             mat.emissiveMap = null;
             
             // ULTRA-REALISTIC: Material properties for natural cotton fabric appearance
+            // Default fabric material properties
             mat.roughness = 0.5;
             mat.metalness = 0.0;
+            
             mat.normalScale = new THREE.Vector2(1, 1);
             
             // Subtle fabric sheen (much less than before for realism)
@@ -1035,17 +938,233 @@ export function ShirtRefactored({
       console.log('🎨 No material updates needed');
     }
     
-    // Only update displacement maps if specifically requested
+    // NEW PUFF TOOL: Displacement maps are handled during painting
+    // The new puff tool generates displacement directly using generatePuffDisplacement
+    // Apply displacement map to model materials when updateDisplacement is true
+    // PERFORMANCE: Only update displacement maps periodically, not on every frame
     if (updateDisplacement || forceUpdate) {
-      const puffCanvas = useApp.getState().puffCanvas;
-      if (puffCanvas && currentModelScene) {
-        console.log('🎨 Updating displacement maps (requested)');
-        const puffDisplacementCanvas = createPuffDisplacementMap();
-        const puffNormalCanvas = createPuffNormalMap();
+      const displacementCanvas = (useApp.getState() as any).displacementCanvas as HTMLCanvasElement | undefined;
+      console.log('🎈 Puff tool: Displacement update check', {
+        updateDisplacement,
+        forceUpdate,
+        hasDisplacementCanvas: !!displacementCanvas,
+        hasModelScene: !!currentModelScene,
+        displacementCanvasSize: displacementCanvas ? `${displacementCanvas.width}x${displacementCanvas.height}` : 'none'
+      });
+      
+      if (displacementCanvas && currentModelScene) {
+        // CRITICAL FIX: Check if displacement canvas has actual displacement content
+        // If canvas is all neutral (128), don't apply displacement to avoid breaking the model
+        const hasDisplacementContent = checkIfCanvasHasContent(displacementCanvas);
         
-        if (puffDisplacementCanvas && puffNormalCanvas) {
-          updateModelWithPuffMaps(puffDisplacementCanvas, puffNormalCanvas);
+        if (!hasDisplacementContent) {
+          console.log('🎨 No displacement content detected - removing displacement maps');
+          // Remove displacement maps from all materials
+          currentModelScene.traverse((child: any) => {
+            if (child.isMesh && child.material) {
+              const materials = Array.isArray(child.material) ? child.material : [child.material];
+              materials.forEach((mat: any) => {
+                if (mat.isMeshStandardMaterial) {
+                  mat.displacementMap = null;
+                  mat.displacementScale = 0;
+                  mat.needsUpdate = true;
+                }
+              });
+            }
+          });
+          return; // Early exit - no displacement to apply
         }
+        
+        // PERFORMANCE: Throttle displacement updates to prevent lag
+        const lastDisplacementUpdate = (window as any).__lastDisplacementUpdate || 0;
+        const displacementUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 500 : 200; // ms between displacement updates
+        const now = Date.now();
+        
+        // Skip displacement update if called too recently (unless forced)
+        if (!forceUpdate && (now - lastDisplacementUpdate) < displacementUpdateThrottle) {
+          console.log('🎈 Puff tool: Displacement update throttled', {
+            timeSinceLastUpdate: now - lastDisplacementUpdate,
+            throttleTime: displacementUpdateThrottle
+          });
+          return; // Early exit - texture already updated above
+        }
+        (window as any).__lastDisplacementUpdate = now;
+        
+        console.log('🎨 Applying displacement map to model (has displacement content)');
+        
+        // PERFORMANCE: Cache blurred displacement - only regenerate when displacement canvas changes
+        const displacementCanvasId = (displacementCanvas as any).__id || Date.now();
+        const cachedBlurredDisp = (window as any).__cachedBlurredDisplacement;
+        const cachedDisplacementId = (window as any).__cachedDisplacementId;
+        
+        let blurredDisp: HTMLCanvasElement;
+        if (cachedBlurredDisp && cachedDisplacementId === displacementCanvasId) {
+          // Reuse cached blurred displacement
+          blurredDisp = cachedBlurredDisp;
+        } else {
+          // Apply gaussian blur for ultra-smooth displacement (eliminates spikes)
+          blurredDisp = document.createElement('canvas');
+          blurredDisp.width = displacementCanvas.width;
+          blurredDisp.height = displacementCanvas.height;
+          const blurCtx = blurredDisp.getContext('2d');
+          
+          if (blurCtx) {
+            // Apply blur filter for smoothness
+            blurCtx.filter = 'blur(2px)'; // Gaussian blur
+            blurCtx.drawImage(displacementCanvas, 0, 0);
+            blurCtx.filter = 'none'; // Reset filter
+          }
+          
+          // Cache the blurred displacement
+          (window as any).__cachedBlurredDisplacement = blurredDisp;
+          (window as any).__cachedDisplacementId = displacementCanvasId;
+        }
+        
+        // PERFORMANCE: Cache displacement texture - only recreate when blurred displacement changes
+        const cachedDispTexture = (window as any).__cachedDisplacementTexture;
+        const cachedBlurredId = (blurredDisp as any).__id || Date.now();
+        const cachedBlurredTextureId = (window as any).__cachedBlurredTextureId;
+        
+        let dispTexture: THREE.CanvasTexture;
+        if (cachedDispTexture && cachedBlurredTextureId === cachedBlurredId) {
+          // Reuse cached texture, just update it
+          dispTexture = cachedDispTexture;
+          dispTexture.needsUpdate = true;
+        } else {
+          // Create new texture
+          dispTexture = new THREE.CanvasTexture(blurredDisp);
+          dispTexture.flipY = false;
+          dispTexture.needsUpdate = true;
+          dispTexture.wrapS = THREE.ClampToEdgeWrapping;
+          dispTexture.wrapT = THREE.ClampToEdgeWrapping;
+          
+          // Cache the texture
+          (window as any).__cachedDisplacementTexture = dispTexture;
+          (window as any).__cachedBlurredTextureId = cachedBlurredId;
+        }
+        
+        // Puff height removed - will be rebuilt with new 3D geometry approach
+        const currentPuffHeight = 0.3; // Default 0.3mm (placeholder)
+        
+        // CRITICAL FIX: DRAMATICALLY increased displacement scale for visible 3D
+        // Displacement scale determines how much the geometry moves based on displacement map
+        // Higher scale = more visible 3D effect
+        // Height range: 0.2mm - 1.0mm
+        // At 0.3mm: scale = 10.0 (was 0.75) - 13x increase!
+        // At 1.0mm: scale = 20.0 (was 2.5) - 8x increase!
+        // Convert height (mm) to Three.js units (assuming 1 unit = 1mm)
+        const heightFactor = Math.pow((currentPuffHeight - 0.2) / 0.8, 0.5); // Square root curve
+        const displacementScale = 10.0 + (heightFactor * 10.0); // Range: 10.0 - 20.0
+        
+        console.log('🎈 Puff tool: Applying displacement', {
+          height: currentPuffHeight,
+          heightFactor,
+          displacementScale,
+          hasDisplacementCanvas: !!displacementCanvas,
+          displacementCanvasSize: displacementCanvas ? `${displacementCanvas.width}x${displacementCanvas.height}` : 'none'
+        });
+        
+        currentModelScene.traverse((child: any) => {
+          if (child.isMesh && child.material) {
+            // CRITICAL: Geometry MUST be subdivided for displacement to work!
+            // Displacement maps require sufficient vertex density to show 3D effect
+            if (child.geometry && !child.geometry.userData.puffSubdivided) {
+              const vertexCount = child.geometry.attributes.position.count;
+              // Subdivide more aggressively for better displacement visibility
+              // More vertices = smoother displacement effect
+              if (vertexCount < 50000) { // Increased limit for more subdivision
+                child.geometry = subdivideGeometry(child.geometry, 4); // More subdivision (was 3)
+                child.geometry.userData.puffSubdivided = true;
+                console.log('🎈 Puff tool: Subdivided geometry:', vertexCount, '→', child.geometry.attributes.position.count);
+              }
+            }
+            
+            const materials = Array.isArray(child.material) ? child.material : [child.material];
+            materials.forEach((mat: any) => {
+              if (mat.isMeshStandardMaterial) {
+                mat.displacementMap = dispTexture;
+                mat.displacementScale = displacementScale;
+                mat.displacementBias = 0;
+                
+                // PERFORMANCE: Cache normal maps - only regenerate when displacement actually changes
+                const cachedNormalTexture = (mat.userData as any)?.cachedPuffNormalTexture;
+                const cachedNormalId = (mat.userData as any)?.cachedNormalDisplacementId;
+                
+                if (!cachedNormalTexture || cachedNormalId !== cachedBlurredId) {
+                  // Generate normal map for realistic lighting
+                  const normalCanvas = document.createElement('canvas');
+                  // PERFORMANCE: Generate normal map at lower resolution for better performance
+                  const deviceTier = performanceOptimizer.getConfig().deviceTier;
+                  const normalMapScale = deviceTier === 'low' ? 0.5 : deviceTier === 'medium' ? 0.75 : 1.0;
+                  normalCanvas.width = Math.floor(blurredDisp.width * normalMapScale);
+                  normalCanvas.height = Math.floor(blurredDisp.height * normalMapScale);
+                  const normCtx = normalCanvas.getContext('2d', { willReadFrequently: true });
+                  const tempDispCtx = blurredDisp.getContext('2d', { willReadFrequently: true });
+                  
+                  if (normCtx && tempDispCtx) {
+                    // PERFORMANCE: Sample at lower resolution for normal map generation
+                    const sampleWidth = normalCanvas.width;
+                    const sampleHeight = normalCanvas.height;
+                    const sampleDispData = tempDispCtx.getImageData(0, 0, blurredDisp.width, blurredDisp.height);
+                    const normData = normCtx.createImageData(sampleWidth, sampleHeight);
+                    
+                    const stepX = blurredDisp.width / sampleWidth;
+                    const stepY = blurredDisp.height / sampleHeight;
+                    
+                    for (let y = 1; y < sampleHeight - 1; y++) {
+                      for (let x = 1; x < sampleWidth - 1; x++) {
+                        const srcX = Math.floor(x * stepX);
+                        const srcY = Math.floor(y * stepY);
+                        
+                        const idx = (y * sampleWidth + x) * 4;
+                        const srcIdx = (srcY * blurredDisp.width + srcX) * 4;
+                        const leftIdx = (srcY * blurredDisp.width + Math.max(0, srcX - 1)) * 4;
+                        const rightIdx = (srcY * blurredDisp.width + Math.min(blurredDisp.width - 1, srcX + 1)) * 4;
+                        const upIdx = (Math.max(0, srcY - 1) * blurredDisp.width + srcX) * 4;
+                        const downIdx = (Math.min(blurredDisp.height - 1, srcY + 1) * blurredDisp.width + srcX) * 4;
+                        
+                        const left = sampleDispData.data[leftIdx];
+                        const right = sampleDispData.data[rightIdx];
+                        const up = sampleDispData.data[upIdx];
+                        const down = sampleDispData.data[downIdx];
+                        
+                        const dx = (right - left) / 255;
+                        const dy = (down - up) / 255;
+                        const dz = 1.0;
+                        
+                        normData.data[idx] = Math.floor((dx + 1) * 127.5);
+                        normData.data[idx + 1] = Math.floor((dy + 1) * 127.5);
+                        normData.data[idx + 2] = Math.floor((dz + 1) * 127.5);
+                        normData.data[idx + 3] = 255;
+                      }
+                    }
+                    normCtx.putImageData(normData, 0, 0);
+                    
+                    const normTexture = new THREE.CanvasTexture(normalCanvas);
+                    normTexture.flipY = false;
+                    normTexture.needsUpdate = true;
+                    mat.normalMap = normTexture;
+                    mat.normalScale = new THREE.Vector2(1.5, 1.5);
+                    
+                    // Cache the normal texture
+                    if (!mat.userData) mat.userData = {};
+                    (mat.userData as any).cachedPuffNormalTexture = normTexture;
+                    (mat.userData as any).cachedNormalDisplacementId = cachedBlurredId;
+                  }
+                } else {
+                  // Reuse cached normal texture
+                  mat.normalMap = cachedNormalTexture;
+                  mat.normalScale = new THREE.Vector2(1.5, 1.5);
+                }
+                
+                mat.needsUpdate = true;
+                if (forceUpdate) {
+                  console.log('🎈 Puff tool: Displacement applied - scale:', displacementScale, 'height:', currentPuffHeight);
+                }
+              }
+            });
+          }
+        });
       }
     }
     
@@ -1057,315 +1176,17 @@ export function ShirtRefactored({
       // Trigger a re-render by updating the scene
       currentModelScene.parent.updateMatrixWorld(true);
     }
-  }, [modelScene, createPuffDisplacementMap, createPuffNormalMap, updateModelWithPuffMaps]);
+  }, [modelScene]);
 
   console.log('🎯 ShirtRefactored: updateModelTexture function defined successfully');
-
-  // PERFORMANCE FIX: Re-enabled puff displacement system for proper 3D effects
-  const updateModelWithPuffDisplacement = useCallback(() => {
-    if (!modelScene) return;
-
-    // Check if there's any puff data before applying displacement maps
-    const puffCanvas = useApp.getState().puffCanvas;
-    const appDisplacementCanvas = useApp.getState().displacementCanvas;
-    
-    if (!puffCanvas || !appDisplacementCanvas) {
-      console.log('🎨 No puff or displacement canvas found, skipping displacement update');
-      return;
-    }
-
-    // Check if puff canvas has any actual content (non-transparent pixels)
-    const puffCtx = puffCanvas.getContext('2d', { 
-      willReadFrequently: true,
-      alpha: false,
-      desynchronized: true
-    });
-    if (!puffCtx) return;
-    
-    const puffImageData = puffCtx.getImageData(0, 0, puffCanvas.width, puffCanvas.height);
-    const puffData = puffImageData.data;
-    let hasPuffData = false;
-    
-    // Check if there are any non-black pixels in puff canvas (since we use solid colors now)
-    for (let i = 0; i < puffData.length; i += 4) {
-      const r = puffData[i];
-      const g = puffData[i + 1];
-      const b = puffData[i + 2];
-      const a = puffData[i + 3];
-      
-      // Check if pixel is not black (0,0,0) - means there's puff content
-      if (r > 0 || g > 0 || b > 0 || a > 0) {
-        hasPuffData = true;
-        break;
-      }
-    }
-    
-    // Check if displacement canvas has any non-neutral pixels
-    const dispCtx = appDisplacementCanvas.getContext('2d', { 
-      willReadFrequently: true,
-      alpha: false,
-      desynchronized: true
-    });
-    if (!dispCtx) return;
-    
-    const dispImageData = dispCtx.getImageData(0, 0, appDisplacementCanvas.width, appDisplacementCanvas.height);
-    const dispData = dispImageData.data;
-    let hasDisplacement = false;
-    
-    // Check if any pixel is NOT neutral gray (128, 128, 128)
-    for (let i = 0; i < dispData.length; i += 4) {
-      const r = dispData[i];
-      const g = dispData[i + 1];
-      const b = dispData[i + 2];
-      const a = dispData[i + 3];
-      
-      // Only consider it displacement if alpha > 0 AND the color is not neutral black (0)
-      // CRITICAL FIX: We use black (0) as base, not gray (128)
-      const isNeutral = Math.abs(r - 0) < 5 && Math.abs(g - 0) < 5 && Math.abs(b - 0) < 5;
-      
-      if (a > 0 && !isNeutral) {
-        hasDisplacement = true;
-        break;
-      }
-    }
-    
-    if (!hasPuffData || !hasDisplacement) {
-      console.log('🎨 No puff data or displacement found, removing displacement from model');
-      console.log('🎨 Puff data check:', { hasPuffData, hasDisplacement });
-      
-      // Remove displacement from all materials
-      modelScene.traverse((child: any) => {
-        if (!child.isMesh || !child.material) return;
-
-        const updateMaterial = (mat: any) => {
-          if (mat) {
-            mat.displacementMap = null;
-            mat.displacementScale = 0;
-            mat.normalMap = null;
-            mat.needsUpdate = true;
-            console.log('🎨 Removed displacement and normal maps from material');
-          }
-          return mat;
-        };
-
-        if (Array.isArray(child.material)) {
-          child.material = child.material.map(updateMaterial);
-        } else {
-          child.material = updateMaterial(child.material);
-        }
-      });
-      
-      return;
-    }
-
-    console.log('🎨 Puff data and displacement found, applying displacement maps');
-
-    // Create separate puff displacement and normal maps
-    const puffDisplacementCanvas = createPuffDisplacementMap();
-    const normalCanvas = createPuffNormalMap();
-
-    if (!puffDisplacementCanvas || !normalCanvas) return;
-
-    // Create composite canvas combining base texture and layer canvas (not puffCanvas)
-    const composedCanvas = useApp.getState().composedCanvas;
-    if (!composedCanvas) return;
-    
-    // Get the active layer canvas which contains the actual puff color
-    const activeLayerId = useApp.getState().activeLayerId;
-    const layers = useApp.getState().layers;
-    const activeLayer = layers.find((l: any) => l.id === activeLayerId);
-    
-    if (!activeLayer || !activeLayer.canvas) {
-      console.log('🎨 No active layer canvas found for puff texture');
-      return;
-    }
-    
-    const compositeCanvas = document.createElement('canvas');
-    compositeCanvas.width = composedCanvas.width;
-    compositeCanvas.height = composedCanvas.height;
-    const compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true });
-    if (!compositeCtx) return;
-    
-    // Draw base texture first
-    compositeCtx.drawImage(composedCanvas, 0, 0);
-    
-    // Draw layer canvas (which contains puff color) on top
-    compositeCtx.globalCompositeOperation = 'source-over';
-    compositeCtx.globalAlpha = 1.0; // Full opacity for proper puff color
-    compositeCtx.drawImage(activeLayer.canvas, 0, 0);
-
-    // Create textures
-    const colorTexture = new THREE.CanvasTexture(compositeCanvas);
-    colorTexture.flipY = false;
-    colorTexture.needsUpdate = true;
-    colorTexture.wrapS = THREE.ClampToEdgeWrapping;
-    colorTexture.wrapT = THREE.ClampToEdgeWrapping;
-    colorTexture.repeat.set(1, 1);
-    
-    const displacementTexture = new THREE.CanvasTexture(puffDisplacementCanvas);
-    displacementTexture.flipY = false;
-    displacementTexture.needsUpdate = true;
-    displacementTexture.wrapS = THREE.ClampToEdgeWrapping;
-    displacementTexture.wrapT = THREE.ClampToEdgeWrapping;
-    displacementTexture.repeat.set(1, 1);
-
-    const normalTexture = new THREE.CanvasTexture(normalCanvas);
-    normalTexture.flipY = false;
-    normalTexture.needsUpdate = true;
-    normalTexture.wrapS = THREE.ClampToEdgeWrapping;
-    normalTexture.wrapT = THREE.ClampToEdgeWrapping;
-    normalTexture.repeat.set(1, 1);
-
-    // Get puff settings for dynamic displacement scaling
-    const puffSettings = useApp.getState();
-    const puffHeight = puffSettings.puffHeight || 1.0;
-    const puffCurvature = puffSettings.puffCurvature || 0.5;
-
-    // Check if there's actual puff content before applying displacement maps
-    const hasPuffContent = checkIfCanvasHasContent(puffCanvas);
-    
-    // Apply color texture, displacement and normal maps
-    modelScene.traverse((child: any) => {
-      if (child.isMesh && child.material) {
-        // CRITICAL FIX: Ensure geometry has enough vertices for displacement
-        // Displacement mapping requires subdivided geometry to create visible 3D effects
-        if (child.geometry && hasPuffContent) {
-          const vertexCount = child.geometry.attributes.position?.count || 0;
-          console.log('🎨 Mesh vertex count:', vertexCount);
-          
-          // If geometry has too few vertices, subdivide it for better displacement
-          if (vertexCount < 5000) {
-            console.log('🎨 Subdividing geometry for better displacement (current vertices:', vertexCount, ')');
-            const subdivisionLevel = vertexCount < 1000 ? 3 : 2; // More subdivision for low-poly models
-            child.geometry = subdivideGeometry(child.geometry, subdivisionLevel);
-            console.log('🎨 Geometry subdivided to', child.geometry.attributes.position.count, 'vertices');
-          }
-        }
-        
-        if (Array.isArray(child.material)) {
-          child.material.forEach((mat: any) => {
-            if (mat.isMeshStandardMaterial) {
-              // Always apply color texture
-              mat.map = colorTexture;
-              
-              // Only apply displacement and normal maps if there's actual puff content
-              if (hasPuffContent) {
-                // Apply displacement map with proper scale for visible 3D puff effect
-                mat.displacementMap = displacementTexture;
-                mat.displacementScale = puffHeight * 1.0; // Increased scale for visible 3D puffs
-                mat.displacementBias = 0; // CRITICAL: With black (0) base, bias 0 means black = no displacement
-                
-                // Apply normal map for surface detail
-                mat.normalMap = normalTexture;
-                mat.normalScale = new THREE.Vector2(puffCurvature * 2.0, puffCurvature * 2.0); // Increased normal scale for better detail
-                
-                console.log('🎨 Applied displacement maps - scale:', mat.displacementScale, 'normal scale:', mat.normalScale);
-              } else {
-                // Remove displacement and normal maps if no puff content
-                mat.displacementMap = null;
-                mat.displacementScale = 0;
-                mat.displacementBias = 0;
-                mat.normalMap = null;
-                mat.normalScale = new THREE.Vector2(1, 1); // Reset to default
-                
-                console.log('🎨 Removed displacement maps - no puff content detected');
-              }
-              
-              // Update material
-              mat.map.needsUpdate = true;
-              if (hasPuffContent) {
-                mat.displacementMap.needsUpdate = true;
-                mat.normalMap.needsUpdate = true;
-              }
-              mat.needsUpdate = true;
-            }
-          });
-        } else if (child.material.isMeshStandardMaterial) {
-          // Always apply color texture
-          child.material.map = colorTexture;
-          
-          // Only apply displacement and normal maps if there's actual puff content
-          if (hasPuffContent) {
-            // Apply displacement map with proper scale for visible 3D puff effect
-            child.material.displacementMap = displacementTexture;
-            child.material.displacementScale = puffHeight * 1.0; // Increased scale for visible 3D puffs
-            child.material.displacementBias = 0; // CRITICAL: With black (0) base, bias 0 means black = no displacement
-            
-            // Apply normal map for surface detail
-            child.material.normalMap = normalTexture;
-            child.material.normalScale = new THREE.Vector2(puffCurvature * 2.0, puffCurvature * 2.0); // Increased normal scale for better detail
-            
-            console.log('🎨 Applied displacement maps (single material) - scale:', child.material.displacementScale, 'normal scale:', child.material.normalScale);
-          } else {
-            // Remove displacement and normal maps if no puff content
-            child.material.displacementMap = null;
-            child.material.displacementScale = 0;
-            child.material.displacementBias = 0;
-            child.material.normalMap = null;
-            child.material.normalScale = new THREE.Vector2(1, 1); // Reset to default
-            
-            console.log('🎨 Removed displacement maps (single material) - no puff content detected');
-          }
-          
-          // Update material
-          child.material.map.needsUpdate = true;
-          if (hasPuffContent) {
-            child.material.displacementMap.needsUpdate = true;
-            child.material.normalMap.needsUpdate = true;
-          }
-          child.material.needsUpdate = true;
-        }
-      }
-    });
-
-    console.log('🎨 Model updated with puff print displacement and normal maps (preserving original texture)');
-  }, [modelScene, createPuffDisplacementMap, createPuffNormalMap]);
 
   // Make updateModelTexture available globally for direct calls
   useEffect(() => {
     (window as any).updateModelTexture = updateModelTexture;
-    (window as any).updateModelWithPuffDisplacement = updateModelWithPuffDisplacement;
     return () => {
       delete (window as any).updateModelTexture;
-      delete (window as any).updateModelWithPuffDisplacement;
     };
-  }, [updateModelTexture, updateModelWithPuffDisplacement]);
-
-  // Clear puff displacement maps (only for explicit clearing, not automatic tool switching)
-  const clearPuffDisplacement = useCallback(() => {
-    if (!modelScene) return;
-
-    console.log('🎨 Clearing puff displacement maps (explicit clear operation)');
-
-    modelScene.traverse((child: any) => {
-      if (child.isMesh && child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach((mat: any) => {
-            if (mat.isMeshStandardMaterial) {
-              // Remove displacement and normal maps
-              mat.displacementMap = null;
-              mat.normalMap = null;
-              mat.displacementScale = 0;
-              mat.displacementBias = 0;
-              mat.needsUpdate = true;
-            }
-          });
-        } else if (child.material.isMeshStandardMaterial) {
-          // Remove displacement and normal maps
-          child.material.displacementMap = null;
-          child.material.normalMap = null;
-          child.material.displacementScale = 0;
-          child.material.displacementBias = 0;
-          child.material.needsUpdate = true;
-        }
-      }
-    });
-  }, [modelScene]);
-
-   // Expose clear function for external use (e.g., clear button in UI)
-   React.useEffect(() => {
-     (window as any).clearPuffDisplacement = clearPuffDisplacement;
-   }, [clearPuffDisplacement]);
+  }, [updateModelTexture]);
 
    // Close context menu on click outside
    useEffect(() => {
@@ -1515,13 +1336,6 @@ export function ShirtRefactored({
   useEffect(() => {
      console.log('🎨 Setting up Apply Tool event listeners for all texture systems');
 
-    // Handle puff effects application
-    const handleApplyPuffEffects = () => {
-      console.log('🎨 Apply Tool: Applying puff effects to unified texture system');
-      if (modelScene) {
-        updateModelTexture(false, true); // Update displacement maps for puff
-      }
-    };
 
      // Handle embroidery effects application
      const handleApplyEmbroideryEffects = () => {
@@ -1561,7 +1375,6 @@ export function ShirtRefactored({
     };
 
      // Add event listeners
-     document.addEventListener('applyPuffEffects', handleApplyPuffEffects);
      document.addEventListener('applyEmbroideryEffects', handleApplyEmbroideryEffects);
      document.addEventListener('applyBrushEffects', handleApplyBrushEffects);
      document.addEventListener('updateDisplacementMaps', handleUpdateDisplacementMaps);
@@ -1569,7 +1382,6 @@ export function ShirtRefactored({
 
      // Cleanup
      return () => {
-       document.removeEventListener('applyPuffEffects', handleApplyPuffEffects);
        document.removeEventListener('applyEmbroideryEffects', handleApplyEmbroideryEffects);
        document.removeEventListener('applyBrushEffects', handleApplyBrushEffects);
        document.removeEventListener('updateDisplacementMaps', handleUpdateDisplacementMaps);
@@ -1583,35 +1395,99 @@ export function ShirtRefactored({
   
   // Render vector paths when they change - render on COMPOSED canvas for visibility
   const showAnchorPoints = useApp(s => s.showAnchorPoints);
+  const vectorStrokeColor = useApp(s => s.vectorStrokeColor);
+  const vectorStrokeWidth = useApp(s => s.vectorStrokeWidth);
+  const vectorFillColor = useApp(s => s.vectorFillColor);
+  const vectorFill = useApp(s => s.vectorFill);
+  const vectorEditMode = useApp(s => s.vectorEditMode || 'pen');
+  const selectedAnchor = useApp(s => s.selectedAnchor);
   
+  // CRITICAL FIX: Real-time rendering for vector paths - no debounce
   useEffect(() => {
-    // Always render vector paths when in vector mode, regardless of showAnchorPoints
-    if (!vectorMode || vectorPaths.length === 0) return;
+    // CRITICAL FIX: Only render if vector tool is active
+    if (activeTool !== 'vector') {
+      // Return cleanup function that does nothing when tool is not active
+      return () => {};
+    }
     
-    const composedCanvas = useApp.getState().composedCanvas;
-    if (!composedCanvas) return;
+    // CRITICAL FIX: Render immediately for real-time feedback - NO debounce
+    // Use vectorPaths from dependency directly, not getState()
+    // This ensures we're using the subscribed value that triggered the effect
+    const freshVectorPaths = vectorPaths || [];
+    
+    // Always render vector paths when vector tool is active, regardless of showAnchorPoints
+    if (freshVectorPaths.length === 0) {
+      // Clear vector paths from composed canvas if no paths exist
+      const composedCanvas = useApp.getState().composedCanvas;
+      if (composedCanvas) {
+        useApp.getState().composeLayers();
+        updateModelTexture(false, false);
+      }
+      return;
+    }
+    
+    // CRITICAL FIX: Ensure composedCanvas is available
+    let composedCanvas = useApp.getState().composedCanvas;
+    if (!composedCanvas) {
+      console.warn('🎯 Vector tool: No composedCanvas - initializing...');
+      // Try to trigger layer composition
+      useApp.getState().composeLayers();
+      composedCanvas = useApp.getState().composedCanvas;
+      
+      if (!composedCanvas) {
+        console.error('🎯 Vector tool: Failed to initialize composedCanvas');
+        return;
+      }
+    }
+    
+    // CRITICAL FIX: Always recompose layers first to get clean base, then render vectors on top
+    // This ensures vector paths are always visible on top of other layers
+    useApp.getState().composeLayers();
+    
+    // Re-get composedCanvas after composition to ensure we have the latest version
+    composedCanvas = useApp.getState().composedCanvas;
+    if (!composedCanvas) {
+      return;
+    }
     
     const ctx = composedCanvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      return;
+    }
     
-    console.log('🎨 Rendering vector paths on composed canvas:', vectorPaths.length, 'paths');
+    // CRITICAL FIX: Use vector settings from dependencies directly (already subscribed)
+    const strokeColor = vectorStrokeColor || '#000000';
+    const strokeWidth = vectorStrokeWidth || 2;
+    const fillColor = vectorFillColor || '#FF0000';
+    const vectorFillEnabled = vectorFill || false;
     
-    // CRITICAL FIX: Use brush engine's renderVectorPath function for proper gradient support
-    const brushEngine = (window as any).__brushEngine;
-    
-    // Render vector paths directly - they'll show on the texture
-    vectorPaths.forEach((path: any) => {
-      if (path.points.length === 0) return;
+    // Then render vector paths on top (use fresh paths from state)
+    freshVectorPaths.forEach((path: any) => {
+      if (path.points.length === 0) return; // Skip empty paths
       
-      // CRITICAL FIX: Use THIN preview line to show path structure (not brush size)
+      // For single-point paths, just draw a dot
+      if (path.points.length === 1) {
+        const point = path.points[0];
+        const px = Math.floor(point.u * composedCanvas.width);
+        const py = Math.floor(point.v * composedCanvas.height);
+        
+        ctx.save();
+        ctx.fillStyle = strokeColor;
+        ctx.beginPath();
+        ctx.arc(px, py, strokeWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+      
       ctx.save();
       
-      // Use thin line rendering for preview - just to show the path structure
-      ctx.strokeStyle = '#00FF00'; // Bright green for visibility
-      ctx.lineWidth = 2; // FIXED: Thin preview line, not brush size
+      // Use actual vector stroke settings
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.globalAlpha = 0.5; // Semi-transparent for preview
+      ctx.globalAlpha = 1.0; // Full opacity
       
       ctx.beginPath();
       
@@ -1622,41 +1498,72 @@ export function ShirtRefactored({
         if (index === 0) {
           ctx.moveTo(px, py);
         } else {
-          ctx.lineTo(px, py);
+          // Draw bezier curve if handles exist
+          const prevPoint = path.points[index - 1];
+          if (prevPoint.outHandle || point.inHandle) {
+            const prevX = Math.floor(prevPoint.u * composedCanvas.width);
+            const prevY = Math.floor(prevPoint.v * composedCanvas.height);
+            const cp1X = prevPoint.outHandle ? Math.floor(prevPoint.outHandle.u * composedCanvas.width) : prevX;
+            const cp1Y = prevPoint.outHandle ? Math.floor(prevPoint.outHandle.v * composedCanvas.height) : prevY;
+            const cp2X = point.inHandle ? Math.floor(point.inHandle.u * composedCanvas.width) : px;
+            const cp2Y = point.inHandle ? Math.floor(point.inHandle.v * composedCanvas.height) : py;
+            
+            ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
         }
       });
+      
+      if (path.closed && path.points.length > 2) {
+        ctx.closePath();
+      }
+      
+      // Fill the path if fill is enabled and path is closed
+      if (vectorFillEnabled && path.closed && path.points.length > 2) {
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+      }
       
       ctx.stroke();
       ctx.restore();
       
-      // Draw anchors with maximum visibility
+      // CRITICAL FIX: Always show anchors when vector tool is active for better UX
+      // Anchors should always be visible when vector tool is active for better user experience
       path.points.forEach((point: any, index: number) => {
         const px = Math.floor(point.u * composedCanvas.width);
         const py = Math.floor(point.v * composedCanvas.height);
+        const isSelected = selectedAnchor && 
+          selectedAnchor.pathId === path.id && 
+          selectedAnchor.anchorIndex === index;
         
-        // Large outer glow
-        ctx.shadowColor = index === 0 ? '#00FF00' : '#FFFF00';
-        ctx.shadowBlur = 20;
+        ctx.save();
         
-        // Large anchor point
-        ctx.fillStyle = index === 0 ? '#00FF00' : '#FFFF00';
+        // Anchor point with black outline for selected
+        ctx.fillStyle = isSelected ? '#FFFFFF' : '#3B82F6';
         ctx.beginPath();
-        ctx.arc(px, py, 12, 0, Math.PI * 2); // Larger radius
+        ctx.arc(px, py, isSelected ? 7 : 5, 0, Math.PI * 2);
         ctx.fill();
         
-        // Thick black outline
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 4;
+        // White outline
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
         ctx.stroke();
+        
+        // Black outline for selected anchors
+        if (isSelected) {
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        
+        ctx.restore();
       });
-      
-      ctx.restore();
-    });
+    }); // Close forEach
     
-    // Update the texture to show vector paths on model
-    updateModelTexture();
-  }, [vectorPaths, vectorMode, showAnchorPoints, updateModelTexture]);
+    // CRITICAL FIX: Update texture immediately after rendering for real-time feedback
+    updateModelTexture(false, false);
+    }, [activeTool, vectorPaths, vectorEditMode, selectedAnchor, vectorStrokeColor, vectorStrokeWidth, vectorFillColor, vectorFill, showAnchorPoints, updateModelTexture]); // CRITICAL FIX: Include updateModelTexture in dependencies
   
   // PHASE 2: Get selected layer ID and transform mode for rendering
   const { selectedLayerId, transformMode } = useStrokeSelection();
@@ -1820,6 +1727,11 @@ export function ShirtRefactored({
   
   // PERFORMANCE OPTIMIZATION: Aggressively optimized painting function
   const paintAtEvent = useCallback((e: any) => {
+    // CRITICAL FIX: Get fresh activeTool from store to avoid stale closures
+    const currentActiveTool = useApp.getState().activeTool;
+    
+    // Puff tool handled below after embroidery
+    
     // CRITICAL FIX: Only create layer once per stroke, not for each paint event
     // Check if we're already in a stroke session
     // PERFORMANCE: Disable all console logging in hot path for maximum performance
@@ -1845,28 +1757,452 @@ export function ShirtRefactored({
     }
     
     // Handle picker tool first - optimized for performance
-    if (activeTool === 'picker') {
-      if (!modelScene) return;
+    if (currentActiveTool === 'picker') {
+      debugLog('🎨 Picker tool: Starting color pick at UV:', { u: uv.x, v: uv.y });
+      
+      if (!modelScene) {
+        if (DEBUG_TOOLS) console.warn('🎨 Picker tool: No modelScene available');
+        return;
+      }
       
       // PERFORMANCE: Use cached composed canvas for faster color sampling
       const composedCanvas = useApp.getState().composedCanvas;
-      if (!composedCanvas) return;
+      if (!composedCanvas) {
+        if (DEBUG_TOOLS) console.warn('🎨 Picker tool: No composedCanvas available');
+        return;
+      }
       
       const ctx = composedCanvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return;
+      if (!ctx) {
+        if (DEBUG_TOOLS) console.warn('🎨 Picker tool: Could not get canvas context');
+        return;
+      }
       
-      const x = Math.floor(uv.x * composedCanvas.width);
-      const y = Math.floor(uv.y * composedCanvas.height);
-      const data = ctx.getImageData(x, y, 1, 1).data;
-      const sampledColor = `#${[data[0], data[1], data[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+      // CRITICAL FIX: Ensure coordinates are within canvas bounds
+      const x = Math.max(0, Math.min(composedCanvas.width - 1, Math.floor(uv.x * composedCanvas.width)));
+      const y = Math.max(0, Math.min(composedCanvas.height - 1, Math.floor(uv.y * composedCanvas.height)));
       
-      // PERFORMANCE: Batch state updates
-      useApp.setState({ 
-        brushColor: sampledColor, 
-        activeTool: 'brush' 
-      });
+      debugLog('🎨 Picker tool: Sampling color at pixel:', { x, y, canvasWidth: composedCanvas.width, canvasHeight: composedCanvas.height });
+      
+      try {
+        const data = ctx.getImageData(x, y, 1, 1).data;
+        const sampledColor = `#${[data[0], data[1], data[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+        
+        debugLog('🎨 Picker tool: Sampled color:', sampledColor, 'RGB:', { r: data[0], g: data[1], b: data[2] });
+        
+        // PERFORMANCE: Batch state updates
+        useApp.setState({ 
+          brushColor: sampledColor, 
+          activeTool: 'brush' // Switch to brush tool after picking
+        });
+        
+        debugLog('🎨 Picker tool: Color picked and brush color updated, switched to brush tool');
+      } catch (error) {
+        console.error('🎨 Picker tool: Error sampling color:', error);
+      }
       
       return;
+    }
+    
+    // CRITICAL FIX: Handle vector tool BEFORE layer check (vector tool doesn't need a layer)
+    if (currentActiveTool === 'vector') {
+      console.log('🎯 Vector tool: paintAtEvent called at UV:', { u: uv.x, v: uv.y });
+      // UNIFIED VECTOR TOOL - Works with all element types (text, image, shapes, vector paths)
+      // CRITICAL FIX: Get fresh state each time to avoid stale state issues
+      const vectorState = useApp.getState();
+      let { vectorEditMode, selectedAnchor, vectorPaths, activeTextId, activeShapeId, selectedImageId } = vectorState;
+      
+      // CRITICAL FIX: Ensure composedCanvas is available or initialize it
+      let composedCanvas = useApp.getState().composedCanvas;
+      if (!composedCanvas) {
+        console.warn('🎯 Vector tool: No composed canvas - initializing...');
+        // Trigger layer composition to create composedCanvas
+        useApp.getState().composeLayers();
+        composedCanvas = useApp.getState().composedCanvas;
+        
+        if (!composedCanvas) {
+          console.error('🎯 Vector tool: Failed to initialize composedCanvas. Vector tool requires composed canvas to function.');
+          // Show user-visible error instead of silently failing
+          // TODO: Add toast/notification UI here
+          return;
+        }
+      }
+      const canvas = composedCanvas;
+      
+      // SIMPLIFIED MODE SYSTEM: Only 3 core modes (pen, select, curve)
+      // Other operations (add/remove anchor, convert) are handled via shortcuts or context
+      // But we still support them as temporary modes
+      type VectorMode = 'pen' | 'select' | 'curve' | 'addAnchor' | 'removeAnchor' | 'convertAnchor' | 'move';
+      const validModes: VectorMode[] = ['pen', 'select', 'curve', 'addAnchor', 'removeAnchor', 'convertAnchor', 'move'];
+      
+      if (!vectorEditMode || !validModes.includes(vectorEditMode as VectorMode)) {
+        vectorEditMode = 'pen';
+        useApp.setState({ vectorEditMode: 'pen' });
+        console.log('🎯 Vector: Auto-set to pen mode for immediate drawing');
+      }
+      
+      // Map legacy 'move' mode to 'select' mode
+      if (vectorEditMode === 'move') {
+        vectorEditMode = 'select'; // Move is now part of select mode
+        useApp.setState({ vectorEditMode: 'select' });
+      }
+      
+      console.log('🎯 Vector: Mode:', vectorEditMode, 'at UV:', { u: uv.x, v: uv.y }, 'VectorPaths:', vectorPaths.length, 'Canvas:', canvas.width, 'x', canvas.height);
+
+      // STEP 1: Check if clicking on existing elements (text, image, shape) first
+      const v2State = useAdvancedLayerStoreV2.getState();
+      const clickU = uv.x;
+      const clickV = 1 - uv.y; // Flip V for texture space
+      
+      // Check text elements
+      const allTextElements = v2State.getAllTextElements();
+      let clickedTextElement = null;
+      for (const textEl of allTextElements) {
+        const textU = textEl.u;
+        const textV = textEl.v;
+        const textWidth = (textEl.fontSize || 20) * (textEl.text?.length || 0) * 0.6 / canvas.width;
+        const textHeight = (textEl.fontSize || 20) / canvas.height;
+        
+        if (clickU >= textU - textWidth/2 && clickU <= textU + textWidth/2 &&
+            clickV >= textV - textHeight/2 && clickV <= textV + textHeight/2) {
+          clickedTextElement = textEl;
+          break;
+        }
+      }
+      
+      // Check image elements
+      const allImageElements = v2State.getAllImageElements();
+      let clickedImageElement = null;
+      for (const imgEl of allImageElements) {
+        const imgU = imgEl.u;
+        const imgV = imgEl.v;
+        const imgWidth = (imgEl.width || 256) / canvas.width;
+        const imgHeight = (imgEl.height || 256) / canvas.height;
+        
+        if (clickU >= imgU - imgWidth/2 && clickU <= imgU + imgWidth/2 &&
+            clickV >= imgV - imgHeight/2 && clickV <= imgV + imgHeight/2) {
+          clickedImageElement = imgEl;
+          break;
+        }
+      }
+      
+      // Check shape elements
+      const appState = useApp.getState();
+      let clickedShapeElement = null;
+      for (const shapeEl of appState.shapeElements || []) {
+        // Shape bounds calculation (simplified - adjust based on actual shape implementation)
+        const shapeU = shapeEl.u || 0.5;
+        const shapeV = shapeEl.v || 0.5;
+        const shapeSize = (shapeEl.size || 50) / canvas.width;
+        
+        if (clickU >= shapeU - shapeSize/2 && clickU <= shapeU + shapeSize/2 &&
+            clickV >= shapeV - shapeSize/2 && clickV <= shapeV + shapeSize/2) {
+          clickedShapeElement = shapeEl;
+          break;
+        }
+      }
+
+      // STEP 2: Handle element selection/editing
+      if (clickedTextElement || clickedImageElement || clickedShapeElement) {
+        if (vectorEditMode === 'select') {
+          // Select mode - select the element
+          if (clickedTextElement) {
+            useApp.setState({ activeTextId: clickedTextElement.id, activeShapeId: null, selectedImageId: null });
+            debugLog('🎯 Vector: Selected text element:', clickedTextElement.id);
+          } else if (clickedImageElement) {
+            useApp.setState({ selectedImageId: clickedImageElement.id, activeTextId: null, activeShapeId: null });
+            debugLog('🎯 Vector: Selected image element:', clickedImageElement.id);
+          } else if (clickedShapeElement) {
+            useApp.setState({ activeShapeId: clickedShapeElement.id, activeTextId: null, selectedImageId: null });
+            debugLog('🎯 Vector: Selected shape element:', clickedShapeElement.id);
+          }
+          return; // Don't create vector path when selecting elements
+        } else if (vectorEditMode === 'pen') {
+          // Pen mode - convert element to vector path or start editing
+          debugLog('🎯 Vector: Clicked on element in pen mode - can convert to vector path');
+          // For now, just select the element. Conversion to vector path can be added later.
+          if (clickedTextElement) {
+            useApp.setState({ activeTextId: clickedTextElement.id });
+          } else if (clickedImageElement) {
+            useApp.setState({ selectedImageId: clickedImageElement.id });
+          } else if (clickedShapeElement) {
+            useApp.setState({ activeShapeId: clickedShapeElement.id });
+          }
+          return;
+        }
+      }
+
+      // STEP 3: Handle vector path editing (existing logic)
+      if (vectorEditMode === 'pen') {
+        // Smart pen mode - check if clicking near existing anchor first
+        // IMPROVED: Use standardized UV-based anchor detection
+        const clickUV = { u: uv.x, v: uv.y };
+        const nearestAnchor = findNearestAnchor(vectorPaths || [], clickUV, VECTOR_ANCHOR_DETECTION_THRESHOLD);
+
+        debugLog('🎯 Vector: Checking for nearby anchors at UV:', clickUV);
+
+        if (nearestAnchor) {
+          // Clicked near existing anchor - select it and start dragging
+          debugLog('🎯 Vector: Selecting anchor:', nearestAnchor);
+          
+          // Clear any previous selection and select only this anchor
+          useApp.setState({ 
+            selectedAnchor: { 
+              pathId: nearestAnchor.pathId, 
+              anchorIndex: nearestAnchor.anchorIndex 
+            },
+            activePathId: nearestAnchor.pathId, // Also set active path
+            activeTextId: null,
+            activeShapeId: null,
+            selectedImageId: null
+          });
+          
+          isDraggingAnchorRef.current = true;
+          dragStartPosRef.current = { x: uv.x, y: uv.y }; // Store UV coordinates
+          return; // Don't create new anchor, just select existing one
+        } else {
+          // No nearby anchor - clear any existing selection and create new anchor
+          const freshState = useApp.getState();
+          const activePathId = freshState.activePathId;
+          
+          debugLog('🎯 Vector: activePathId:', activePathId, 'total paths:', (freshState.vectorPaths || []).length);
+          
+          // Clear any existing selection first
+          useApp.setState({ 
+            selectedAnchor: null,
+            activeTextId: null,
+            activeShapeId: null,
+            selectedImageId: null
+          });
+          
+          // Create VectorAnchor with proper UV coordinates and bezier handles
+          const anchor = {
+            u: uv.x,  // UV coordinate (0-1 range)
+            v: uv.y,  // UV coordinate (0-1 range)
+            inHandle: null,   // Bezier control handle (in)
+            outHandle: null,  // Bezier control handle (out)
+            curveControl: false
+          };
+
+          // CRITICAL FIX: Use fresh vectorPaths from current state
+          const currentVectorPaths = freshState.vectorPaths || [];
+          const activePath = currentVectorPaths.find(p => p.id === activePathId);
+
+          if (!activePath) {
+            // Start new vector path with proper settings
+            const appState = useApp.getState();
+            const gradientSettings = (window as any).getGradientSettings?.();
+            const brushGradientData = gradientSettings?.brush;
+            const shouldUseGradient = brushGradientData && brushGradientData.mode === 'gradient';
+            
+            const newPath = {
+              id: `vpath-${Date.now()}`,
+              points: [anchor],
+              closed: false
+            };
+            
+            useApp.setState({ 
+              vectorPaths: [...currentVectorPaths, newPath],
+              activePathId: newPath.id,
+              selectedAnchor: { 
+                pathId: newPath.id, 
+                anchorIndex: 0 
+              }
+            });
+            console.log('🎯 Vector: Started new path at UV:', { u: uv.x, v: uv.y }, 'Path ID:', newPath.id);
+            // Note: useEffect will handle rendering and texture update when vectorPaths changes
+          } else {
+            // Add anchor to existing path
+            const updatedPaths = currentVectorPaths.map(p => 
+              p.id === activePathId 
+                ? { ...p, points: [...p.points, anchor] }
+                : p
+            );
+            
+            const newAnchorIndex = activePath.points.length;
+            useApp.setState({ 
+              vectorPaths: updatedPaths,
+              selectedAnchor: { 
+                pathId: activePathId!, 
+                anchorIndex: newAnchorIndex 
+              }
+            });
+            console.log('🎯 Vector: Added anchor, total:', newAnchorIndex + 1, 'Path ID:', activePathId);
+            // Note: useEffect will handle rendering and texture update when vectorPaths changes
+          }
+        }
+
+      } else if (vectorEditMode === 'select') {
+        // Select mode - find and select nearest anchor or path
+        // IMPROVED: Use standardized UV-based anchor detection
+        const clickUV = { u: uv.x, v: uv.y };
+        const nearestAnchor = findNearestAnchor(vectorPaths || [], clickUV, VECTOR_ANCHOR_DETECTION_THRESHOLD);
+
+        if (nearestAnchor) {
+          useApp.setState({ 
+            selectedAnchor: { 
+              pathId: nearestAnchor.pathId, 
+              anchorIndex: nearestAnchor.anchorIndex 
+            },
+            activePathId: nearestAnchor.pathId, // Also set active path
+            activeTextId: null,
+            activeShapeId: null,
+            selectedImageId: null
+          });
+          
+          // Start dragging immediately in select mode
+          isDraggingAnchorRef.current = true;
+          dragStartPosRef.current = { x: uv.x, y: uv.y }; // Store UV coordinates
+          debugLog('🎯 Vector: Selected anchor for moving:', nearestAnchor);
+        } else {
+          // No anchor clicked - deselect everything
+          useApp.setState({ 
+            selectedAnchor: null,
+            activeTextId: null,
+            activeShapeId: null,
+            selectedImageId: null
+          });
+          debugLog('🎯 Vector: No anchor selected');
+        }
+
+      } else if (vectorEditMode === 'addAnchor') {
+        // Add anchor mode - add anchor at clicked position (temporary mode, switches back to select after use)
+        const nearestPath = (vectorPaths || []).reduce((closest, path) => {
+          if (path.points.length < 2) return closest;
+          
+          let minDist = Infinity;
+          for (let i = 0; i < path.points.length; i++) {
+            const p1 = path.points[i];
+            const p2 = path.points[(i + 1) % path.points.length];
+            
+            // Distance from point to line segment
+            const dx = p2.u - p1.u;
+            const dy = p2.v - p1.v;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            if (length === 0) continue;
+            
+            const t = Math.max(0, Math.min(1, ((uv.x - p1.u) * dx + (uv.y - p1.v) * dy) / (length * length)));
+            const projU = p1.u + t * dx;
+            const projV = p1.v + t * dy;
+            const dist = Math.sqrt((uv.x - projU) ** 2 + (uv.y - projV) ** 2);
+            
+            if (dist < minDist) {
+              minDist = dist;
+              return { path, dist };
+            }
+          }
+          return closest;
+        }, null as { path: typeof vectorPaths[0], dist: number } | null);
+        
+        if (nearestPath && nearestPath.dist < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
+          useApp.getState().addAnchorAtPoint(nearestPath.path.id, uv.x, uv.y);
+          // Switch back to select mode after adding anchor
+          useApp.setState({ vectorEditMode: 'select' });
+          debugLog('🎯 Vector: Added anchor to path');
+        }
+        
+      } else if (vectorEditMode === 'removeAnchor') {
+        // Remove anchor mode - remove nearest anchor (temporary mode, now also handled via Delete key shortcut)
+        // IMPROVED: Use standardized UV-based anchor detection
+        const clickUV = { u: uv.x, v: uv.y };
+        const nearestAnchor = findNearestAnchor(vectorPaths || [], clickUV, VECTOR_ANCHOR_DETECTION_THRESHOLD);
+        
+        if (nearestAnchor) {
+          const targetPath = (vectorPaths || []).find(p => p.id === nearestAnchor.pathId);
+          if (targetPath && targetPath.points.length > 2) {
+            useApp.getState().removeAnchor(nearestAnchor.pathId, nearestAnchor.anchorIndex);
+            // Switch back to select mode after removing anchor
+            useApp.setState({ vectorEditMode: 'select' });
+            debugLog('🎯 Vector: Removed anchor');
+          }
+        }
+        
+      } else if (vectorEditMode === 'convertAnchor' && selectedAnchor) {
+        // Convert anchor mode - cycle through anchor types (temporary mode)
+        // Type guard: ensure selectedAnchor is not null
+        if (!selectedAnchor) return;
+        const { pathId, anchorIndex } = selectedAnchor;
+        const path = (vectorPaths || []).find(p => p.id === pathId);
+        const anchor = path?.points[anchorIndex];
+        
+        if (anchor) {
+          // Determine current type and convert
+          let newType: 'corner' | 'smooth' | 'symmetric' = 'corner';
+          if (!anchor.inHandle && !anchor.outHandle) {
+            newType = 'smooth'; // Corner -> Smooth
+          } else if (anchor.inHandle && anchor.outHandle && 
+                     Math.abs(anchor.inHandle.u - (2 * anchor.u - anchor.outHandle.u)) < 0.001) {
+            newType = 'symmetric'; // Smooth -> Symmetric
+          } else {
+            newType = 'corner'; // Symmetric -> Corner
+          }
+          
+          useApp.getState().convertAnchorType(pathId, anchorIndex, newType);
+          // Switch back to select mode after converting anchor
+          useApp.setState({ vectorEditMode: 'select' });
+          debugLog('🎯 Vector: Converted anchor to', newType);
+        }
+        
+      } else if (vectorEditMode === 'curve') {
+        // Curve mode - edit bezier handles of selected anchor
+        if (selectedAnchor) {
+          // If clicking near a handle, edit it; otherwise select anchor first
+          const clickUV = { u: uv.x, v: uv.y };
+          const path = (vectorPaths || []).find(p => p.id === selectedAnchor.pathId);
+          const anchor = path?.points[selectedAnchor.anchorIndex];
+          
+          if (anchor) {
+            // Check if clicking near out handle
+            if (anchor.outHandle) {
+              const handleUV = { u: anchor.outHandle.u, v: anchor.outHandle.v };
+              if (distanceInUV(clickUV, handleUV) < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
+                // Edit out handle
+                useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'out', uv.x, uv.y);
+                debugLog('🎯 Vector: Editing out handle');
+                return;
+              }
+            }
+            
+            // Check if clicking near in handle
+            if (anchor.inHandle) {
+              const handleUV = { u: anchor.inHandle.u, v: anchor.inHandle.v };
+              if (distanceInUV(clickUV, handleUV) < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
+                // Edit in handle
+                useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'in', uv.x, uv.y);
+                debugLog('🎯 Vector: Editing in handle');
+                return;
+              }
+            }
+            
+            // Not clicking on handle - create/update handle at click position
+            const handleType = 'out'; // Default to out handle
+            useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, handleType, uv.x, uv.y);
+            debugLog('🎯 Vector: Added curve handle to anchor');
+          }
+        } else {
+          // No anchor selected - try to select one first
+          const clickUV = { u: uv.x, v: uv.y };
+          const nearestAnchor = findNearestAnchor(vectorPaths || [], clickUV, VECTOR_ANCHOR_DETECTION_THRESHOLD);
+          if (nearestAnchor) {
+            useApp.setState({ 
+              selectedAnchor: { 
+                pathId: nearestAnchor.pathId, 
+                anchorIndex: nearestAnchor.anchorIndex 
+              },
+              activePathId: nearestAnchor.pathId
+            });
+            debugLog('🎯 Vector: Selected anchor in curve mode');
+          }
+        }
+      }
+
+      // CRITICAL FIX: Vector tool updates state - useEffect will handle rendering
+      // The useEffect will trigger immediately when vectorPaths state changes
+      console.log('🎯 Vector tool: State updated, useEffect will render immediately');
+      
+      // No need to call composeLayers or updateModelTexture here - useEffect handles it
+      // State update will trigger the useEffect which renders immediately (no debounce)
+      return; // Exit early - vector tool doesn't need canvas operations below
     }
     
     const point = e.point as THREE.Vector3 | undefined; // World coordinates
@@ -1882,46 +2218,56 @@ export function ShirtRefactored({
       return;
     }
     
-    // PHASE 1: Individual stroke layers - create layer for each stroke
+    // SINGLE TEXTURE LAYER: All tools work on the same texture layer
     let layer;
     
     // CRITICAL FIX: Always read fresh value from ref
     const currentStrokeSession = strokeSessionRef.current;
     
-    // CRITICAL FIX: Check if we're starting a new stroke session (only on first paintAtEvent call)
+    // SINGLE TEXTURE LAYER: Use existing active layer (Texture Layer) instead of creating per stroke
     if (!currentStrokeSession || !currentStrokeSession.layerId) {
       try {
         // Use AdvancedLayerSystemV2 directly
-        const { layers, createLayer } = useAdvancedLayerStoreV2.getState();
+        const { layers, activeLayerId, setActiveLayer } = useAdvancedLayerStoreV2.getState();
         
-        // CRITICAL: Create a new layer for THIS specific stroke (only once)
-        const strokeId = `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const layerName = `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Stroke ${strokeId}`;
+        // SINGLE TEXTURE LAYER: Find or use existing "Texture Layer"
+        const textureLayerName = 'Texture Layer';
+        let textureLayer = layers.find(l => l.name === textureLayerName);
         
-        // CRITICAL FIX: Pass current blend mode when creating layer
-        const currentBlendMode = useApp.getState().blendMode;
-        const layerBlendMode = (currentBlendMode === 'source-over' ? 'normal' : currentBlendMode) as BlendMode;
-        const layerId = createLayer('paint', layerName, layerBlendMode);
+        if (!textureLayer) {
+          // Create texture layer once if it doesn't exist
+          console.log('🎨 Creating single Texture Layer for all tools');
+          const { createLayer } = useAdvancedLayerStoreV2.getState();
+          const currentBlendMode = useApp.getState().blendMode;
+          const layerBlendMode = (currentBlendMode === 'source-over' ? 'normal' : currentBlendMode) as BlendMode;
+          const layerId = createLayer('paint', textureLayerName, layerBlendMode);
+          setActiveLayer(layerId);
+          
+          // Re-read to get the newly created layer
+          const { layers: updatedLayers } = useAdvancedLayerStoreV2.getState();
+          textureLayer = updatedLayers.find(l => l.id === layerId) || undefined;
+        } else {
+          // Use existing texture layer
+          if (activeLayerId !== textureLayer.id) {
+            setActiveLayer(textureLayer.id);
+          }
+        }
         
-        // CRITICAL FIX: Re-read layers from store after creation to get the newly created layer
-        // Zustand state updates are asynchronous, so we need to re-read the state
-        const { layers: updatedLayers } = useAdvancedLayerStoreV2.getState();
-        
-        // Find the newly created layer
-        const newLayer = updatedLayers.find(l => l.id === layerId);
+        const newLayer = textureLayer;
         
         if (newLayer) {
-          // PHASE 1: Capture current brush settings for this stroke session
+          // SINGLE TEXTURE LAYER: Capture current brush settings for this stroke session
           const brushColor = useApp.getState().brushColor;
           const brushSize = useApp.getState().brushSize;
           const brushOpacity = useApp.getState().brushOpacity;
           const gradientSettings = (window as any).getGradientSettings?.();
           const brushGradientData = gradientSettings?.brush;
           
-          // PHASE 1: Initialize stroke session with settings
+          // SINGLE TEXTURE LAYER: Initialize stroke session using texture layer
+          const strokeId = `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           strokeSessionRef.current = {
             id: strokeId,
-            layerId: layerId,
+            layerId: newLayer.id,
             points: [],
             bounds: null,
             settings: {
@@ -1934,7 +2280,7 @@ export function ShirtRefactored({
                 stops: brushGradientData.stops
               } : undefined
             },
-            tool: activeTool
+            tool: currentActiveTool
           };
           
           layer = {
@@ -1943,7 +2289,7 @@ export function ShirtRefactored({
             canvas: newLayer.content.canvas || document.createElement('canvas')
           };
           
-          console.log('🎨 PHASE 1: Created new layer for stroke:', strokeId);
+          console.log('🎨 SINGLE TEXTURE LAYER: Using Texture Layer for stroke:', strokeId);
         }
       } catch (error) {
         console.warn('🎨 Advanced layer system V2 failed, fallback:', error);
@@ -1975,15 +2321,18 @@ export function ShirtRefactored({
     }
     
 
+    // Vector tool is now handled earlier in the function (around line 3108)
+    // Layer is already retrieved above (line 1573-1668), so we can use it directly
+    // The layer check is already done at line 1670-1672
+    const canvas = layer.canvas;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
     // Get symmetry settings
     const symmetryX = useApp.getState().symmetryX;
     const symmetryY = useApp.getState().symmetryY;
     const symmetryZ = useApp.getState().symmetryZ;
     
-    // DEBUG: Check if symmetry is causing inverted puffs
-    if (activeTool === 'puffPrint' && (symmetryX || symmetryY || symmetryZ)) {
-      console.log('🎨 WARNING: Symmetry enabled for puff print - this may cause inverted puffs!', { symmetryX, symmetryY, symmetryZ });
-    }
     
     // Debug: Check if any symmetry is enabled
     if (symmetryX || symmetryY || symmetryZ) {
@@ -2023,92 +2372,6 @@ export function ShirtRefactored({
       }
     };
 
-    // In vector mode, brush/puff/embroidery create vector paths instead of painting
-    const vectorMode = useApp.getState().vectorMode;
-    if (vectorMode && (activeTool === 'brush' || activeTool === 'embroidery' || activeTool === 'puffPrint')) {
-      console.log('🎨 Vector mode active - treating', activeTool, 'as vector path creator');
-      
-      // Get vector paths from store
-      const vectorPaths = useApp.getState().vectorPaths || [];
-      const activePathId = useApp.getState().activePathId;
-      
-      // Convert UV to canvas coordinates for vector path creation
-      const canvas = layer.canvas;
-      const x = Math.floor(uv.x * canvas.width);
-      const y = Math.floor(uv.y * canvas.height);
-      
-      console.log('🎨 Vector path point at canvas:', { x, y }, 'UV:', { u: uv.x, v: uv.y });
-      
-      // Create or append to vector path
-      if (!activePathId) {
-        // CRITICAL FIX: Include current brush/gradient settings in the vector path
-        const brushSettings = useApp.getState();
-        const gradientSettings = (window as any).getGradientSettings?.();
-        const brushGradientData = gradientSettings?.brush;
-        
-        // Only include gradient if mode is actually 'gradient'
-        const shouldUseGradient = brushGradientData && brushGradientData.mode === 'gradient';
-        
-        // Start new path with proper VectorAnchor format and settings
-        const newPath: any = {
-          id: `path-${Date.now()}`,
-          points: [{
-            u: uv.x,
-            v: uv.y,
-            inHandle: null,
-            outHandle: null
-          }],
-          closed: false,
-          tool: activeTool, // Store which tool this path is for
-          // CRITICAL FIX: Store current settings including gradient ONLY if mode is gradient
-          settings: {
-            size: brushSettings.brushSize || 10,
-            opacity: brushSettings.brushOpacity || 1.0,
-            hardness: brushSettings.brushHardness || 0.5,
-            flow: brushSettings.brushFlow || 0.8,
-            spacing: brushSettings.brushSpacing || 0.3,
-            angle: 0,
-            roundness: 1,
-            color: brushSettings.brushColor || '#000000',
-            // CRITICAL: Only include gradient if mode is actually 'gradient'
-            gradient: shouldUseGradient ? brushGradientData : undefined,
-            blendMode: brushSettings.blendMode || 'source-over'
-          }
-        };
-        useApp.setState({ 
-          vectorPaths: [...vectorPaths, newPath],
-          activePathId: newPath.id
-        });
-        console.log('🎨 Created new vector path with settings:', newPath.id, newPath.settings);
-      } else {
-        // Add point to existing path with proper VectorAnchor format
-        const pathIndex = vectorPaths.findIndex(p => p.id === activePathId);
-        if (pathIndex >= 0) {
-          const updatedPaths = [...vectorPaths];
-          const newPoint: any = {
-            u: uv.x,
-            v: uv.y,
-            inHandle: null,
-            outHandle: null
-          };
-          updatedPaths[pathIndex] = {
-            ...updatedPaths[pathIndex],
-            points: [...updatedPaths[pathIndex].points, newPoint]
-          };
-          useApp.setState({ vectorPaths: updatedPaths });
-          console.log('🎨 Added point to path:', activePathId);
-        }
-      }
-      
-      // Don't paint, just create the path
-      // The useEffect will handle rendering vector paths
-      return;
-    }
-
-    const canvas = layer.canvas;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     // Convert UV coordinates to canvas coordinates
     const x = Math.floor(uv.x * canvas.width);
     const y = Math.floor(uv.y * canvas.height);
@@ -2121,23 +2384,32 @@ export function ShirtRefactored({
         canvasSize: { width: canvas.width, height: canvas.height }
       });
     }
+    // CRITICAL FIX: Read all settings directly from app state to ensure they're up-to-date
+    // This ensures the right sidebar settings are always used
+    const appState = useApp.getState();
+    const currentBrushColor = appState.brushColor;
+    const currentBrushSize = appState.brushSize;
+    const currentBrushOpacity = appState.brushOpacity;
+    const currentBrushHardness = appState.brushHardness;
+    const currentBrushFlow = appState.brushFlow;
+    const currentBrushShape = appState.brushShape;
+    const currentBrushSpacing = appState.brushSpacing;
+    const currentBlendMode = appState.blendMode;
+    
     // PERFORMANCE FIX: Reduced debug logging
     if (Date.now() % 3000 < 100) { // Only log every 3 seconds
       console.log('🎨 Brush settings:', { 
-        color: brushColor, 
-        size: brushSize, 
-        opacity: brushOpacity, 
-        hardness: brushHardness,
-        flow: brushFlow,
-        shape: brushShape,
-        spacing: brushSpacing,
-        blendMode: blendMode,
-        activeTool: activeTool 
+        color: currentBrushColor, 
+        size: currentBrushSize, 
+        opacity: currentBrushOpacity, 
+        hardness: currentBrushHardness,
+        flow: currentBrushFlow,
+        shape: currentBrushShape,
+        spacing: currentBrushSpacing,
+        blendMode: currentBlendMode,
+        activeTool: currentActiveTool 
       });
     }
-    
-    // PERFORMANCE FIX: Removed excessive color debugging logs
-    const currentBrushColor = brushColor;
 
       // PERFORMANCE: Optimized canvas operations
       ctx.save();
@@ -2149,7 +2421,7 @@ export function ShirtRefactored({
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
     
-    if (activeTool === 'brush') {
+    if (currentActiveTool === 'brush') {
       // SIMPLE FIX: Direct mouse-to-brush mapping
       const brushEngine = (window as any).__brushEngine;
       if (!brushEngine) {
@@ -2157,9 +2429,8 @@ export function ShirtRefactored({
         return;
       }
 
-      // Get current settings - use consistent source from brushSettings
-      const currentBrushSize = brushSize;
-      const actualBrushColor = brushColor;
+      // Get current settings - read directly from app state for real-time updates
+      const actualBrushColor = currentBrushColor;
       
       // SIMPLE: Use the layer canvas dimensions directly
       const canvasWidth = canvas.width;
@@ -2186,18 +2457,18 @@ export function ShirtRefactored({
       const gradientSettings = (window as any).getGradientSettings?.();
       const brushGradientData = gradientSettings?.brush;
       
-      // Only log if actually using gradient
+      // Only log if actually using gradient (debug mode)
       if (brushGradientData?.mode === 'gradient') {
-        console.log('🎨 Using gradient mode for brush stroke');
+        debugLog('🎨 Using gradient mode for brush stroke');
       }
       
-      // SIMPLE: Create brush settings
+      // SIMPLE: Create brush settings - use values from app state
       const brushSettings = {
         size: currentBrushSize,
-        opacity: brushOpacity,
-        hardness: brushHardness,
-        flow: brushFlow,
-        spacing: brushSpacing,
+        opacity: currentBrushOpacity,
+        hardness: currentBrushHardness,
+        flow: currentBrushFlow,
+        spacing: currentBrushSpacing,
         angle: 0,
         roundness: 1,
         color: actualBrushColor,
@@ -2206,8 +2477,8 @@ export function ShirtRefactored({
           angle: brushGradientData.angle,
           stops: brushGradientData.stops
         } : undefined,
-        blendMode: blendMode,
-        shape: brushShape,
+        blendMode: currentBlendMode,
+        shape: currentBrushShape,
         dynamics: {
           sizePressure: true,
           opacityPressure: true,
@@ -2334,17 +2605,18 @@ export function ShirtRefactored({
       // PERFORMANCE: Don't update texture/thumbnail on every paint event
       // This causes massive performance degradation during continuous drawing
       // These updates should only happen once at the end of the stroke (in onPointerUp)
-    } else if (activeTool === 'fill') {
+    } else if (currentActiveTool === 'fill') {
       // Fill tool - flood fill algorithm
       console.log('🪣 Fill: Starting flood fill at position:', { x, y });
       
-      const fillColor = brushColor;
-      const fillTolerance = useApp.getState().fillTolerance;
-      const fillGrow = useApp.getState().fillGrow;
-      const fillAntiAlias = useApp.getState().fillAntiAlias;
-      const fillContiguous = useApp.getState().fillContiguous;
+      // CRITICAL FIX: Read all fill settings directly from app state
+      const fillColor = appState.brushColor; // Fill uses brush color
+      const fillTolerance = appState.fillTolerance;
+      const fillGrow = appState.fillGrow;
+      const fillAntiAlias = appState.fillAntiAlias;
+      const fillContiguous = appState.fillContiguous;
       
-      console.log('🪣 Fill settings:', { fillColor, fillTolerance, fillGrow, fillAntiAlias, fillContiguous });
+      debugLog('🪣 Fill settings:', { fillColor, fillTolerance, fillGrow, fillAntiAlias, fillContiguous });
       
       // Get the current pixel color at the click position
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -2354,7 +2626,7 @@ export function ShirtRefactored({
       const targetB = imageData.data[pixelIndex + 2];
       const targetA = imageData.data[pixelIndex + 3];
       
-      console.log('🪣 Target pixel color:', { r: targetR, g: targetG, b: targetB, a: targetA });
+      debugLog('🪣 Target pixel color:', { r: targetR, g: targetG, b: targetB, a: targetA });
       
       // Convert fill color to RGB
       const fillRgb = hexToRgb(fillColor);
@@ -2364,72 +2636,96 @@ export function ShirtRefactored({
         return;
       }
       
-      console.log('🪣 Fill color RGB:', fillRgb);
+      debugLog('🪣 Fill color RGB:', fillRgb);
       
-      // Flood fill algorithm
+      // PERFORMANCE OPTIMIZED: Chunked flood fill to prevent UI blocking
+      const fillColorRgba = {
+        r: fillRgb.r,
+        g: fillRgb.g,
+        b: fillRgb.b,
+        a: Math.floor(brushOpacity * 255)
+      };
+      
       const visited = new Set<string>();
       const stack: Array<{x: number, y: number}> = [{x, y}];
-      const pixelsToFill: Array<{x: number, y: number}> = [];
+      const PIXELS_PER_CHUNK = 1000; // Process 1000 pixels per frame
+      let isProcessing = true;
+      let totalPixelsFilled = 0;
       
-      while (stack.length > 0) {
-        const {x: currentX, y: currentY} = stack.pop()!;
-        const key = `${currentX},${currentY}`;
+      const processChunk = () => {
+        if (!isProcessing) return;
         
-        if (visited.has(key) || currentX < 0 || currentX >= canvas.width || currentY < 0 || currentY >= canvas.height) {
-          continue;
-        }
-        
-        visited.add(key);
-        
-        const currentPixelIndex = (currentY * canvas.width + currentX) * 4;
-        const currentR = imageData.data[currentPixelIndex];
-        const currentG = imageData.data[currentPixelIndex + 1];
-        const currentB = imageData.data[currentPixelIndex + 2];
-        const currentA = imageData.data[currentPixelIndex + 3];
-        
-        // Check if pixel matches target color within tolerance
-        const colorDistance = Math.sqrt(
-          Math.pow(currentR - targetR, 2) +
-          Math.pow(currentG - targetG, 2) +
-          Math.pow(currentB - targetB, 2) +
-          Math.pow(currentA - targetA, 2)
-        );
-        
-        if (colorDistance <= fillTolerance) {
-          pixelsToFill.push({x: currentX, y: currentY});
+        let processed = 0;
+        while (stack.length > 0 && processed < PIXELS_PER_CHUNK) {
+          const {x: currentX, y: currentY} = stack.pop()!;
+          const key = `${currentX},${currentY}`;
           
-          // Add neighboring pixels to stack
-          if (fillContiguous) {
-            stack.push({x: currentX + 1, y: currentY});
-            stack.push({x: currentX - 1, y: currentY});
-            stack.push({x: currentX, y: currentY + 1});
-            stack.push({x: currentX, y: currentY - 1});
+          if (visited.has(key) || currentX < 0 || currentX >= canvas.width || currentY < 0 || currentY >= canvas.height) {
+            continue;
+          }
+          
+          visited.add(key);
+          processed++;
+          
+          const currentPixelIndex = (currentY * canvas.width + currentX) * 4;
+          const currentR = imageData.data[currentPixelIndex];
+          const currentG = imageData.data[currentPixelIndex + 1];
+          const currentB = imageData.data[currentPixelIndex + 2];
+          const currentA = imageData.data[currentPixelIndex + 3];
+          
+          // Check if pixel matches target color within tolerance
+          const colorDistance = Math.sqrt(
+            Math.pow(currentR - targetR, 2) +
+            Math.pow(currentG - targetG, 2) +
+            Math.pow(currentB - targetB, 2) +
+            Math.pow(currentA - targetA, 2)
+          );
+          
+          if (colorDistance <= fillTolerance) {
+            // Update pixel immediately for visual feedback
+            imageData.data[currentPixelIndex] = fillColorRgba.r;
+            imageData.data[currentPixelIndex + 1] = fillColorRgba.g;
+            imageData.data[currentPixelIndex + 2] = fillColorRgba.b;
+            imageData.data[currentPixelIndex + 3] = fillColorRgba.a;
+            totalPixelsFilled++;
+            
+            // Add neighboring pixels to stack
+            if (fillContiguous) {
+              stack.push({x: currentX + 1, y: currentY});
+              stack.push({x: currentX - 1, y: currentY});
+              stack.push({x: currentX, y: currentY + 1});
+              stack.push({x: currentX, y: currentY - 1});
+            }
           }
         }
-      }
+        
+        // Update canvas periodically for visual feedback (every 5000 pixels)
+        if (totalPixelsFilled > 0 && totalPixelsFilled % 5000 === 0) {
+          ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // Continue processing if stack is not empty
+        if (stack.length > 0) {
+          requestAnimationFrame(processChunk);
+        } else {
+          // Final update
+          ctx.putImageData(imageData, 0, 0);
+          isProcessing = false;
+          debugLog('🪣 Fill completed with', totalPixelsFilled, 'pixels filled');
+        }
+      };
       
-      console.log('🪣 Pixels to fill:', pixelsToFill.length);
+      // Start chunked processing
+      processChunk();
       
-      // Apply fill color to all matching pixels
-      ctx.fillStyle = fillColor;
-      ctx.globalAlpha = brushOpacity;
-      ctx.globalCompositeOperation = 'source-over';
-      
-      // Draw filled pixels
-      pixelsToFill.forEach(({x: pixelX, y: pixelY}) => {
-        ctx.fillRect(pixelX, pixelY, 1, 1);
-      });
-      
-      console.log('🪣 Fill completed with', pixelsToFill.length, 'pixels filled');
-      
-    } else if (activeTool === 'eraser') {
+    } else if (currentActiveTool === 'eraser') {
       // Eraser tool - erase from ALL texture layers and displacement layers
       console.log('🧽 Eraser: Erasing from all texture layers and displacement layers at position:', { x, y });
       
-      // FIXED: Get current brush size from store to avoid stale closures
-      const currentBrushSize = brushSize;
+      // CRITICAL FIX: Get current brush size directly from app state
+      const currentBrushSize = appState.brushSize;
       const halfSize = currentBrushSize / 2;
-      const appState = useApp.getState();
+      // Note: appState is already declared at the top of paintAtEvent
       
       // Helper function to erase from any canvas
       const eraseFromCanvas = (canvas: HTMLCanvasElement | null, canvasName: string, isDisplacement = false, isNormal = false) => {
@@ -2443,10 +2739,11 @@ export function ShirtRefactored({
         canvasCtx.globalAlpha = 1.0;
         
         if (isDisplacement) {
-          // CRITICAL FIX: For displacement maps, set to black (0) for no displacement
+          // CRITICAL FIX: For displacement maps, set to neutral gray (128) for no displacement
+          // Three.js format: 128 = neutral (no displacement), 0 = max inward, 255 = max outward
           canvasCtx.globalCompositeOperation = 'source-over';
-          canvasCtx.fillStyle = '#000000'; // Black (0) for no displacement
-          console.log(`🧽 Setting ${canvasName} to black (no displacement)`);
+          canvasCtx.fillStyle = '#808080'; // Neutral gray (128) for no displacement
+          console.log(`🧽 Setting ${canvasName} to neutral gray (128 = no displacement)`);
         } else if (isNormal) {
           // For normal maps, set to default normal (pointing up)
           canvasCtx.globalCompositeOperation = 'source-over';
@@ -2479,20 +2776,34 @@ export function ShirtRefactored({
       // Only erase from individual layer canvases, then composeLayers() will regenerate composedCanvas
       // eraseFromCanvas(canvas, 'main composed'); // ❌ REMOVED - this was fading the model texture
       
-      // 1. Erase from all individual layer canvases
-      const { layers } = useApp.getState();
-      layers.forEach(layer => {
-        if (layer.canvas && layer.visible) {
-          eraseFromCanvas(layer.canvas, `layer: ${layer.name}`);
+      // 1. Erase from all individual layer canvases AND their texture layers (displacementCanvas)
+      const { layers } = useAdvancedLayerStoreV2.getState();
+      layers.forEach((layer: any) => {
+        if (layer.visible) {
+          // CRITICAL FIX: Support both old layer structure (layer.canvas) and V2 structure (layer.content.canvas)
+          const layerCanvas = layer.content?.canvas || layer.canvas;
+          if (layerCanvas) {
+            eraseFromCanvas(layerCanvas, `layer: ${layer.name}`);
+            debugLog(`🧽 Erasing from layer "${layer.name}" main canvas`);
+          }
+          
+          // CRITICAL FIX: Also erase from layer's displacementCanvas if it exists (texture layer)
+          // Support both old structure (layer.displacementCanvas) and V2 structure (layer.content.displacementCanvas)
+          const layerDisplacementCanvas = layer.content?.displacementCanvas || layer.displacementCanvas;
+          if (layerDisplacementCanvas) {
+            eraseFromCanvas(layerDisplacementCanvas, `layer: ${layer.name} displacement`, true, false);
+            debugLog(`🧽 Erasing from layer "${layer.name}" displacementCanvas (texture layer)`);
+          }
         }
       });
       
       // 3. Erase from all texture layer canvases
+      // REMOVED: puffCanvas - old puff tool removed
+      // NEW PUFF TOOL: Puffs are drawn on the layer canvas, displacement on displacementCanvas
       const textureCanvases = [
-        { canvas: appState.puffCanvas, name: 'puff', isDisplacement: false, isNormal: false },
-        { canvas: appState.displacementCanvas, name: 'displacement', isDisplacement: true, isNormal: false },
-        { canvas: appState.normalCanvas, name: 'normal', isDisplacement: false, isNormal: true },
-        { canvas: appState.embroideryCanvas, name: 'embroidery', isDisplacement: false, isNormal: false }
+        { canvas: (appState as any).displacementCanvas, name: 'displacement', isDisplacement: true, isNormal: false },
+        { canvas: (appState as any).normalCanvas, name: 'normal', isDisplacement: false, isNormal: true },
+        { canvas: (appState as any).embroideryCanvas, name: 'embroidery', isDisplacement: false, isNormal: false }
       ];
       
       textureCanvases.forEach(({ canvas, name, isDisplacement, isNormal }) => {
@@ -2573,7 +2884,8 @@ export function ShirtRefactored({
             const overlapPercentage = overlapArea / totalArea;
             
             // Reduce opacity based on overlap percentage
-            const opacityReduction = overlapPercentage * brushOpacity;
+            // CRITICAL FIX: Use currentBrushOpacity from app state
+            const opacityReduction = overlapPercentage * currentBrushOpacity;
             const newOpacity = Math.max(0, shapeEl.opacity - opacityReduction);
             
             if (newOpacity !== shapeEl.opacity) {
@@ -2583,14 +2895,8 @@ export function ShirtRefactored({
           }
         });
         
-        // Dispatch puff erase event
-        if (appState.puffCanvas) {
-          const puffEraseEvent = new CustomEvent('puffErase', {
-            detail: { uv, pressure: 1.0 }
-          });
-          document.dispatchEvent(puffEraseEvent);
-          console.log('🧽 Dispatched puff erase event');
-        }
+        // REMOVED: Puff erase event - old puff tool removed
+        // NEW PUFF TOOL: Erasing is handled directly on the layer canvas
         
         // Dispatch embroidery erase event
         if (appState.embroideryCanvas) {
@@ -2619,38 +2925,34 @@ export function ShirtRefactored({
       
       // CRITICAL FIX: Don't call composeLayers - it clears the original model texture!
       // Instead, update texture directly from layer canvases
-      console.log('🧽 Skipping composeLayers to preserve original model texture');
+      debugLog('🧽 Skipping composeLayers to preserve original model texture');
       
       // 7. Force texture updates on the 3D model with a slight delay to ensure composition is complete
       setTimeout(() => {
         try {
-          // Only update displacement maps if puff data exists
-          const puffCanvas = useApp.getState().puffCanvas;
-          const needsDisplacementUpdate = !!(puffCanvas && modelScene);
+          // NEW PUFF TOOL: Check if displacement canvas has content
+          const displacementCanvas = (useApp.getState() as any).displacementCanvas as HTMLCanvasElement | undefined;
+          const needsDisplacementUpdate = !!(displacementCanvas && modelScene);
           
           updateModelTexture(false, needsDisplacementUpdate);
-          console.log('🧽 Updated 3D model texture after erasure');
-          
-          if (needsDisplacementUpdate) {
-            console.log('🧽 Updated puff displacement maps after erasure');
-          }
+          debugLog('🧽 Updated 3D model texture after erasure');
           
           // Trigger any texture update callbacks
           const textureUpdateEvent = new CustomEvent('textureUpdate', {
             detail: { type: 'erase', position: { x, y }, brushSize, brushOpacity }
           });
           document.dispatchEvent(textureUpdateEvent);
-          console.log('🧽 Dispatched texture update event');
+          debugLog('🧽 Dispatched texture update event');
         } catch (error) {
-          console.log('Texture update event failed:', error);
+          if (DEBUG_TOOLS) console.error('Texture update event failed:', error);
         }
       }, 50); // Small delay to ensure composition is complete
       
-      console.log('🧽 Eraser applied to ALL texture layers and displacement layers at position:', { x, y });
+      debugLog('🧽 Eraser applied to ALL texture layers and displacement layers at position:', { x, y });
       
-    } else if (activeTool === 'embroidery') {
-      // Handle embroidery tool - draw continuous stitch patterns
-      console.log('🎨 Embroidery: Drawing stitch with symmetry');
+    } else if (currentActiveTool === 'embroidery') {
+      // Handle embroidery tool - draw continuous stitch patterns (PERFORMANCE OPTIMIZED)
+      debugLog('🎨 Embroidery: Drawing stitch with symmetry');
 
       // Get embroidery settings from store
       const embroiderySettings = useApp.getState();
@@ -2673,116 +2975,120 @@ export function ShirtRefactored({
       // PERFORMANCE: Skip complex effects for low-end devices
       const useSimpleEmbroidery = deviceTier === 'low';
       
-      // Create realistic thread texture with multiple layers
+      // PERFORMANCE OPTIMIZED: Batch thread rendering with Path2D and cached gradients
+      const gradientCache = new Map<string, CanvasGradient>();
+      const darken = (color: string, factor: number) => {
+        const hex = color.replace('#', '');
+        const r = Math.floor(parseInt(hex.substr(0, 2), 16) * factor);
+        const g = Math.floor(parseInt(hex.substr(2, 2), 16) * factor);
+        const b = Math.floor(parseInt(hex.substr(4, 2), 16) * factor);
+        return `rgb(${r}, ${g}, ${b})`;
+      };
+      
+      // Create realistic thread texture with multiple layers (OPTIMIZED)
       const drawThreadStitch = (startX: number, startY: number, endX: number, endY: number) => {
         if (useSimpleEmbroidery) {
-          // Simple embroidery for low-end devices
-          ctx.save();
-      ctx.strokeStyle = embroideryThreadColor;
+          // Simple embroidery for low-end devices - single stroke
+          ctx.strokeStyle = embroideryThreadColor;
           ctx.lineWidth = threadSize;
-      ctx.lineCap = 'round';
+          ctx.lineCap = 'round';
           ctx.beginPath();
           ctx.moveTo(startX, startY);
           ctx.lineTo(endX, endY);
           ctx.stroke();
-          ctx.restore();
           return;
         }
         
-        // Complex embroidery for high-end devices
+        // Complex embroidery for high-end devices - OPTIMIZED with Path2D
         const dx = endX - startX;
         const dy = endY - startY;
         const length = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
         
-        // Create thread with realistic texture
         ctx.save();
         ctx.translate(startX, startY);
         ctx.rotate(angle);
         
-        // Draw main thread body with gradient for 3D effect
-        const gradient = ctx.createLinearGradient(0, -threadSize/2, 0, threadSize/2);
-        const baseColor = embroideryThreadColor;
+        // PERFORMANCE: Cache gradients to avoid recreation
+        const gradientKey = `${embroideryThreadColor}_${threadSize}`;
+        let gradient = gradientCache.get(gradientKey);
+        if (!gradient) {
+          const newGradient = ctx.createLinearGradient(0, -threadSize/2, 0, threadSize/2);
+          const baseColor = embroideryThreadColor;
+          newGradient.addColorStop(0, darken(baseColor, 0.7));
+          newGradient.addColorStop(0.3, darken(baseColor, 0.9));
+          newGradient.addColorStop(0.5, baseColor);
+          newGradient.addColorStop(0.7, darken(baseColor, 0.9));
+          newGradient.addColorStop(1, darken(baseColor, 0.7));
+          gradientCache.set(gradientKey, newGradient);
+          gradient = newGradient;
+        }
         
-        // Create thread color variations for realistic appearance
-        const darken = (color: string, factor: number) => {
-          const hex = color.replace('#', '');
-          const r = Math.floor(parseInt(hex.substr(0, 2), 16) * factor);
-          const g = Math.floor(parseInt(hex.substr(2, 2), 16) * factor);
-          const b = Math.floor(parseInt(hex.substr(4, 2), 16) * factor);
-          return `rgb(${r}, ${g}, ${b})`;
-        };
-        
-        gradient.addColorStop(0, darken(baseColor, 0.7)); // Darker edge
-        gradient.addColorStop(0.3, darken(baseColor, 0.9)); // Medium
-        gradient.addColorStop(0.5, baseColor); // Main color
-        gradient.addColorStop(0.7, darken(baseColor, 0.9)); // Medium
-        gradient.addColorStop(1, darken(baseColor, 0.7)); // Darker edge
-        
+        // PERFORMANCE: Use Path2D for thread body (faster rendering)
+        const threadPath = new Path2D();
+        threadPath.ellipse(length/2, 0, length/2, threadSize/2, 0, 0, Math.PI * 2);
         ctx.fillStyle = gradient;
-        ctx.strokeStyle = darken(baseColor, 0.5);
-        ctx.lineWidth = 2;
+        ctx.fill(threadPath);
         
-        // Draw thread body
-        ctx.beginPath();
-        ctx.ellipse(length/2, 0, length/2, threadSize/2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Add thread texture with small lines (OPTIMIZED)
-        // PERFORMANCE: Adaptive texture detail based on device tier
+        // PERFORMANCE: Batch texture lines into single Path2D
         const deviceTier = performanceOptimizer.getConfig().deviceTier;
         const textureSpacing = deviceTier === 'high' ? threadSize * 0.5 : deviceTier === 'medium' ? threadSize * 0.8 : threadSize * 1.2;
         
         if (deviceTier !== 'low') {
-          ctx.strokeStyle = darken(baseColor, 0.8);
-          ctx.lineWidth = 1;
-          ctx.beginPath();
+          const texturePath = new Path2D();
           for (let i = 0; i < length; i += textureSpacing) {
-            ctx.moveTo(i, -threadSize/4);
-            ctx.lineTo(i + threadSize * 0.3, threadSize/4);
+            texturePath.moveTo(i, -threadSize/4);
+            texturePath.lineTo(i + threadSize * 0.3, threadSize/4);
           }
-          ctx.stroke(); // Single stroke operation
+          ctx.strokeStyle = darken(embroideryThreadColor, 0.8);
+          ctx.lineWidth = 1;
+          ctx.stroke(texturePath); // Single stroke for all texture lines
         }
         
-        // Add realistic thread sheen (silk/polyester threads have directional shininess)
-        ctx.globalAlpha = 0.6; // Semi-transparent for realistic sheen
-        const sheenGradient = ctx.createLinearGradient(0, -threadSize/2, 0, threadSize/2);
-        sheenGradient.addColorStop(0, 'transparent');
-        sheenGradient.addColorStop(0.3, '#FFFFFF'); // Bright sheen on top
-        sheenGradient.addColorStop(0.5, 'transparent');
-        sheenGradient.addColorStop(1, 'transparent');
+        // PERFORMANCE: Cache sheen gradient
+        const sheenKey = `sheen_${threadSize}`;
+        let sheenGradient = gradientCache.get(sheenKey);
+        if (!sheenGradient) {
+          const newSheenGradient = ctx.createLinearGradient(0, -threadSize/2, 0, threadSize/2);
+          newSheenGradient.addColorStop(0, 'transparent');
+          newSheenGradient.addColorStop(0.3, '#FFFFFF');
+          newSheenGradient.addColorStop(0.5, 'transparent');
+          newSheenGradient.addColorStop(1, 'transparent');
+          gradientCache.set(sheenKey, newSheenGradient);
+          sheenGradient = newSheenGradient;
+        }
         
+        // Add sheen with Path2D
+        ctx.globalAlpha = 0.6;
+        const sheenPath = new Path2D();
+        sheenPath.ellipse(length/2, -threadSize/4, length/2.5, threadSize/6, 0, 0, Math.PI * 2);
         ctx.fillStyle = sheenGradient;
-        ctx.beginPath();
-        ctx.ellipse(length/2, -threadSize/4, length/2.5, threadSize/6, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fill(sheenPath);
         ctx.globalAlpha = 1.0;
         
-        // Add micro-highlights for thread twist texture (OPTIMIZED)
-        // PERFORMANCE: Skip on low-tier devices, batch strokes on others
+        // PERFORMANCE: Batch highlights into single Path2D
         if (deviceTier !== 'low') {
+          const highlightPath = new Path2D();
+          const highlightSpacing = deviceTier === 'high' ? threadSize * 0.3 : threadSize * 0.6;
+          for (let i = 0; i < length; i += highlightSpacing) {
+            highlightPath.moveTo(i, -threadSize/4);
+            highlightPath.lineTo(i + threadSize * 0.15, -threadSize/6);
+          }
           ctx.strokeStyle = '#FFFFFF';
           ctx.globalAlpha = 0.3;
           ctx.lineWidth = 1;
-          const highlightSpacing = deviceTier === 'high' ? threadSize * 0.3 : threadSize * 0.6;
-          
-          ctx.beginPath();
-          for (let i = 0; i < length; i += highlightSpacing) {
-            ctx.moveTo(i, -threadSize/4);
-            ctx.lineTo(i + threadSize * 0.15, -threadSize/6);
-          }
-          ctx.stroke(); // Single stroke operation
+          ctx.stroke(highlightPath); // Single stroke for all highlights
+          ctx.globalAlpha = 1.0;
         }
-        ctx.globalAlpha = 1.0;
         
-        // Add shadow for depth (below the thread)
+        // Add shadow with Path2D
         ctx.globalAlpha = 0.4;
+        const shadowPath = new Path2D();
+        shadowPath.moveTo(0, threadSize/2);
+        shadowPath.lineTo(length, threadSize/2);
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
         ctx.lineWidth = threadSize / 3;
-        ctx.beginPath();
-        ctx.moveTo(0, threadSize/2);
-        ctx.lineTo(length, threadSize/2);
-        ctx.stroke();
+        ctx.stroke(shadowPath);
         ctx.globalAlpha = 1.0;
         
         ctx.restore();
@@ -2812,43 +3118,57 @@ export function ShirtRefactored({
           break;
           
           case 'chain':
-            // Draw realistic chain stitch with thread loops
+            // PERFORMANCE: Batch chain loops with Path2D
             const chainSpacing = threadSize * 1.5;
+            const chainLoopPath = new Path2D();
+            const chainTexturePath = new Path2D();
+            const chainConnections: Array<{start: {x: number, y: number}, end: {x: number, y: number}}> = [];
+            
             for (let d = 0; d < distance; d += chainSpacing) {
               const px = lastPoint.x + (dx / distance) * d;
               const py = lastPoint.y + (dy / distance) * d;
-              
-              // Draw chain loop with thread texture
-              ctx.save();
-              ctx.translate(px, py);
-              
-              // Draw loop as curved thread
               const loopRadius = threadSize * 0.8;
-              ctx.beginPath();
-              ctx.arc(0, 0, loopRadius, 0, Math.PI * 2);
-              ctx.strokeStyle = embroideryThreadColor;
-              ctx.lineWidth = threadSize * 0.3;
-              ctx.stroke();
               
-              // Add thread texture to loop
-              ctx.strokeStyle = embroideryThreadColor;
-              ctx.lineWidth = 1;
-              for (let i = 0; i < Math.PI * 2; i += 0.3) {
-                ctx.beginPath();
-                ctx.moveTo(Math.cos(i) * (loopRadius - threadSize/4), Math.sin(i) * (loopRadius - threadSize/4));
-                ctx.lineTo(Math.cos(i) * (loopRadius + threadSize/4), Math.sin(i) * (loopRadius + threadSize/4));
-                ctx.stroke();
+              // Batch loop arcs
+              chainLoopPath.arc(px, py, loopRadius, 0, Math.PI * 2);
+              
+              // Batch texture lines
+              if (deviceTier !== 'low') {
+                for (let i = 0; i < Math.PI * 2; i += 0.3) {
+                  chainTexturePath.moveTo(
+                    px + Math.cos(i) * (loopRadius - threadSize/4),
+                    py + Math.sin(i) * (loopRadius - threadSize/4)
+                  );
+                  chainTexturePath.lineTo(
+                    px + Math.cos(i) * (loopRadius + threadSize/4),
+                    py + Math.sin(i) * (loopRadius + threadSize/4)
+                  );
+                }
               }
               
-              ctx.restore();
-              
+              // Store connection for later
               if (d > 0) {
-                // Connect loops with thread
                 const prevPx = lastPoint.x + (dx / distance) * (d - chainSpacing);
                 const prevPy = lastPoint.y + (dy / distance) * (d - chainSpacing);
-                drawThreadStitch(prevPx, prevPy, px, py);
+                chainConnections.push({ start: {x: prevPx, y: prevPy}, end: {x: px, y: py} });
               }
             }
+            
+            // Draw batched loops
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize * 0.3;
+            ctx.stroke(chainLoopPath);
+            
+            // Draw batched texture
+            if (deviceTier !== 'low') {
+              ctx.lineWidth = 1;
+              ctx.stroke(chainTexturePath);
+            }
+            
+            // Draw connections
+            chainConnections.forEach(conn => {
+              drawThreadStitch(conn.start.x, conn.start.y, conn.end.x, conn.end.y);
+            });
             break;
 
           case 'french-knot':
@@ -2933,29 +3253,31 @@ export function ShirtRefactored({
             }
           break;
           
-          case 'feather':
-            // Draw feather stitch with alternating branches
+          case 'feather': {
+            // PERFORMANCE: Batch feather stitch with Path2D
             const featherSpacing = threadSize * 2;
-          ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
-            ctx.lineTo(x, y);
-            ctx.stroke();
+            const featherPath = new Path2D();
+            featherPath.moveTo(lastPoint.x, lastPoint.y);
+            featherPath.lineTo(x, y);
             
+            const perpAngle = angle + Math.PI / 2;
+            const branchLength = threadSize * 1.5;
             for (let d = featherSpacing; d < distance; d += featherSpacing) {
               const px = lastPoint.x + (dx / distance) * d;
               const py = lastPoint.y + (dy / distance) * d;
-              const side = (Math.floor(d / featherSpacing) % 2) * 2 - 1; // Alternate sides
-              const perpAngle = angle + Math.PI / 2;
-              const branchLength = threadSize * 1.5;
-              ctx.beginPath();
-              ctx.moveTo(px, py);
-              ctx.lineTo(
+              const side = (Math.floor(d / featherSpacing) % 2) * 2 - 1;
+              featherPath.moveTo(px, py);
+              featherPath.lineTo(
                 px + Math.cos(perpAngle) * branchLength * side,
                 py + Math.sin(perpAngle) * branchLength * side
               );
-              ctx.stroke();
             }
-          break;
+            
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize;
+            ctx.stroke(featherPath);
+            break;
+          }
           
           case 'bullion':
             // Draw wrapped coil stitches
@@ -2978,86 +3300,99 @@ export function ShirtRefactored({
 
           case 'running-stitch':
           case 'running':
-            // Draw dashed running stitch
-      ctx.save();
+            // PERFORMANCE: Use Path2D for running stitch
             ctx.setLineDash([threadSize * 1.5, threadSize * 1.5]);
-          ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
-            ctx.lineTo(x, y);
-            ctx.stroke();
-      ctx.restore();
+            const runningPath = new Path2D();
+            runningPath.moveTo(lastPoint.x, lastPoint.y);
+            runningPath.lineTo(x, y);
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize;
+            ctx.lineCap = 'round';
+            ctx.stroke(runningPath);
+            ctx.setLineDash([]); // Reset dash
           break;
           
-          case 'zigzag':
-            // Draw continuous zigzag pattern
+          case 'zigzag': {
+            // PERFORMANCE: Use Path2D for zigzag
             const zigzagSpacing = threadSize * 1.5;
             const zigzagHeight = threadSize;
-            ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
+            const zigzagPath = new Path2D();
+            zigzagPath.moveTo(lastPoint.x, lastPoint.y);
             const perpAngle = angle + Math.PI / 2;
             for (let d = 0; d < distance; d += zigzagSpacing) {
               const px = lastPoint.x + (dx / distance) * d;
               const py = lastPoint.y + (dy / distance) * d;
               const side = (Math.floor(d / zigzagSpacing) % 2) * 2 - 1;
-              ctx.lineTo(
+              zigzagPath.lineTo(
                 px + Math.cos(perpAngle) * zigzagHeight * side,
                 py + Math.sin(perpAngle) * zigzagHeight * side
               );
             }
-            ctx.stroke();
-          break;
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize;
+            ctx.stroke(zigzagPath);
+            break;
+          }
           
           case 'blanket':
-            // Draw blanket stitch with perpendicular loops
+            // PERFORMANCE: Batch blanket stitch with Path2D
             const blanketSpacing = threadSize * 2;
-          ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
-            ctx.lineTo(x, y);
-            ctx.stroke();
+            const blanketPath = new Path2D();
+            blanketPath.moveTo(lastPoint.x, lastPoint.y);
+            blanketPath.lineTo(x, y);
             
             const perpBlanket = angle + Math.PI / 2;
             for (let d = blanketSpacing; d < distance; d += blanketSpacing) {
               const px = lastPoint.x + (dx / distance) * d;
               const py = lastPoint.y + (dy / distance) * d;
-          ctx.beginPath();
-              ctx.moveTo(px, py);
-              ctx.lineTo(
+              blanketPath.moveTo(px, py);
+              blanketPath.lineTo(
                 px + Math.cos(perpBlanket) * threadSize * 1.5,
                 py + Math.sin(perpBlanket) * threadSize * 1.5
               );
-              ctx.stroke();
             }
+            
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize;
+            ctx.stroke(blanketPath);
           break;
           
           case 'herringbone':
-            // Draw herringbone with crossed stitches
+            // PERFORMANCE: Batch herringbone with Path2D
             const herringSpacing = threadSize * 1.5;
             const perpHerring = angle + Math.PI / 2;
+            const herringPath = new Path2D();
+            
             for (let d = 0; d < distance; d += herringSpacing) {
               const px = lastPoint.x + (dx / distance) * d;
               const py = lastPoint.y + (dy / distance) * d;
               const side = (Math.floor(d / herringSpacing) % 2) * 2 - 1;
               
-          ctx.beginPath();
-              ctx.moveTo(
+              herringPath.moveTo(
                 px + Math.cos(perpHerring) * threadSize * side,
                 py + Math.sin(perpHerring) * threadSize * side
               );
-              ctx.lineTo(
+              herringPath.lineTo(
                 px + Math.cos(angle) * threadSize * 1.5 - Math.cos(perpHerring) * threadSize * side,
                 py + Math.sin(angle) * threadSize * 1.5 - Math.sin(perpHerring) * threadSize * side
               );
-              ctx.stroke();
             }
+            
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize;
+            ctx.stroke(herringPath);
           break;
           
           case 'backstitch':
           case 'outline':
-            // Draw solid continuous line
-            ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
-            ctx.lineTo(x, y);
-            ctx.stroke();
+            // PERFORMANCE: Use Path2D for backstitch
+            const backstitchPath = new Path2D();
+            backstitchPath.moveTo(lastPoint.x, lastPoint.y);
+            backstitchPath.lineTo(x, y);
+            ctx.strokeStyle = embroideryThreadColor;
+            ctx.lineWidth = threadSize;
+            ctx.lineCap = 'round';
+            ctx.stroke(backstitchPath);
             break;
 
           case 'satin':
@@ -3065,18 +3400,19 @@ export function ShirtRefactored({
           case 'long_short_satin':
           case 'fill_tatami':
           default:
-            // Default satin stitch - draw smooth continuous thread
+            // PERFORMANCE: Default satin stitch - optimized rendering
             drawThreadStitch(lastPoint.x, lastPoint.y, x, y);
             
-            // Add highlight along the line for sheen effect
+            // PERFORMANCE: Use Path2D for highlight
             ctx.shadowBlur = 0;
             ctx.globalAlpha = 0.2;
+            const highlightPath = new Path2D();
+            highlightPath.moveTo(lastPoint.x, lastPoint.y);
+            highlightPath.lineTo(x, y);
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = threadSize * 0.6;
-            ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
-            ctx.lineTo(x, y);
-            ctx.stroke();
+            ctx.stroke(highlightPath);
+            ctx.globalAlpha = 1.0;
           break;
         }
       } else {
@@ -3159,341 +3495,191 @@ export function ShirtRefactored({
           useApp.setState({ lastEmbroideryPoint: { x, y } });
         }
 
-        // PERFORMANCE: Reduce console logging frequency
-        if (Math.random() < 0.1) { // Only log 10% of the time
-        console.log('🎨 Embroidery stitch drawn:', embroideryStitchType, 'at position:', { x, y });
-        }
+        // PERFORMANCE: Reduced logging (only in debug mode)
+        debugLog('🎨 Embroidery stitch drawn:', embroideryStitchType, 'at position:', { x, y });
       };
 
       // Draw with symmetry
       drawWithSymmetry(drawEmbroideryAt);
 
-    } else if (activeTool === 'vector') {
-      // Handle vector tool with different edit modes
-      // CRITICAL FIX: Get fresh state each time to avoid stale state issues
-      const vectorState = useApp.getState();
-      const { vectorEditMode, selectedAnchor, vectorPaths } = vectorState;
-      
-      console.log('🎨 Vector: Mode:', vectorEditMode, 'at UV:', { u: uv.x, v: uv.y }, 'VectorPaths:', vectorPaths.length);
-
-      if (vectorEditMode === 'pen') {
-        // Smart pen mode - check if clicking near existing anchor first
-        let nearestAnchor: { pathId: string; anchorIndex: number; distance: number } | null = null;
-        let minDistance = 20; // 20 pixel threshold for anchor detection
-
-        console.log('🎨 Vector: Checking for nearby anchors at click position:', { x, y });
-        
-        // CRITICAL FIX: Use fresh vectorPaths for anchor detection to avoid stale state
-        const freshPathsForDetection = useApp.getState().vectorPaths;
-
-        freshPathsForDetection.forEach(path => {
-          path.points.forEach((point, index) => {
-            const anchorX = Math.floor(point.u * canvas.width);
-            const anchorY = Math.floor(point.v * canvas.height);
-            const distance = Math.sqrt((anchorX - x) ** 2 + (anchorY - y) ** 2);
-            
-            console.log('🎨 Vector: Checking anchor:', { 
-              pathId: path.id, 
-              index, 
-              anchorPos: { x: anchorX, y: anchorY }, 
-              clickPos: { x, y }, 
-              distance 
-            });
-            
-            if (distance < minDistance) {
-              nearestAnchor = { pathId: path.id, anchorIndex: index, distance };
-              minDistance = distance;
-              console.log('🎨 Vector: Found closer anchor:', nearestAnchor);
-            }
-          });
-        });
-
-        if (nearestAnchor) {
-          // Clicked near existing anchor - select it and start dragging
-          const anchor = nearestAnchor as { pathId: string; anchorIndex: number; distance: number };
-          console.log('🎨 Vector: Selecting anchor:', anchor);
-          
-          // Clear any previous selection and select only this anchor
-          useApp.setState({ 
-            selectedAnchor: { 
-              pathId: anchor.pathId, 
-              anchorIndex: anchor.anchorIndex 
-            }
-          });
-          
-          isDraggingAnchorRef.current = true;
-          dragStartPosRef.current = { x, y };
-          
-          console.log('🎨 Vector: Selected existing anchor and started dragging:', nearestAnchor);
-          console.log('🎨 Vector: Updated state - selectedAnchor:', useApp.getState().selectedAnchor);
-          return; // Don't create new anchor, just select existing one
-        } else {
-          // No nearby anchor - clear any existing selection and create new anchor
-          // CRITICAL FIX: Get fresh activePathId from current state, not captured state
-          const freshState = useApp.getState();
-          const activePathId = freshState.activePathId;
-          
-          console.log('🎨 Vector: activePathId:', activePathId, 'total paths:', freshState.vectorPaths.length);
-          
-          // Clear any existing selection first
-          useApp.setState({ selectedAnchor: null });
-          
-          // Create VectorAnchor with proper UV coordinates and bezier handles
-          const anchor = {
-            u: uv.x,  // UV coordinate (0-1 range)
-            v: uv.y,  // UV coordinate (0-1 range)
-            inHandle: null,   // Bezier control handle (in)
-            outHandle: null,  // Bezier control handle (out)
-            curveControl: false
-          };
-
-          // CRITICAL FIX: Use fresh vectorPaths from current state
-          const currentVectorPaths = freshState.vectorPaths;
-          const activePath = currentVectorPaths.find(p => p.id === activePathId);
-
-          if (!activePath) {
-            // CRITICAL FIX: Include current tool settings when creating new path
-            const appState = useApp.getState();
-            const gradientSettings = (window as any).getGradientSettings?.();
-            const brushGradientData = gradientSettings?.brush;
-            const shouldUseGradient = brushGradientData && brushGradientData.mode === 'gradient';
-            
-            // Start new vector path with proper settings
-            const newPath = {
-              id: `vpath-${Date.now()}`,
-              points: [anchor],
-              closed: false,
-              tool: activeTool, // Store which tool this path is for
-              // CRITICAL: Include current settings including gradient
-              settings: {
-                size: appState.brushSize || 10,
-                opacity: appState.brushOpacity || 1.0,
-                hardness: appState.brushHardness || 0.5,
-                flow: appState.brushFlow || 0.8,
-                spacing: 0.3,
-                angle: 0,
-                roundness: 1,
-                color: appState.brushColor || '#000000',
-                gradient: shouldUseGradient ? brushGradientData : undefined,
-                blendMode: appState.blendMode || 'source-over'
-              }
-            };
-            
-            // CRITICAL FIX: Use fresh vectorPaths from freshState
-            useApp.setState({ 
-              vectorPaths: [...currentVectorPaths, newPath],
-              activePathId: newPath.id,
-              selectedAnchor: { 
-                pathId: newPath.id, 
-                anchorIndex: 0 
-              }
-            });
-            console.log('🎨 Vector: Started new path at UV:', { u: uv.x, v: uv.y }, 'with settings:', newPath.settings);
-          } else {
-            // Add anchor to existing path
-            const updatedPaths = currentVectorPaths.map(p => 
-              p.id === activePathId 
-                ? { ...p, points: [...p.points, anchor] }
-                : p
-            );
-            
-            // Select the newly created anchor
-            const newAnchorIndex = activePath.points.length;
-            useApp.setState({ 
-              vectorPaths: updatedPaths,
-              selectedAnchor: { 
-                pathId: activePathId!, 
-                anchorIndex: newAnchorIndex 
-              }
-            });
-            console.log('🎨 Vector: Added anchor, total:', newAnchorIndex + 1);
-          }
-        }
-
-      // Draw all vector paths with visual feedback
-      const renderVectorPaths = () => {
-        const vectorState = useApp.getState();
-        const { vectorPaths, selectedAnchor, vectorEditMode } = vectorState;
-        
-        vectorPaths.forEach(path => {
-          if (path.points.length === 0) return;
-          
-          ctx.save();
-          
-          // Ensure crisp rendering for vector paths
-          ctx.imageSmoothingEnabled = false;
-          ctx.imageSmoothingQuality = 'high';
-          
-          // Draw path lines
-          ctx.strokeStyle = vectorState.vectorStrokeColor || '#000000';
-          ctx.lineWidth = vectorState.vectorStrokeWidth || 2;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-      ctx.beginPath();
-          
-          path.points.forEach((point, index) => {
-            const x = Math.floor(point.u * canvas.width);
-            const y = Math.floor(point.v * canvas.height);
-            
-            if (index === 0) {
-              ctx.moveTo(x, y);
-            } else {
-              // Draw bezier curve if handles exist
-              const prevPoint = path.points[index - 1];
-              if (prevPoint.outHandle || point.inHandle) {
-                const prevX = Math.floor(prevPoint.u * canvas.width);
-                const prevY = Math.floor(prevPoint.v * canvas.height);
-                const cp1X = prevPoint.outHandle ? Math.floor(prevPoint.outHandle.u * canvas.width) : prevX;
-                const cp1Y = prevPoint.outHandle ? Math.floor(prevPoint.outHandle.v * canvas.height) : prevY;
-                const cp2X = point.inHandle ? Math.floor(point.inHandle.u * canvas.width) : x;
-                const cp2Y = point.inHandle ? Math.floor(point.inHandle.v * canvas.height) : y;
-                
-                ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, x, y);
-              } else {
-                ctx.lineTo(x, y);
-              }
-            }
-          });
-          
-          if (path.closed && path.points.length > 2) {
-            ctx.closePath();
-          }
-          
-          ctx.stroke();
-          
-          // Draw anchors
-          path.points.forEach((point, index) => {
-            const x = Math.floor(point.u * canvas.width);
-            const y = Math.floor(point.v * canvas.height);
-            const isSelected = selectedAnchor && 
-              selectedAnchor.pathId === path.id && 
-              selectedAnchor.anchorIndex === index;
-            
-            // Anchor point with black outline for selected
-            ctx.fillStyle = isSelected ? '#FFFFFF' : '#3B82F6';
-            ctx.beginPath();
-            ctx.arc(x, y, isSelected ? 7 : 5, 0, Math.PI * 2);
-      ctx.fill();
-            
-            // White outline
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            
-            // Black outline for selected anchors
-            if (isSelected) {
-              ctx.strokeStyle = '#000000';
-              ctx.lineWidth = 3;
-              ctx.stroke();
-            }
-            
-            // Draw curve handles
-            if (vectorEditMode === 'curve' && isSelected) {
-              // Out handle
-              if (point.outHandle) {
-                const handleX = Math.floor(point.outHandle.u * canvas.width);
-                const handleY = Math.floor(point.outHandle.v * canvas.height);
-                
-                ctx.strokeStyle = '#ff6b6b';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(x, y);
-                ctx.lineTo(handleX, handleY);
-                ctx.stroke();
-                
-                ctx.fillStyle = '#ff6b6b';
-                ctx.beginPath();
-                ctx.arc(handleX, handleY, 3, 0, Math.PI * 2);
-                ctx.fill();
-              }
-              
-              // In handle
-              if (point.inHandle) {
-                const handleX = Math.floor(point.inHandle.u * canvas.width);
-                const handleY = Math.floor(point.inHandle.v * canvas.height);
-                
-                ctx.strokeStyle = '#4ecdc4';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(x, y);
-                ctx.lineTo(handleX, handleY);
-                ctx.stroke();
-                
-                ctx.fillStyle = '#4ecdc4';
-                ctx.beginPath();
-                ctx.arc(handleX, handleY, 3, 0, Math.PI * 2);
-                ctx.fill();
-              }
-            }
-          });
-    
-    ctx.restore();
-        });
-      };
-      
-      // Call render function
-      renderVectorPaths();
-
-      } else if (vectorEditMode === 'select') {
-        // Select mode - find and select nearest anchor
-        let nearestAnchor: { pathId: string; anchorIndex: number; distance: number } | null = null;
-        let minDistance = 20; // 20 pixel threshold
-
-        vectorPaths.forEach(path => {
-          path.points.forEach((point, index) => {
-            const anchorX = Math.floor(point.u * canvas.width);
-            const anchorY = Math.floor(point.v * canvas.height);
-            const distance = Math.sqrt((anchorX - x) ** 2 + (anchorY - y) ** 2);
-            
-            if (distance < minDistance) {
-              nearestAnchor = { pathId: path.id, anchorIndex: index, distance };
-              minDistance = distance;
-            }
-          });
-        });
-
-        if (nearestAnchor) {
-          const anchor = nearestAnchor as { pathId: string; anchorIndex: number; distance: number };
-          useApp.setState({ 
-            selectedAnchor: { 
-              pathId: anchor.pathId, 
-              anchorIndex: anchor.anchorIndex 
-            }
-          });
-          console.log('🎨 Vector: Selected anchor:', nearestAnchor);
-        } else {
-          useApp.setState({ selectedAnchor: null });
-          console.log('🎨 Vector: No anchor selected');
-        }
-
-      } else if (vectorEditMode === 'curve' && selectedAnchor) {
-        // Curve mode - add curve handle to selected anchor
-        const { pathId, anchorIndex } = selectedAnchor;
-        const handleType = 'out'; // Default to out handle
-        useApp.getState().addCurveHandle(pathId, anchorIndex, handleType, uv.x, uv.y);
-        console.log('🎨 Vector: Added curve handle to anchor');
+    } else if (currentActiveTool === 'puffPrint') {
+      // 🎈 PUFF TOOL - Create actual 3D geometry on model surface
+      if (!modelScene) {
+        console.warn('🎈 Puff tool: No modelScene available');
+        return;
       }
 
-    } else if (activeTool === 'puffPrint') {
-      // ========== PUFF TOOL - DELEGATED TO UNIFIED PUFF PRINT SYSTEM ==========
-      // The puff tool is now handled by UnifiedPuffPrintSystem component
-      // This ensures consistent behavior and proper integration with the layer system
-      console.log('🎈 Puff tool delegated to UnifiedPuffPrintSystem');
+      // Get world position and normal from intersection
+      const point = e.point as THREE.Vector3 | undefined;
+      const face = e.face as THREE.Face | undefined;
+      const object = e.object as THREE.Mesh | undefined;
       
-      // Pass the event to UnifiedPuffPrintSystem via global event system
-      const puffEvent = new CustomEvent('puffPrintEvent', {
-        detail: {
-          uv: uv,
-          point: point,
-          event: e
+      if (!point || !face || !object) {
+        if (DEBUG_TOOLS) console.warn('🎈 Puff tool: Missing point, face, or object');
+        return;
+      }
+      
+      // CRITICAL FIX: Get the root scene from the object (not modelScene)
+      // The mesh should be added to the root scene, not modelScene, so world positions work correctly
+      let targetScene: THREE.Object3D | null = null;
+      if (object.parent) {
+        // Traverse up to find the root scene
+        let current: THREE.Object3D | null = object;
+        while (current && current.parent) {
+          current = current.parent;
         }
+        targetScene = current;
+      } else {
+        // Fallback to modelScene if we can't find root
+        targetScene = modelScene;
+      }
+      
+      if (!targetScene) {
+        if (DEBUG_TOOLS) console.warn('🎈 Puff tool: Could not find target scene');
+        return;
+      }
+
+      // Get puff settings from app state
+      const appState = useApp.getState();
+      const currentPuffSize = appState.puffSize || 20; // Get puff size in pixels
+      const puffHeightMultiplier = appState.puffHeight || 1.2; // Height multiplier
+      const puffColor = appState.puffColor || '#ff69b4';
+      const puffOpacity = appState.puffOpacity || 0.9;
+      const puffSoftness = appState.puffSoftness || 0.5;
+      
+      // Phase 1: Shape Customization
+      const puffTopShape = appState.puffTopShape || 'rounded';
+      const puffBottomShape = appState.puffBottomShape || 'rounded';
+      const puffCrossSectionShape = appState.puffCrossSectionShape || 'circle';
+      const puffProfileCurve = appState.puffProfileCurve || 'cubic';
+      const puffEdgeRadius = appState.puffEdgeRadius || 10;
+      const puffTaperAmount = appState.puffTaperAmount || 0;
+      
+      // Phase 3: Material & Texture
+      const puffFabricType = appState.puffFabricType || 'cotton';
+      const puffRoughness = appState.puffRoughness !== undefined ? appState.puffRoughness : 0.8;
+      const puffTextureIntensity = appState.puffTextureIntensity !== undefined ? appState.puffTextureIntensity : 0.3;
+      const puffEnableNormalMap = appState.puffEnableNormalMap !== undefined ? appState.puffEnableNormalMap : true;
+      
+      // Phase 4: Edge Details
+      const puffEdgeType = appState.puffEdgeType || 'none';
+      const puffEdgeWidth = appState.puffEdgeWidth || 2;
+      const puffEdgeColor = appState.puffEdgeColor || '#000000';
+      
+      // Phase 5: Advanced
+      const puffDetailLevel = appState.puffDetailLevel || 'auto';
+      const puffSmoothness = appState.puffSmoothness !== undefined ? appState.puffSmoothness : 80;
+      
+      // Get gradient settings if in gradient mode
+      const gradientSettings = (window as any).getGradientSettings?.();
+      const puffGradientData = gradientSettings?.puff;
+      
+      // Calculate world scale based on model bounds
+      let pixelToWorldScale = 0.01; // Default scale
+      if (modelScene) {
+        const box = new THREE.Box3().setFromObject(modelScene);
+        const modelSize = box.getSize(new THREE.Vector3());
+        const maxDimension = Math.max(modelSize.x, modelSize.y, modelSize.z);
+        // Canvas is typically 2048px, model is maxDimension units
+        // So 1 pixel = maxDimension / 2048 world units
+        pixelToWorldScale = maxDimension / 2048;
+        debugLog('🎈 Model scale calculation:', { maxDimension, pixelToWorldScale, puffSize: currentPuffSize });
+      }
+      
+      // Convert puff size (pixels) to world units
+      const puffSize = currentPuffSize * pixelToWorldScale; // Size in world units
+      const puffHeight = puffSize * puffHeightMultiplier; // Height based on multiplier
+      
+      debugLog('🎈 Puff settings:', { 
+        puffSizePixels: currentPuffSize, 
+        pixelToWorldScale, 
+        puffSizeWorld: puffSize, 
+        puffHeight,
+        puffHeightMultiplier,
+        puffColor,
+        puffOpacity,
+        puffSoftness
       });
-      window.dispatchEvent(puffEvent);
-      return;
+
+      // Calculate surface normal from face
+      let normal = face.normal ? face.normal.clone() : new THREE.Vector3(0, 1, 0);
+      
+      // Transform normal to world space
+      if (object.matrixWorld) {
+        const normalMatrix = new THREE.Matrix3().getNormalMatrix(object.matrixWorld);
+        normal.applyMatrix3(normalMatrix).normalize();
+      }
+      
+      // Initialize stroke if this is the first point
+      // CRITICAL: Always start a new stroke when paintingActiveRef is false
+      // This ensures each new click creates a separate puff, not bridging to previous ones
+      if (!paintingActiveRef.current) {
+        const strokeId = `puff-stroke-${Date.now()}`;
+        puffGeometryManager.startStroke(strokeId);
+        debugLog('🎈 Started new puff stroke:', strokeId);
+      }
+
+      // Create stroke point
+      const strokePoint: PuffStrokePoint = {
+        uv: uv.clone(),
+        worldPosition: point.clone(),
+        normal: normal
+      };
+
+      // Add point to current stroke
+      puffGeometryManager.addPointToStroke(strokePoint);
+
+              // Get settings - include all customization options
+              const settings: PuffSettings = {
+                height: puffHeight,
+                size: puffSize,
+                softness: puffSoftness,
+                color: puffColor,
+                opacity: puffOpacity,
+                
+                // Phase 1: Shape Customization
+                topShape: puffTopShape,
+                bottomShape: puffBottomShape,
+                crossSectionShape: puffCrossSectionShape,
+                profileCurve: puffProfileCurve,
+                edgeRadius: puffEdgeRadius,
+                taperAmount: puffTaperAmount,
+                
+                // Phase 3: Material & Texture
+                fabricType: puffFabricType,
+                roughness: puffRoughness,
+                textureIntensity: puffTextureIntensity,
+                enableNormalMap: puffEnableNormalMap,
+                
+                // Phase 4: Edge Details
+                edgeType: puffEdgeType,
+                edgeWidth: puffEdgeWidth,
+                edgeColor: puffEdgeColor,
+                
+                // Phase 5: Advanced
+                detailLevel: puffDetailLevel,
+                smoothness: puffSmoothness,
+                
+                // Existing features
+                hairs: appState.puffHairs || false,
+                hairHeight: appState.puffHairHeight || 0.5,
+                hairDensity: appState.puffHairDensity || 50,
+                hairThickness: appState.puffHairThickness || 0.02,
+                hairVariation: appState.puffHairVariation || 0.2,
+                gradient: puffGradientData?.mode === 'gradient' ? {
+                  type: puffGradientData.type,
+                  angle: puffGradientData.angle,
+                  stops: puffGradientData.stops
+                } : undefined
+              };
+
+      // Update stroke mesh (creates/updates the 3D geometry)
+      // CRITICAL: Use targetScene (root scene) instead of modelScene
+      puffGeometryManager.updateCurrentStroke(settings, targetScene);
+      
+      debugLog('🎈 Puff tool: Added 3D geometry point to stroke');
     }
     
-    // Restore canvas state after drawing
-    ctx.restore();
     // PERFORMANCE: Minimal logging
     if (Math.random() < 0.001) { // Only log 0.1% of the time
       console.log('🎨 Canvas state restored after drawing');
@@ -3522,7 +3708,7 @@ export function ShirtRefactored({
   // Smart control management - only disable rotation/pan for tools that need it, but keep zoom enabled
   const shouldDisableControls = useCallback((tool: string) => {
     // Only disable controls for tools that need continuous drawing and would conflict with camera movement
-    const continuousDrawingTools = ['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'];
+    const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'];
     return continuousDrawingTools.includes(tool);
   }, []);
   
@@ -3590,13 +3776,6 @@ export function ShirtRefactored({
         priority: 1,
         maps: ['map', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap']
       },
-      puffPrint: {
-        name: 'Puff Print Layer',
-        purpose: 'Raised print effects',
-        toolTarget: 'puffPrint',
-        priority: 2,
-        maps: ['normalMap', 'bumpMap', 'displacementMap']
-      },
       embroidery: {
         name: 'Embroidery Layer',
         purpose: 'Stitched patterns',
@@ -3644,7 +3823,35 @@ export function ShirtRefactored({
 
   // PROACTIVE CONTROL MANAGEMENT: Disable controls when a drawing tool is selected
   useEffect(() => {
-    const continuousDrawingTools = ['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'];
+    const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'];
+    
+    // CRITICAL: When vector tool is selected, default to 'pen' mode for immediate drawing
+    // Also ensure composedCanvas is initialized
+    if (activeTool === 'vector') {
+      const appState = useApp.getState();
+      const currentMode = appState.vectorEditMode;
+      
+      // Initialize vectorEditMode if not set or invalid
+      if (!currentMode || !['pen', 'select', 'move', 'curve', 'addAnchor', 'removeAnchor', 'convertAnchor'].includes(currentMode)) {
+        useApp.setState({ vectorEditMode: 'pen' });
+        console.log('🎯 Vector tool: Auto-set to pen mode for immediate drawing');
+      }
+      
+      // CRITICAL FIX: Ensure composedCanvas is initialized when vector tool is activated
+      let composedCanvas = appState.composedCanvas;
+      if (!composedCanvas) {
+        console.warn('🎯 Vector tool: No composedCanvas - initializing...');
+        // Trigger layer composition to create composedCanvas
+        appState.composeLayers();
+        composedCanvas = useApp.getState().composedCanvas;
+        
+        if (!composedCanvas) {
+          console.error('🎯 Vector tool: Failed to initialize composedCanvas on tool activation');
+        } else {
+          console.log('🎯 Vector tool: ComposedCanvas initialized successfully');
+        }
+      }
+    }
     
     console.log(`🎮 Tool changed to: ${activeTool}, shouldDisable: ${continuousDrawingTools.includes(activeTool)}, userManuallyEnabled: ${userManuallyEnabledControlsRef.current}`);
     
@@ -3671,8 +3878,9 @@ export function ShirtRefactored({
   useEffect(() => {
     const handleDisplacementMapUpdate = (event: CustomEvent) => {
       console.log('🔄 Received displacement map update event:', event.detail);
-      const puffCanvas = useApp.getState().puffCanvas;
-      if (puffCanvas) {
+      // NEW PUFF TOOL: Check displacementCanvas instead of puffCanvas
+      const displacementCanvas = (useApp.getState() as any).displacementCanvas as HTMLCanvasElement | undefined;
+      if (displacementCanvas) {
         // Only update displacement maps, not the main texture
         updateModelTexture(false, true);
       }
@@ -3717,7 +3925,7 @@ export function ShirtRefactored({
       window.removeEventListener('updateEmbroideryPaths', handleEmbroideryUpdate as EventListener);
       window.removeEventListener('forceTextureUpdate', handleTextureUpdate as EventListener);
     };
-  }, [createPuffDisplacementMap, createPuffNormalMap, updateModelWithPuffMaps, updateModelTexture]);
+  }, [updateModelTexture]);
 
   // UNIFIED IMAGE BOUNDS CALCULATION
   // This function calculates image bounds once and uses them everywhere
@@ -3822,9 +4030,24 @@ export function ShirtRefactored({
       }
     }
     
+    // 🎨 PICKER TOOL - Handle color picking FIRST (before selection logic)
+    if (activeTool === 'picker') {
+      console.log('🎨 Picker tool: Handling color pick');
+      
+      // Check if click is on model (has UV)
+      if (e.uv && e.intersections && e.intersections.length > 0) {
+        // Call paintAtEvent to handle color picking
+        paintAtEvent(e);
+        return; // Don't process as selection
+      } else {
+        console.log('🎨 Picker tool: Click outside model - no color to pick');
+        return; // Click outside model, nothing to pick
+      }
+    }
+    
     // 🎯 CLICK-TO-SELECT FUNCTIONALITY
     // Check if we're in selection mode or if user wants to select elements
-    if (activeTool === 'picker' || activeTool === 'universalSelect' || modifierKeys.ctrl) {
+    if (activeTool === 'universalSelect' || modifierKeys.ctrl) {
       console.log('🎯 Selection mode detected - checking for elements to select');
       
       // Determine selection mode based on modifier keys
@@ -3840,7 +4063,7 @@ export function ShirtRefactored({
         selectionMode = 'multi';
       }
       
-      console.log('🎯 Selection mode:', selectionMode, 'Ctrl:', isCtrlClick, 'Shift:', isShiftClick);
+      debugLog('🎯 Selection mode:', selectionMode, 'Ctrl:', isCtrlClick, 'Shift:', isShiftClick);
       
       if (e.uv) {
         // Convert UV coordinates to canvas coordinates
@@ -3849,11 +4072,12 @@ export function ShirtRefactored({
           const canvasX = e.uv.x * composedCanvas.width;
           const canvasY = e.uv.y * composedCanvas.height;
           
-          console.log('🎯 Checking for elements at canvas position:', { canvasX, canvasY });
+          debugLog('🎯 Checking for elements at canvas position:', { canvasX, canvasY });
           
           // Get all brush strokes from the current layer
-          const { layers, brushStrokes } = useApp.getState();
-          const activeLayer = layers.find(layer => layer.id === 'paint');
+          const { layers } = useAdvancedLayerStoreV2.getState();
+          const { brushStrokes } = useApp.getState();
+          const activeLayer = layers.find((layer: any) => layer.id === 'paint');
           
           if (activeLayer && brushStrokes) {
             // Filter brush strokes for the active layer
@@ -3870,7 +4094,7 @@ export function ShirtRefactored({
                   canvasY >= bounds.minY &&
                   canvasY <= bounds.maxY
                 ) {
-                  console.log('🎯 Found intersecting brush stroke:', stroke.id);
+                  debugLog('🎯 Found intersecting brush stroke:', stroke.id);
                   
                   // Create selected element
                   const selectedElement = {
@@ -3897,7 +4121,7 @@ export function ShirtRefactored({
                   e.stopPropagation();
                   e.nativeEvent?.stopPropagation();
                   
-                  console.log('🎯 Element selected:', selectedElement);
+                  debugLog('🎯 Element selected:', selectedElement);
                   return;
                 }
               }
@@ -3917,7 +4141,7 @@ export function ShirtRefactored({
     // For continuous drawing tools, we need to detect if click is on model or outside
     console.log('🎨 DECISION POINT 1: Checking if tool is continuous drawing tool');
     console.log('🎨   activeTool:', activeTool);
-    console.log('🎨   Is in [brush, eraser, puffPrint, embroidery, fill]?', ['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool));
+    console.log('🎨   Is in [brush, eraser, embroidery, fill]?', ['brush', 'eraser', 'embroidery', 'fill'].includes(activeTool));
     
     // CRITICAL FIX: Handle 'select' tool FIRST - it should enable camera but allow selection
     if ((activeTool as string) === 'select') {
@@ -4015,7 +4239,21 @@ export function ShirtRefactored({
       }
       
       return; // Exit early for select tool
-    } else if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+    } else if ((activeTool as string) === 'picker') {
+      // Picker tool - handle color picking (one-click action)
+      console.log('🎨 Picker tool detected - handling color pick');
+      
+      // Check if click is on model (has intersection)
+      const isOnModel = e.intersections && e.intersections.length > 0;
+      if (isOnModel) {
+        console.log('🎨 Picker tool: Click on model - calling paintAtEvent');
+        paintAtEvent(e);
+        // Picker doesn't need paintingActiveRef - it's a one-click action
+      } else {
+        console.log('🎨 Picker tool: Click outside model - nothing to pick');
+      }
+      return; // Exit early for picker tool
+    } else if (['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'].includes(activeTool)) {
       console.log('🎨 Continuous drawing tool detected:', activeTool);
       
       // Controls should already be disabled by useEffect when tool was selected
@@ -4069,24 +4307,35 @@ export function ShirtRefactored({
         // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation for drawing events
         triggerBrushStart();
         
-        // CRITICAL: Stop event propagation and prevent default to completely block OrbitControls
-        if (e.stopPropagation) {
-          e.stopPropagation();
-          console.log('🎨 Stopped event propagation to prevent rotation');
-        }
-        // Note: preventDefault may not work on passive listeners, that's OK
-        if (e.preventDefault) {
-          try {
-            e.preventDefault();
-            console.log('🎨 Prevented default behavior');
-          } catch (err) {
-            // Ignore preventDefault errors on passive listeners
-            console.log('🎨 preventDefault failed (passive listener)');
+        // CRITICAL FIX: Only block left-click events for drawing
+        // Allow right-click and middle-click for rotation
+        const nativeEvent = e.nativeEvent || e;
+        const isLeftClick = nativeEvent.button === 0 || nativeEvent.button === undefined; // Default to left if undefined
+        const isRightClick = nativeEvent.button === 2;
+        const isMiddleClick = nativeEvent.button === 1;
+        
+        // Only block left-click events - allow rotation controls for right/middle click
+        if (isLeftClick) {
+          if (e.stopPropagation) {
+            e.stopPropagation();
+            console.log('🎨 Stopped event propagation to prevent rotation (left-click only)');
           }
-        }
-        if (e.nativeEvent) {
-          e.nativeEvent.stopPropagation();
-          console.log('🎨 Stopped native event propagation');
+          // Note: preventDefault may not work on passive listeners, that's OK
+          if (e.preventDefault) {
+            try {
+              e.preventDefault();
+              console.log('🎨 Prevented default behavior (left-click only)');
+            } catch (err) {
+              // Ignore preventDefault errors on passive listeners
+              console.log('🎨 preventDefault failed (passive listener)');
+            }
+          }
+          if (e.nativeEvent) {
+            e.nativeEvent.stopPropagation();
+            console.log('🎨 Stopped native event propagation (left-click only)');
+          }
+        } else {
+          console.log('🎨 Allowing event through for rotation (right/middle click)');
         }
         
         // Disable controls immediately and forcefully when starting to draw on model
@@ -4097,8 +4346,10 @@ export function ShirtRefactored({
         userManuallyEnabledControlsRef.current = false; // Reset manual flag since we're now drawing
         console.log('🎨 Controls forcefully disabled, new state:', useApp.getState().controlsEnabled);
         
-        // Only set paintingActiveRef for continuous drawing tools, not for vector tool
-        if (activeTool !== 'vector') {
+        // CRITICAL: For puff tool, DON'T set paintingActiveRef before calling paintAtEvent
+        // paintAtEvent needs to check if paintingActiveRef is false to start a new stroke
+        // For other tools, set it before calling paintAtEvent
+        if (activeTool !== 'vector' && activeTool !== 'puffPrint') {
           paintingActiveRef.current = true;
           console.log('🎨 Set paintingActiveRef to true for tool:', activeTool);
           
@@ -4110,25 +4361,23 @@ export function ShirtRefactored({
         }
         
         // Call the actual painting function from useApp store
-        const vectorMode = useApp.getState().vectorMode;
         
-        // In vector mode, brush/puff/embroidery create vector paths instead of painting
-        if (vectorMode && ['brush', 'puffPrint', 'embroidery'].includes(activeTool)) {
-          console.log('🎨 Vector mode active - treating', activeTool, 'as vector path creator');
-          // Treat as vector tool - paintAtEvent will handle vector path creation
+        // Handle picker tool separately (it doesn't need paintingActiveRef)
+        if ((activeTool as string) === 'picker') {
+          debugLog('🎨 Picker tool: Calling paintAtEvent for color picking');
           paintAtEvent(e);
-        } else if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+          // Picker tool doesn't set paintingActiveRef - it's a one-click action
+        } else if (['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'].includes(activeTool)) {
           console.log('🎨 Calling paintAtEvent for tool:', activeTool);
           paintAtEvent(e);
-        } else if (activeTool === 'vector') {
-          // For vector tool, only handle anchor selection on initial click
-          // Don't call paintAtEvent if we're already dragging an anchor
-          if (!isDraggingAnchorRef.current) {
-            console.log('🎨 Vector: Handling anchor selection on click');
-            paintAtEvent(e);
-          } else {
-            console.log('🎨 Vector: Skipping onPointerDown - already dragging anchor');
+          
+          // CRITICAL: For puff tool, set paintingActiveRef AFTER paintAtEvent
+          // This ensures paintAtEvent can check if it's a new stroke
+          if (activeTool === 'puffPrint') {
+            paintingActiveRef.current = true;
+            console.log('🎨 Set paintingActiveRef to true for puff tool after paintAtEvent');
           }
+          // Vector tool doesn't need paintingActiveRef - it handles its own state
         }
       } else {
         // Click is outside model - enable controls for camera movement
@@ -4139,8 +4388,9 @@ export function ShirtRefactored({
         console.log('🎨 Controls enabled, new state:', useApp.getState().controlsEnabled);
         paintingActiveRef.current = false;
       }
-    } else if (['vector', 'text', 'shapes', 'move'].includes(activeTool) || (activeTool as string) === 'image') {
-      // For vector, text, shapes, move, and image tools, allow camera movement but handle clicks on model
+    } else if (['text', 'shapes', 'move'].includes(activeTool) || (activeTool as string) === 'image') {
+      // For text, shapes, move, and image tools, allow camera movement but handle clicks on model
+      // NOTE: Vector tool is now handled as a drawing tool in the continuousDrawingTools section above
       console.log('🎨 ============================================================');
       console.log('🎨 DECISION POINT 2: Non-drawing tool detected');
       console.log('🎨 Vector/Text/Shapes/Move/Image tool detected:', activeTool);
@@ -4160,15 +4410,8 @@ export function ShirtRefactored({
         console.log('🎨 activeTool:', activeTool);
         console.log('🎨 ============================================================');
         
-        if (activeTool === 'vector') {
-          // For vector tool, only handle anchor selection on initial click
-          if (!isDraggingAnchorRef.current) {
-            console.log('🎨 Vector: Handling anchor selection on click');
-            paintAtEvent(e);
-          } else {
-            console.log('🎨 Vector: Skipping onPointerDown - already dragging anchor');
-          }
-        } else if (activeTool === 'text') {
+        // Vector tool is now handled in the main drawing tools section above
+        if (activeTool === 'text') {
           // Text tool - select existing text or create new text
           console.log('🎨 ========== TEXT TOOL: onPointerDown TRIGGERED ==========');
           console.log('🎨 Event:', e);
@@ -4332,9 +4575,15 @@ export function ShirtRefactored({
               // ===== CLICKED ON EXISTING TEXT - SELECT IT =====
               console.log('🎨 Text tool: Clicked on existing text:', clickedText.id);
               
-              // CRITICAL: Select the text FIRST
-              console.log('🔍 DEBUG: Setting activeTextId to:', clickedText.id);
-              setActiveTextId(clickedText.id);
+              // CRITICAL: If clicking on already-selected text, don't re-select (just allow anchor interaction)
+              if (currentActiveId === clickedText.id) {
+                console.log('🎨 Text tool: Text already selected, allowing anchor interaction only');
+                // Don't re-set activeTextId, just continue to anchor detection
+              } else {
+                // CRITICAL: Select the text FIRST
+                console.log('🔍 DEBUG: Setting activeTextId to:', clickedText.id);
+                setActiveTextId(clickedText.id);
+              }
               
               // Verify the selection was set
               setTimeout(() => {
@@ -4375,70 +4624,141 @@ const canvasDimensions = {
                   height: composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width
                 };
               
-              // CRITICAL: Calculate canvas pixel position (same as App.tsx line 3035-3037)
+              // CRITICAL: Calculate text position in pixel space (for rotation calculations)
+              // These are used for rotation handle and rotation calculations
               const x = Math.round(txtU * canvasDimensions.width);
-              const y = Math.round((1 - txtV) * canvasDimensions.height); // V is flipped in canvas space
+              const y = Math.round((1 - txtV) * canvasDimensions.height);
               
-              // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
-              let borderXPixels = 0;
+              // CRITICAL: Use EXACT SAME calculation as AdvancedLayerSystemV2.ts border rendering
+              // The border uses selectedTextEl.x and flippedY directly, so we need to match that
+              // Text element has .x and .y in pixel coordinates (from UV conversion during creation)
+              const textXPixels = clickedText.x || x; // Use text element's x or fallback to calculated x
+              const textYPixels = clickedText.y || y; // Use text element's y or fallback to calculated y
+              
+              // Calculate flippedY (same as border rendering)
+              const canvasHeight = canvasDimensions.height;
+              const flippedY = canvasHeight - textYPixels;
+              
+              // Calculate border position (EXACT SAME as AdvancedLayerSystemV2.ts lines 2824-2842)
+              let borderXPixels: number;
+              let borderYPixels: number;
+              
               if (clickedText.align === 'left') {
-                borderXPixels = textPixelWidth / 2; // Text starts at 0, so border center is at width/2
+                // Left align: text starts at x, flippedY
+                borderXPixels = textXPixels;
+                borderYPixels = flippedY;
               } else if (clickedText.align === 'right') {
-                borderXPixels = -textPixelWidth / 2; // Text ends at 0, so border center is at -width/2
+                // Right align: text ends at x, flippedY
+                borderXPixels = textXPixels - textPixelWidth;
+                borderYPixels = flippedY;
               } else {
-                borderXPixels = 0; // Center alignment (default)
+                // Center align: text is centered at x, flippedY
+                borderXPixels = textXPixels - (textPixelWidth / 2);
+                borderYPixels = flippedY;
               }
-              
-              // Border Y position (textBaseline is 'top', so border top is at 0)
-              const borderYPixels = textPixelHeight / 2; // Center border vertically
               
               // Convert to UV for hitbox calculations
               const textWidth = textPixelWidth / canvasDimensions.width;
               const textHeight = textPixelHeight / canvasDimensions.height;
-              const borderX = borderXPixels / canvasDimensions.width;
-              const borderY = borderYPixels / canvasDimensions.height;
               
-              console.log('🎨 Text anchor check - ACTUAL bounds:', textWidth, 'x', textHeight, 'Border offset:', borderX, borderY);
+              console.log('🎨 Text anchor check - Using EXACT border calculation:', {
+                textXPixels,
+                textYPixels,
+                flippedY,
+                borderXPixels,
+                borderYPixels,
+                textPixelWidth,
+                textPixelHeight
+              });
               
-              // Match visual anchor sizes from App.tsx (line 3259-3260)
-              const cornerAnchorSize = 12; // 12px square
-              const edgeAnchorSize = 10;   // 10px diameter circle (5px radius)
+              // Match visual anchor sizes from AdvancedLayerSystemV2.ts EXACTLY
+              const cornerAnchorSize = 12; // 12px square (visual size)
+              const edgeAnchorSize = 10;   // 10px diameter circle (visual size)
               
-              // Hitbox radius: Make LARGER than visual size for easier clicking (2.5x larger)
-              const cornerHitboxRadius = 15; // 15px (visual is 12px)
-              const edgeHitboxRadius = 12;   // 12px (visual is 10px)
+              // CRITICAL: Hitbox matches EXACT visual size - no larger hitbox
+              // Corner anchors are 12px squares, so hitbox is 6px radius (half of 12px)
+              const cornerHitboxRadius = cornerAnchorSize / 2; // 6px (exact match to visual)
+              // Edge anchors are 10px circles, so hitbox is 5px radius (half of 10px)
+              const edgeHitboxRadius = edgeAnchorSize / 2;   // 5px (exact match to visual)
               
-              // Anchor center positions (the border corners themselves)
-              const topLeftPixelX = x + borderXPixels - textPixelWidth / 2;
-              const topLeftPixelY = y + borderYPixels - textPixelHeight / 2;
-              const topRightPixelX = x + borderXPixels + textPixelWidth / 2;
-              const topRightPixelY = y + borderYPixels - textPixelHeight / 2;
-              const bottomLeftPixelX = x + borderXPixels - textPixelWidth / 2;
-              const bottomLeftPixelY = y + borderYPixels + textPixelHeight / 2;
-              const bottomRightPixelX = x + borderXPixels + textPixelWidth / 2;
-              const bottomRightPixelY = y + borderYPixels + textPixelHeight / 2;
+              // CRITICAL: Anchor positions match EXACTLY where they're drawn in AdvancedLayerSystemV2.ts
+              // The anchors are drawn at border corners in the FLIPPED coordinate system
+              // So we calculate them in the same flipped coordinate system
+              const topLeftPixelX = borderXPixels;
+              const topLeftPixelY = borderYPixels;
+              const topRightPixelX = borderXPixels + textPixelWidth;
+              const topRightPixelY = borderYPixels;
+              const bottomLeftPixelX = borderXPixels;
+              const bottomLeftPixelY = borderYPixels + textPixelHeight;
+              const bottomRightPixelX = borderXPixels + textPixelWidth;
+              const bottomRightPixelY = borderYPixels + textPixelHeight;
               
-              // Edge anchor positions
-              const topEdgePixelX = x + borderXPixels;
-              const topEdgePixelY = y + borderYPixels - textPixelHeight / 2;
-              const bottomEdgePixelX = x + borderXPixels;
-              const bottomEdgePixelY = y + borderYPixels + textPixelHeight / 2;
-              const leftEdgePixelX = x + borderXPixels - textPixelWidth / 2;
-              const leftEdgePixelY = y + borderYPixels;
-              const rightEdgePixelX = x + borderXPixels + textPixelWidth / 2;
-              const rightEdgePixelY = y + borderYPixels;
+              // Edge anchor positions (at border edges)
+              const topEdgePixelX = borderXPixels + textPixelWidth / 2;
+              const topEdgePixelY = borderYPixels;
+              const bottomEdgePixelX = borderXPixels + textPixelWidth / 2;
+              const bottomEdgePixelY = borderYPixels + textPixelHeight;
+              const leftEdgePixelX = borderXPixels;
+              const leftEdgePixelY = borderYPixels + textPixelHeight / 2;
+              const rightEdgePixelX = borderXPixels + textPixelWidth;
+              const rightEdgePixelY = borderYPixels + textPixelHeight / 2;
               
+              // Get rotation for cursor calculation (use textRotation to avoid conflict with later declaration)
+              const textRotation = clickedText.rotation || 0;
+              
+              // Helper function to get cursor for anchor (accounting for rotation)
+              // Use the same rotation-aware cursor logic as in onPointerMove
+              const rotationDeg = (textRotation * 180 / Math.PI) % 360;
+              const getRotatedCursor = (baseCursor: string, anchorName: string): string => {
+                if (textRotation === 0 || Math.abs(textRotation) < 0.01) {
+                  return baseCursor; // No rotation, use base cursor
+                }
+                
+                // Map base cursors to angles (0° = North, 90° = East, etc.)
+                const cursorAngles: {[key: string]: number} = {
+                  'n-resize': 0,
+                  'ne-resize': 45,
+                  'e-resize': 90,
+                  'se-resize': 135,
+                  's-resize': 180,
+                  'sw-resize': 225,
+                  'w-resize': 270,
+                  'nw-resize': 315
+                };
+                
+                const baseAngle = cursorAngles[baseCursor] || 0;
+                let newAngle = (baseAngle + rotationDeg) % 360;
+                if (newAngle < 0) newAngle += 360;
+                
+                // Map angle back to cursor
+                let resultCursor = baseCursor;
+                if (newAngle >= 337.5 || newAngle < 22.5) resultCursor = 'n-resize';
+                else if (newAngle >= 22.5 && newAngle < 67.5) resultCursor = 'ne-resize';
+                else if (newAngle >= 67.5 && newAngle < 112.5) resultCursor = 'e-resize';
+                else if (newAngle >= 112.5 && newAngle < 157.5) resultCursor = 'se-resize';
+                else if (newAngle >= 157.5 && newAngle < 202.5) resultCursor = 's-resize';
+                else if (newAngle >= 202.5 && newAngle < 247.5) resultCursor = 'sw-resize';
+                else if (newAngle >= 247.5 && newAngle < 292.5) resultCursor = 'w-resize';
+                else if (newAngle >= 292.5 && newAngle < 337.5) resultCursor = 'nw-resize';
+                
+                return resultCursor;
+              };
+              
+              // CRITICAL: Convert anchor pixel positions to UV coordinates
+              // Anchors are calculated in FLIPPED pixel space (borderYPixels = flippedY)
+              // But UV coordinates are in NORMAL space (V=0 at top, V=1 at bottom)
+              // Since borderYPixels is already in flipped space, we convert: v = pixelY / height
               const anchors = [
-                // Corner anchors (check these first for priority) with hitbox radius in pixels
-                { name: 'topLeft', u: topLeftPixelX / canvasDimensions.width, v: 1 - (topLeftPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
-                { name: 'topRight', u: topRightPixelX / canvasDimensions.width, v: 1 - (topRightPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
-                { name: 'bottomLeft', u: bottomLeftPixelX / canvasDimensions.width, v: 1 - (bottomLeftPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
-                { name: 'bottomRight', u: bottomRightPixelX / canvasDimensions.width, v: 1 - (bottomRightPixelY / canvasDimensions.height), hitboxPx: cornerHitboxRadius },
-                // Edge anchors (check these after corners) with hitbox radius in pixels
-                { name: 'top', u: topEdgePixelX / canvasDimensions.width, v: 1 - (topEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius },
-                { name: 'bottom', u: bottomEdgePixelX / canvasDimensions.width, v: 1 - (bottomEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius },
-                { name: 'left', u: leftEdgePixelX / canvasDimensions.width, v: 1 - (leftEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius },
-                { name: 'right', u: rightEdgePixelX / canvasDimensions.width, v: 1 - (rightEdgePixelY / canvasDimensions.height), hitboxPx: edgeHitboxRadius }
+                // Corner anchors (check these first for priority) with hitbox radius in pixels and cursor
+                { name: 'topLeft', u: topLeftPixelX / canvasDimensions.width, v: topLeftPixelY / canvasDimensions.height, hitboxPx: cornerHitboxRadius, cursor: getRotatedCursor('nw-resize', 'topLeft') },
+                { name: 'topRight', u: topRightPixelX / canvasDimensions.width, v: topRightPixelY / canvasDimensions.height, hitboxPx: cornerHitboxRadius, cursor: getRotatedCursor('ne-resize', 'topRight') },
+                { name: 'bottomLeft', u: bottomLeftPixelX / canvasDimensions.width, v: bottomLeftPixelY / canvasDimensions.height, hitboxPx: cornerHitboxRadius, cursor: getRotatedCursor('sw-resize', 'bottomLeft') },
+                { name: 'bottomRight', u: bottomRightPixelX / canvasDimensions.width, v: bottomRightPixelY / canvasDimensions.height, hitboxPx: cornerHitboxRadius, cursor: getRotatedCursor('se-resize', 'bottomRight') },
+                // Edge anchors (check these after corners) with hitbox radius in pixels and cursor
+                { name: 'top', u: topEdgePixelX / canvasDimensions.width, v: topEdgePixelY / canvasDimensions.height, hitboxPx: edgeHitboxRadius, cursor: getRotatedCursor('n-resize', 'top') },
+                { name: 'bottom', u: bottomEdgePixelX / canvasDimensions.width, v: bottomEdgePixelY / canvasDimensions.height, hitboxPx: edgeHitboxRadius, cursor: getRotatedCursor('s-resize', 'bottom') },
+                { name: 'left', u: leftEdgePixelX / canvasDimensions.width, v: leftEdgePixelY / canvasDimensions.height, hitboxPx: edgeHitboxRadius, cursor: getRotatedCursor('w-resize', 'left') },
+                { name: 'right', u: rightEdgePixelX / canvasDimensions.width, v: rightEdgePixelY / canvasDimensions.height, hitboxPx: edgeHitboxRadius, cursor: getRotatedCursor('e-resize', 'right') }
               ];
               
               console.log('🎨 DEBUG ANCHOR POSITIONS:');
@@ -4479,15 +4799,19 @@ const canvasDimensions = {
               }
               
               // ROTATION HANDLE: Check if clicking on rotation handle (PRIORITY - check before anchors)
-              const rotationHandleDistance = 40; // Same as in App.tsx
-              const rotationHandleSize = 12; // Same as in App.tsx
-              const rotationHandlePixelX = x + borderXPixels;
-              const rotationHandlePixelY = y + borderYPixels - textPixelHeight / 2 - rotationHandleDistance;
+              const rotationHandleDistance = 40; // Same as in AdvancedLayerSystemV2.ts
+              const rotationHandleSize = 12; // Same as in AdvancedLayerSystemV2.ts (12px diameter circle)
+              const rotationHandleRadius = rotationHandleSize / 2; // 6px radius (exact match to visual)
+              // Rotation handle is positioned relative to text center (textXPixels, flippedY)
+              const rotationHandlePixelX = textXPixels;
+              const rotationHandlePixelY = flippedY - textPixelHeight / 2 - rotationHandleDistance;
+              // Convert to UV: rotationHandlePixelY is in flipped space, so v = pixelY / height
               const rotationHandleU = rotationHandlePixelX / canvasDimensions.width;
-              const rotationHandleV = 1 - (rotationHandlePixelY / canvasDimensions.height);
+              const rotationHandleV = rotationHandlePixelY / canvasDimensions.height;
               
               const rotationHandleDist = Math.sqrt(Math.pow(localClickU - rotationHandleU, 2) + Math.pow(localClickV - rotationHandleV, 2));
-              const rotationHandleHitbox = (rotationHandleSize / canvasDimensions.width) * 1.5; // Slightly larger hitbox for easier clicking
+              // CRITICAL: Hitbox matches EXACT visual size - rotation handle is 12px circle = 6px radius
+              const rotationHandleHitbox = rotationHandleRadius / canvasDimensions.width; // Exact match to visual
               
               console.log('🔄 Rotation handle check:');
               console.log('  Handle position (pixels):', rotationHandlePixelX, rotationHandlePixelY);
@@ -4523,13 +4847,23 @@ const canvasDimensions = {
               console.log('🎨 Click UV (local/rotated):', localClickU, localClickV);
               console.log('🎨 Text rotation:', rotation, 'radians =', (rotation * 180 / Math.PI).toFixed(1), '°');
               
+              // CRITICAL FIX: Transform anchor positions to rotated coordinate system
+              // OR check clicks in original coordinate system - using original for consistency
+              // When text is rotated, we need to check anchors in the ORIGINAL coordinate system
+              // because anchors are calculated in pixel space which is not rotated
+              const checkClickU = rotation !== 0 ? clickU : localClickU; // Use original if rotated
+              const checkClickV = rotation !== 0 ? clickV : localClickV;
+              
               // Calculate consistent hitbox sizes in UV space
               const cornerHitboxUV = cornerHitboxRadius / canvasDimensions.width;
               const edgeHitboxUV = edgeHitboxRadius / canvasDimensions.width;
               console.log('🎨 Corner hitbox UV:', cornerHitboxUV.toFixed(6), 'Edge hitbox UV:', edgeHitboxUV.toFixed(6));
+              console.log('🎨 Using check coordinates (original for rotated text):', checkClickU.toFixed(4), checkClickV.toFixed(4));
               
               for (const anchor of anchors) {
-                const dist = Math.sqrt(Math.pow(localClickU - anchor.u, 2) + Math.pow(localClickV - anchor.v, 2));
+                // CRITICAL: For rotated text, anchors are in original coordinate system
+                // So we check against original click coordinates, not rotated ones
+                const dist = Math.sqrt(Math.pow(checkClickU - anchor.u, 2) + Math.pow(checkClickV - anchor.v, 2));
                 const distPixels = dist * canvasDimensions.width;
                 
                 // Use consistent hitbox size based on anchor type
@@ -4576,6 +4910,12 @@ const canvasDimensions = {
                 setControlsEnabled(false);
                 useApp.setState({ controlsEnabled: false });
                 
+                // CRITICAL: Stop event propagation to prevent text input prompt
+                if (e.stopPropagation) e.stopPropagation();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                if (e.nativeEvent?.stopPropagation) e.nativeEvent.stopPropagation();
+                if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
+                
                 // Force immediate state synchronization
                 setTimeout(() => {
                   const currentState = useApp.getState().controlsEnabled;
@@ -4587,6 +4927,9 @@ const canvasDimensions = {
                   }));
                 }, 0);
                 console.log('🎨 Drag mode:', (window as any).__textDragging, 'Resize mode:', (window as any).__textResizing);
+                
+                // CRITICAL: Return immediately to prevent text input prompt or any other handlers
+                return;
               } else {
                 // Start dragging - SAME AS IMAGE TOOL
                 console.log('🎨 Text tool: ===== STARTING DRAG MODE =====');
@@ -4622,9 +4965,18 @@ const canvasDimensions = {
               }
               
               // CRITICAL: Return here to prevent prompt from showing
+              // This ensures that clicking on selected text (even if no anchor is hit) doesn't create new text
+              console.log('🎨 Text tool: Clicked on text, returning early to prevent new text creation');
               return;
             } else {
               // No text clicked - create new text
+              // CRITICAL: Also check if text is already selected - if so, don't create new text
+              const { activeTextId: checkActiveId } = useApp.getState();
+              if (checkActiveId) {
+                console.log('🎨 Text tool: Text already selected, not creating new text on empty click');
+                return;
+              }
+              
               // CRITICAL: Prevent double prompts with timestamp check
               const now = Date.now();
               if (now - lastTextPromptTimeRef.current < 500) {
@@ -5208,55 +5560,73 @@ const canvasDimensions = {
                   height: composedCanvas?.height || unifiedPerformanceManager.getOptimalCanvasSize().width
                 };
             
-            // CRITICAL: Use EXACT SAME formula as App.tsx border rendering (lines 3186-3196)
-            let borderXPixels = 0;
-            if (hoveredText.align === 'left') {
-              borderXPixels = textPixelWidth / 2; // Text starts at 0, so border center is at width/2
-            } else if (hoveredText.align === 'right') {
-              borderXPixels = -textPixelWidth / 2; // Text ends at 0, so border center is at -width/2
-            } else {
-              borderXPixels = 0; // Center alignment (default)
-            }
+            // CRITICAL: Calculate text position in pixel space (for rotation calculations)
+            // These are used for rotation handle and rotation calculations
+            const textX = Math.round(txtU * canvasDimensions.width);
+            const textY = Math.round((1 - txtV) * canvasDimensions.height);
             
-            // Border Y position (textBaseline is 'top', so border top is at 0)
-            const borderYPixels = textPixelHeight / 2; // Center border vertically
+            // CRITICAL: Use EXACT SAME calculation as AdvancedLayerSystemV2.ts border rendering
+            // The border uses selectedTextEl.x and flippedY directly, so we need to match that
+            // Text element has .x and .y in pixel coordinates (from UV conversion during creation)
+            const textXPixels = hoveredText.x || textX; // Use text element's x or fallback to calculated x
+            const textYPixels = hoveredText.y || textY; // Use text element's y or fallback to calculated y
+            
+            // Calculate flippedY (same as border rendering)
+            const canvasHeight = canvasDimensions.height;
+            const flippedY = canvasHeight - textYPixels;
+            
+            // Calculate border position (EXACT SAME as AdvancedLayerSystemV2.ts lines 2824-2842)
+            let borderXPixels: number;
+            let borderYPixels: number;
+            
+            if (hoveredText.align === 'left') {
+              // Left align: text starts at x, flippedY
+              borderXPixels = textXPixels;
+              borderYPixels = flippedY;
+            } else if (hoveredText.align === 'right') {
+              // Right align: text ends at x, flippedY
+              borderXPixels = textXPixels - textPixelWidth;
+              borderYPixels = flippedY;
+            } else {
+              // Center align: text is centered at x, flippedY
+              borderXPixels = textXPixels - (textPixelWidth / 2);
+              borderYPixels = flippedY;
+            }
             
             // Convert to UV for hitbox calculations
             const textWidth = textPixelWidth / canvasDimensions.width;
             const textHeight = textPixelHeight / canvasDimensions.height;
-            const borderX = borderXPixels / canvasDimensions.width;
-            const borderY = borderYPixels / canvasDimensions.height;
             
-            // Match visual anchor sizes from App.tsx (line 3259-3260)
-            const cornerAnchorSize = 12; // 12px square
-            const edgeAnchorSize = 10;   // 10px diameter circle (5px radius)
+            // Match visual anchor sizes from AdvancedLayerSystemV2.ts EXACTLY
+            const cornerAnchorSize = 12; // 12px square (visual size)
+            const edgeAnchorSize = 10;   // 10px diameter circle (visual size)
             
-            // Hitbox radius: Make LARGER than visual size for easier clicking (2.5x larger)
-            const cornerHitboxRadius = 15; // 15px (visual is 12px)
-            const edgeHitboxRadius = 12;   // 12px (visual is 10px)
+            // CRITICAL: Hitbox matches EXACT visual size - no larger hitbox
+            // Corner anchors are 12px squares, so hitbox is 6px radius (half of 12px)
+            const cornerHitboxRadius = cornerAnchorSize / 2; // 6px (exact match to visual)
+            // Edge anchors are 10px circles, so hitbox is 5px radius (half of 10px)
+            const edgeHitboxRadius = edgeAnchorSize / 2;   // 5px (exact match to visual)
             
-            // CRITICAL: Anchors are positioned at BORDER CORNERS in PIXEL space, then converted to UV
-            const x = Math.round(txtU * canvasDimensions.width);
-            const y = Math.round((1 - txtV) * canvasDimensions.height);
+            // CRITICAL: Anchor positions match EXACTLY where they're drawn in AdvancedLayerSystemV2.ts
+            // The anchors are drawn at border corners in the FLIPPED coordinate system
+            const topLeftPixelX = borderXPixels;
+            const topLeftPixelY = borderYPixels;
+            const topRightPixelX = borderXPixels + textPixelWidth;
+            const topRightPixelY = borderYPixels;
+            const bottomLeftPixelX = borderXPixels;
+            const bottomLeftPixelY = borderYPixels + textPixelHeight;
+            const bottomRightPixelX = borderXPixels + textPixelWidth;
+            const bottomRightPixelY = borderYPixels + textPixelHeight;
             
-            const topLeftPixelX = x + borderXPixels - textPixelWidth / 2;
-            const topLeftPixelY = y + borderYPixels - textPixelHeight / 2;
-            const topRightPixelX = x + borderXPixels + textPixelWidth / 2;
-            const topRightPixelY = y + borderYPixels - textPixelHeight / 2;
-            const bottomLeftPixelX = x + borderXPixels - textPixelWidth / 2;
-            const bottomLeftPixelY = y + borderYPixels + textPixelHeight / 2;
-            const bottomRightPixelX = x + borderXPixels + textPixelWidth / 2;
-            const bottomRightPixelY = y + borderYPixels + textPixelHeight / 2;
-            
-            // Edge anchor positions
-            const topEdgePixelX = x + borderXPixels;
-            const topEdgePixelY = y + borderYPixels - textPixelHeight / 2;
-            const bottomEdgePixelX = x + borderXPixels;
-            const bottomEdgePixelY = y + borderYPixels + textPixelHeight / 2;
-            const leftEdgePixelX = x + borderXPixels - textPixelWidth / 2;
-            const leftEdgePixelY = y + borderYPixels;
-            const rightEdgePixelX = x + borderXPixels + textPixelWidth / 2;
-            const rightEdgePixelY = y + borderYPixels;
+            // Edge anchor positions (at border edges)
+            const topEdgePixelX = borderXPixels + textPixelWidth / 2;
+            const topEdgePixelY = borderYPixels;
+            const bottomEdgePixelX = borderXPixels + textPixelWidth / 2;
+            const bottomEdgePixelY = borderYPixels + textPixelHeight;
+            const leftEdgePixelX = borderXPixels;
+            const leftEdgePixelY = borderYPixels + textPixelHeight / 2;
+            const rightEdgePixelX = borderXPixels + textPixelWidth;
+            const rightEdgePixelY = borderYPixels + textPixelHeight / 2;
             
             // ROTATION-AWARE CURSORS: Calculate cursor direction based on text rotation
             // When text is rotated, the visual direction of anchors changes!
@@ -5301,17 +5671,21 @@ const canvasDimensions = {
               return resultCursor;
             };
             
+            // CRITICAL: Convert anchor pixel positions to UV coordinates
+            // Anchors are calculated in FLIPPED pixel space (borderYPixels = flippedY)
+            // But UV coordinates are in NORMAL space (V=0 at top, V=1 at bottom)
+            // Since borderYPixels is already in flipped space, we convert: v = pixelY / height
             const anchors = {
               // Corner anchors with rotation-adjusted cursors and hitbox radius in pixels
-              topLeft: { u: topLeftPixelX / canvasDimensions.width, v: 1 - (topLeftPixelY / canvasDimensions.height), cursor: getRotatedCursor('nw-resize', 'topLeft'), hitboxPx: cornerHitboxRadius },
-              topRight: { u: topRightPixelX / canvasDimensions.width, v: 1 - (topRightPixelY / canvasDimensions.height), cursor: getRotatedCursor('ne-resize', 'topRight'), hitboxPx: cornerHitboxRadius },
-              bottomLeft: { u: bottomLeftPixelX / canvasDimensions.width, v: 1 - (bottomLeftPixelY / canvasDimensions.height), cursor: getRotatedCursor('sw-resize', 'bottomLeft'), hitboxPx: cornerHitboxRadius },
-              bottomRight: { u: bottomRightPixelX / canvasDimensions.width, v: 1 - (bottomRightPixelY / canvasDimensions.height), cursor: getRotatedCursor('se-resize', 'bottomRight'), hitboxPx: cornerHitboxRadius },
+              topLeft: { u: topLeftPixelX / canvasDimensions.width, v: topLeftPixelY / canvasDimensions.height, cursor: getRotatedCursor('nw-resize', 'topLeft'), hitboxPx: cornerHitboxRadius },
+              topRight: { u: topRightPixelX / canvasDimensions.width, v: topRightPixelY / canvasDimensions.height, cursor: getRotatedCursor('ne-resize', 'topRight'), hitboxPx: cornerHitboxRadius },
+              bottomLeft: { u: bottomLeftPixelX / canvasDimensions.width, v: bottomLeftPixelY / canvasDimensions.height, cursor: getRotatedCursor('sw-resize', 'bottomLeft'), hitboxPx: cornerHitboxRadius },
+              bottomRight: { u: bottomRightPixelX / canvasDimensions.width, v: bottomRightPixelY / canvasDimensions.height, cursor: getRotatedCursor('se-resize', 'bottomRight'), hitboxPx: cornerHitboxRadius },
               // Edge anchors with rotation-adjusted cursors and hitbox radius in pixels
-              top: { u: topEdgePixelX / canvasDimensions.width, v: 1 - (topEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('n-resize', 'top'), hitboxPx: edgeHitboxRadius },
-              bottom: { u: bottomEdgePixelX / canvasDimensions.width, v: 1 - (bottomEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('s-resize', 'bottom'), hitboxPx: edgeHitboxRadius },
-              left: { u: leftEdgePixelX / canvasDimensions.width, v: 1 - (leftEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('w-resize', 'left'), hitboxPx: edgeHitboxRadius },
-              right: { u: rightEdgePixelX / canvasDimensions.width, v: 1 - (rightEdgePixelY / canvasDimensions.height), cursor: getRotatedCursor('e-resize', 'right'), hitboxPx: edgeHitboxRadius }
+              top: { u: topEdgePixelX / canvasDimensions.width, v: topEdgePixelY / canvasDimensions.height, cursor: getRotatedCursor('n-resize', 'top'), hitboxPx: edgeHitboxRadius },
+              bottom: { u: bottomEdgePixelX / canvasDimensions.width, v: bottomEdgePixelY / canvasDimensions.height, cursor: getRotatedCursor('s-resize', 'bottom'), hitboxPx: edgeHitboxRadius },
+              left: { u: leftEdgePixelX / canvasDimensions.width, v: leftEdgePixelY / canvasDimensions.height, cursor: getRotatedCursor('w-resize', 'left'), hitboxPx: edgeHitboxRadius },
+              right: { u: rightEdgePixelX / canvasDimensions.width, v: rightEdgePixelY / canvasDimensions.height, cursor: getRotatedCursor('e-resize', 'right'), hitboxPx: edgeHitboxRadius }
             };
             
             // CRITICAL: Transform hover point to text's local coordinate system (accounting for rotation)
@@ -5325,8 +5699,8 @@ const canvasDimensions = {
               const hoverPixelY = (1 - hoverV) * canvasDimensions.height;
               
               // Translate to text origin
-              const relX = hoverPixelX - x;
-              const relY = hoverPixelY - y;
+              const relX = hoverPixelX - textX;
+              const relY = hoverPixelY - textY;
               
               // Rotate by -rotation to get into text's local space
               const cosR = Math.cos(-rotation);
@@ -5335,19 +5709,23 @@ const canvasDimensions = {
               const localY = relX * sinR + relY * cosR;
               
               // Convert back to UV coordinates
-              localHoverU = (x + localX) / canvasDimensions.width;
-              localHoverV = 1 - ((y + localY) / canvasDimensions.height);
+              localHoverU = (textX + localX) / canvasDimensions.width;
+              localHoverV = 1 - ((textY + localY) / canvasDimensions.height);
             }
             
             // PRIORITY 1: Check rotation handle FIRST (before anchors)
-            const rotationHandleDistance = 40; // Same as in App.tsx
-            const rotationHandleSize = 12; // Same as in App.tsx
-            const rotationHandlePixelX = x + borderXPixels;
-            const rotationHandlePixelY = y + borderYPixels - textPixelHeight / 2 - rotationHandleDistance;
+            const rotationHandleDistance = 40; // Same as in AdvancedLayerSystemV2.ts
+            const rotationHandleSize = 12; // Same as in AdvancedLayerSystemV2.ts (12px diameter circle)
+            const rotationHandleRadius = rotationHandleSize / 2; // 6px radius (exact match to visual)
+            // Rotation handle is positioned relative to text center (textXPixels, flippedY)
+            const rotationHandlePixelX = textXPixels;
+            const rotationHandlePixelY = flippedY - textPixelHeight / 2 - rotationHandleDistance;
+            // Convert to UV: rotationHandlePixelY is in flipped space, so v = pixelY / height
             const rotationHandleU = rotationHandlePixelX / canvasDimensions.width;
-            const rotationHandleV = 1 - (rotationHandlePixelY / canvasDimensions.height);
+            const rotationHandleV = rotationHandlePixelY / canvasDimensions.height;
             const rotationHandleDist = Math.sqrt(Math.pow(localHoverU - rotationHandleU, 2) + Math.pow(localHoverV - rotationHandleV, 2));
-            const rotationHandleHitbox = (rotationHandleSize / canvasDimensions.width) * 1.5;
+            // CRITICAL: Hitbox matches EXACT visual size - rotation handle is 12px circle = 6px radius
+            const rotationHandleHitbox = rotationHandleRadius / canvasDimensions.width; // Exact match to visual
             
             let overAnchor = false;
             if (rotationHandleDist < rotationHandleHitbox) {
@@ -5357,48 +5735,78 @@ const canvasDimensions = {
               overAnchor = true; // Prevent checking other anchors
             }
             
-              // PRIORITY 2: Check resize anchors (with improved hitbox calculations)
-              if (!overAnchor) {
-                // Calculate consistent hitbox sizes in UV space
-                const cornerHitboxUV = cornerHitboxRadius / canvasDimensions.width;
-                const edgeHitboxUV = edgeHitboxRadius / canvasDimensions.width;
+            // CRITICAL: Calculate check coordinates for anchor detection and border detection
+            // For rotated text, anchors are in original coordinate system
+            // So we check against original hover coordinates, not rotated ones
+            const checkHoverU = rotation !== 0 ? hoverU : localHoverU;
+            const checkHoverV = rotation !== 0 ? hoverV : localHoverV;
+            
+            // PRIORITY 2: Check resize anchors (with improved hitbox calculations)
+            if (!overAnchor) {
+              // Calculate consistent hitbox sizes in UV space
+              const cornerHitboxUV = cornerHitboxRadius / canvasDimensions.width;
+              const edgeHitboxUV = edgeHitboxRadius / canvasDimensions.width;
+              
+              console.log('🖱️ ANCHOR DEBUG - Hover position (original):', hoverU.toFixed(4), hoverV.toFixed(4));
+              console.log('🖱️ ANCHOR DEBUG - Hover position (local/rotated):', localHoverU.toFixed(4), localHoverV.toFixed(4));
+              console.log('🖱️ ANCHOR DEBUG - Using check coordinates (original for rotated):', checkHoverU.toFixed(4), checkHoverV.toFixed(4));
+              console.log('🖱️ ANCHOR DEBUG - Corner hitbox UV:', cornerHitboxUV.toFixed(6), 'Edge hitbox UV:', edgeHitboxUV.toFixed(6));
+              
+              for (const [anchorName, anchorData] of Object.entries(anchors)) {
+                // CRITICAL: For rotated text, anchors are in original coordinate system
+                // So we check against original hover coordinates
+                const dist = Math.sqrt(Math.pow(checkHoverU - anchorData.u, 2) + Math.pow(checkHoverV - anchorData.v, 2));
+                const distPx = dist * canvasDimensions.width;
                 
-                console.log('🖱️ ANCHOR DEBUG - Hover position (local):', localHoverU.toFixed(4), localHoverV.toFixed(4));
-                console.log('🖱️ ANCHOR DEBUG - Corner hitbox UV:', cornerHitboxUV.toFixed(6), 'Edge hitbox UV:', edgeHitboxUV.toFixed(6));
+                // Use consistent hitbox size based on anchor type
+                const isCornerAnchor = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].includes(anchorName);
+                const hitboxUV = isCornerAnchor ? cornerHitboxUV : edgeHitboxUV;
+                const willHit = dist < hitboxUV;
                 
-                for (const [anchorName, anchorData] of Object.entries(anchors)) {
-                  const dist = Math.sqrt(Math.pow(localHoverU - anchorData.u, 2) + Math.pow(localHoverV - anchorData.v, 2));
-                  const distPx = dist * canvasDimensions.width;
-                  
-                  // Use consistent hitbox size based on anchor type
-                  const isCornerAnchor = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].includes(anchorName);
-                  const hitboxUV = isCornerAnchor ? cornerHitboxUV : edgeHitboxUV;
-                  const willHit = dist < hitboxUV;
-                  
-                  console.log(`🖱️ ${anchorName}:`, 
-                    'UV:', anchorData.u.toFixed(4), anchorData.v.toFixed(4),
-                    'Dist:', dist.toFixed(6), '(' + distPx.toFixed(1) + 'px)',
-                    'Hitbox UV:', hitboxUV.toFixed(6), '(' + (hitboxUV * canvasDimensions.width).toFixed(1) + 'px)',
-                    'Cursor:', anchorData.cursor,
-                    willHit ? '✅ HIT!' : '❌'
-                  );
-                  
-                  if (willHit) {
-                    console.log('🖱️ ✅ CURSOR SET TO:', anchorData.cursor, 'for', anchorName);
-                    // Set cursor with MAXIMUM priority
-                    document.body.style.cursor = anchorData.cursor;
-                    document.body.style.setProperty('cursor', anchorData.cursor, 'important');
-                    overAnchor = true;
-                    break;
-                  }
+                console.log(`🖱️ ${anchorName}:`, 
+                  'UV:', anchorData.u.toFixed(4), anchorData.v.toFixed(4),
+                  'Dist:', dist.toFixed(6), '(' + distPx.toFixed(1) + 'px)',
+                  'Hitbox UV:', hitboxUV.toFixed(6), '(' + (hitboxUV * canvasDimensions.width).toFixed(1) + 'px)',
+                  'Cursor:', anchorData.cursor,
+                  willHit ? '✅ HIT!' : '❌'
+                );
+                
+                if (willHit) {
+                  console.log('🖱️ ✅ CURSOR SET TO:', anchorData.cursor, 'for', anchorName);
+                  // Set cursor with MAXIMUM priority
+                  document.body.style.cursor = anchorData.cursor;
+                  document.body.style.setProperty('cursor', anchorData.cursor, 'important');
+                  overAnchor = true;
+                  break;
                 }
               }
+            }
             
-            // PRIORITY 3: If not over anchor or rotation handle but over selected text, show move cursor
+            // PRIORITY 3: If not over anchor or rotation handle, check if inside text borders
             if (!overAnchor) {
-              console.log('🖱️ CURSOR: Over selected text (inside border) → move');
-              document.body.style.cursor = 'move';
-              document.body.style.setProperty('cursor', 'move', 'important');
+              // Check if hover is actually inside the text border bounds
+              // Border bounds in UV space (using borderXPixels and borderYPixels from flipped space)
+              const borderMinU = borderXPixels / canvasDimensions.width;
+              const borderMaxU = (borderXPixels + textPixelWidth) / canvasDimensions.width;
+              const borderMinV = borderYPixels / canvasDimensions.height;
+              const borderMaxV = (borderYPixels + textPixelHeight) / canvasDimensions.height;
+              
+              // Check if hover point is inside border bounds
+              const isInsideBorder = 
+                checkHoverU >= borderMinU && 
+                checkHoverU <= borderMaxU &&
+                checkHoverV >= borderMinV && 
+                checkHoverV <= borderMaxV;
+              
+              if (isInsideBorder) {
+                console.log('🖱️ CURSOR: Over selected text (inside border) → move');
+                document.body.style.cursor = 'move';
+                document.body.style.setProperty('cursor', 'move', 'important');
+              } else {
+                // Outside borders - reset to default cursor
+                document.body.style.cursor = 'default';
+                document.body.style.setProperty('cursor', 'default', 'important');
+              }
             }
           } else if (hoveredText) {
             // Hovering over unselected text - show pointer to indicate clickable
@@ -5864,6 +6272,33 @@ const canvasDimensions = {
         return;
       }
       
+      // Handle vector anchor dragging
+      if (activeTool === 'vector' && isDraggingAnchorRef.current && dragStartPosRef.current) {
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const { selectedAnchor, vectorPaths } = useApp.getState();
+          if (selectedAnchor) {
+            const path = vectorPaths.find(p => p.id === selectedAnchor.pathId);
+            if (path && path.points[selectedAnchor.anchorIndex]) {
+              // Calculate delta in UV space (both are already in UV coordinates)
+              const deltaU = uv.x - dragStartPosRef.current.x;
+              const deltaV = uv.y - dragStartPosRef.current.y;
+              
+              // Move anchor
+              const currentPoint = path.points[selectedAnchor.anchorIndex];
+              const newU = Math.max(0, Math.min(1, currentPoint.u + deltaU));
+              const newV = Math.max(0, Math.min(1, currentPoint.v + deltaV));
+              
+              useApp.getState().moveAnchor(selectedAnchor.pathId, selectedAnchor.anchorIndex, newU, newV);
+              
+              // Update drag start position for next move (use current UV)
+              dragStartPosRef.current = { x: uv.x, y: uv.y };
+            }
+          }
+        }
+        return;
+      }
+
       // Handle image dragging (separate from resizing)
       if ((activeTool as string) === 'image' && (window as any).__imageDragging && (window as any).__imageDragStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
@@ -5919,7 +6354,8 @@ const canvasDimensions = {
       }
       
       // PERFORMANCE: Early exit for non-drawing tools
-      if (!['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) return;
+      const currentActiveTool = useApp.getState().activeTool;
+      if (!['brush', 'eraser', 'embroidery', 'fill', 'puffPrint'].includes(currentActiveTool)) return;
       
       // PERFORMANCE: Only paint if actively drawing
       if (paintingActiveRef.current) {
@@ -5944,7 +6380,136 @@ const canvasDimensions = {
   })(), [activeTool, paintAtEvent, updateModelTexture]);
 
   const onPointerUp = useCallback((e: any) => {
+    const currentActiveTool = useApp.getState().activeTool;
     let layerIdToUpdate: string | null = null;
+    
+    // Finish puff stroke if active
+    // CRITICAL: Finish stroke BEFORE resetting paintingActiveRef to ensure stroke is properly closed
+    if (currentActiveTool === 'puffPrint' && paintingActiveRef.current) {
+      const appState = useApp.getState();
+      const currentModelScene = appState.modelScene;
+      
+      // Get the root scene (same logic as in paintAtEvent)
+      let targetScene: THREE.Object3D | null = currentModelScene;
+      
+      if (!targetScene) {
+        console.warn('🎈 Puff tool: No scene available for finishing stroke');
+        return;
+      }
+      const currentPuffSize = appState.puffSize || 20;
+      const puffHeightMultiplier = appState.puffHeight || 1.2;
+      
+      // Calculate world scale based on model bounds (same as in paintAtEvent)
+      let pixelToWorldScale = 0.01; // Default scale
+      if (modelScene) {
+        const box = new THREE.Box3().setFromObject(modelScene);
+        const modelSize = box.getSize(new THREE.Vector3());
+        const maxDimension = Math.max(modelSize.x, modelSize.y, modelSize.z);
+        pixelToWorldScale = maxDimension / 2048;
+      }
+      
+      // Convert puff size (pixels) to world units
+      const puffSize = currentPuffSize * pixelToWorldScale;
+      const puffHeight = puffSize * puffHeightMultiplier;
+      const puffSoftness = appState.puffSoftness || 0.5;
+      const puffColor = appState.puffColor || '#ff69b4';
+      const puffOpacity = appState.puffOpacity || 0.9;
+
+      // Phase 1: Shape Customization
+      const puffTopShape = appState.puffTopShape || 'rounded';
+      const puffBottomShape = appState.puffBottomShape || 'rounded';
+      const puffCrossSectionShape = appState.puffCrossSectionShape || 'circle';
+      const puffProfileCurve = appState.puffProfileCurve || 'cubic';
+      const puffEdgeRadius = appState.puffEdgeRadius || 10;
+      const puffTaperAmount = appState.puffTaperAmount || 0;
+      
+      // Phase 3: Material & Texture
+      const puffFabricType = appState.puffFabricType || 'cotton';
+      const puffRoughness = appState.puffRoughness !== undefined ? appState.puffRoughness : 0.8;
+      const puffTextureIntensity = appState.puffTextureIntensity !== undefined ? appState.puffTextureIntensity : 0.3;
+      const puffEnableNormalMap = appState.puffEnableNormalMap !== undefined ? appState.puffEnableNormalMap : true;
+      
+      // Phase 4: Edge Details
+      const puffEdgeType = appState.puffEdgeType || 'none';
+      const puffEdgeWidth = appState.puffEdgeWidth || 2;
+      const puffEdgeColor = appState.puffEdgeColor || '#000000';
+      
+      // Phase 5: Advanced
+      const puffDetailLevel = appState.puffDetailLevel || 'auto';
+      const puffSmoothness = appState.puffSmoothness !== undefined ? appState.puffSmoothness : 80;
+
+      // Get gradient settings if in gradient mode
+      const gradientSettings = (window as any).getGradientSettings?.();
+      const puffGradientData = gradientSettings?.puff;
+      
+      const settings: PuffSettings = {
+        height: puffHeight,
+        size: puffSize,
+        softness: puffSoftness,
+        color: puffColor,
+        opacity: puffOpacity,
+        
+        // Phase 1: Shape Customization
+        topShape: puffTopShape,
+        bottomShape: puffBottomShape,
+        crossSectionShape: puffCrossSectionShape,
+        profileCurve: puffProfileCurve,
+        edgeRadius: puffEdgeRadius,
+        taperAmount: puffTaperAmount,
+        
+        // Phase 3: Material & Texture
+        fabricType: puffFabricType,
+        roughness: puffRoughness,
+        textureIntensity: puffTextureIntensity,
+        enableNormalMap: puffEnableNormalMap,
+        
+        // Phase 4: Edge Details
+        edgeType: puffEdgeType,
+        edgeWidth: puffEdgeWidth,
+        edgeColor: puffEdgeColor,
+        
+        // Phase 5: Advanced
+        detailLevel: puffDetailLevel,
+        smoothness: puffSmoothness,
+        
+        // Existing features
+        hairs: appState.puffHairs || false,
+        hairHeight: appState.puffHairHeight || 0.5,
+        hairDensity: appState.puffHairDensity || 50,
+        hairThickness: appState.puffHairThickness || 0.02,
+        hairVariation: appState.puffHairVariation || 0.2,
+        gradient: puffGradientData?.mode === 'gradient' ? {
+          type: puffGradientData.type,
+          angle: puffGradientData.angle,
+          stops: puffGradientData.stops
+        } : undefined
+      };
+      
+      puffGeometryManager.finishStroke(settings, targetScene);
+      console.log('🎈 Puff tool: Finished stroke');
+      
+      // CRITICAL: Reset paintingActiveRef immediately after finishing stroke
+      // This prevents the puff tool from continuing to draw after mouse is lifted
+      paintingActiveRef.current = false;
+      console.log('🎈 Puff tool: Reset paintingActiveRef to false');
+      
+      // CRITICAL FIX: Re-enable 3D controls after puff drawing ends
+      // This allows rotation/zoom to work again after drawing
+      setControlsEnabled(true);
+      useApp.setState({ controlsEnabled: true });
+      console.log('🎈 Puff tool: Controls re-enabled after drawing');
+      
+      // Force immediate state synchronization
+      setTimeout(() => {
+        const currentState = useApp.getState().controlsEnabled;
+        console.log('🎈 Puff drawing ended - controls re-enabled. State:', currentState);
+        
+        // Dispatch event to force OrbitControls update
+        window.dispatchEvent(new CustomEvent('controlsStateChanged', {
+          detail: { enabled: true, reason: 'puff-drawing-ended' }
+        }));
+      }, 0);
+    }
     
     if (paintingActiveRef.current) {
       console.log('🎨 ShirtRefactored: onPointerUp - ending painting');
@@ -6010,8 +6575,24 @@ const canvasDimensions = {
     }
     
     // CRITICAL FIX: For continuous drawing tools, compose layers before returning
-    if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+    if (['brush', 'eraser', 'embroidery', 'fill'].includes(activeTool)) {
       console.log('🎨 Continuous drawing tool - composing layers for:', activeTool);
+      
+      // CRITICAL FIX: For specific tools, explicitly update layer content before composition
+      if (layerIdToUpdate) {
+        const v2StoreForUpdate = useAdvancedLayerStoreV2.getState();
+        const layer = v2StoreForUpdate.layers.find(l => l.id === layerIdToUpdate);
+        if (layer && layer.content.canvas) {
+          // Explicitly update layer content to ensure latest canvas is saved
+          v2StoreForUpdate.updateLayerContent(layerIdToUpdate, { 
+            canvas: layer.content.canvas 
+          });
+          console.log('🎨 (onPointerUp): Explicitly updated layer content before composition', {
+            layerId: layerIdToUpdate,
+            canvasSize: `${layer.content.canvas.width}x${layer.content.canvas.height}`
+          });
+        }
+      }
       
       // CRITICAL FIX: Call composeLayers to transfer layer content to composedCanvas
       console.log('🎨 Composing V2 layers to transfer drawings to composedCanvas');
@@ -6034,14 +6615,7 @@ const canvasDimensions = {
       // Final texture update when painting ends
       updateModelTexture(false, false);
       
-      // Update displacement maps for puff and embroidery (REAL 3D geometry)
-      if (activeTool === 'puffPrint') {
-        console.log('🎨 Updating displacement maps for puff print');
-        if ((window as any).updateModelWithPuffDisplacement) {
-          (window as any).updateModelWithPuffDisplacement();
-        }
-      }
-      
+      // Update displacement maps for embroidery (REAL 3D geometry)
       if (activeTool === 'embroidery') {
         console.log('🎨 Updating displacement maps for embroidery');
         if ((window as any).updateModelWithEmbroideryDisplacement) {
@@ -6186,7 +6760,7 @@ const canvasDimensions = {
     }
     
     // Keep controls disabled for continuous drawing tools (they're managed by useEffect)
-    if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+    if (['brush', 'eraser', 'embroidery', 'fill'].includes(activeTool)) {
       // PERFORMANCE: Reduced logging
       if (Math.random() < 0.01) {
         console.log('🎨 Mouse released - keeping controls disabled for continuous drawing tool:', activeTool);
@@ -6201,13 +6775,12 @@ const canvasDimensions = {
       // Final texture update when painting ends
       updateModelTexture(false, false);
       
-      // Update displacement maps for puff and embroidery (REAL 3D geometry)
-      if (activeTool === 'puffPrint') {
-        console.log('🎨 Puff print - applying REAL 3D displacement');
-        const { composeDisplacementMaps } = useApp.getState();
-        const composedDisp = composeDisplacementMaps();
+      // Update displacement maps for embroidery (REAL 3D geometry)
+      if (false) { // Puff tool removed - will be rebuilt
+        const composedDispRaw = (useApp.getState() as any).displacementCanvas;
         
-        if (composedDisp && modelScene) {
+        if (composedDispRaw instanceof HTMLCanvasElement && modelScene) {
+          const composedDisp = composedDispRaw;
           // Apply gaussian blur for ultra-smooth displacement (eliminates spikes)
           const blurredDisp = document.createElement('canvas');
           blurredDisp.width = composedDisp.width;
@@ -6216,88 +6789,95 @@ const canvasDimensions = {
           
           if (blurCtx) {
             // Apply blur filter for smoothness
-            blurCtx.filter = 'blur(2px)'; // Gaussian blur
-            blurCtx.drawImage(composedDisp, 0, 0);
-            blurCtx.filter = 'none'; // Reset filter
-          }
-          
-          const dispTexture = new THREE.CanvasTexture(blurredDisp);
-          dispTexture.flipY = false;
-          dispTexture.needsUpdate = true;
-          dispTexture.wrapS = THREE.ClampToEdgeWrapping;
-          dispTexture.wrapT = THREE.ClampToEdgeWrapping;
-          
-          const currentPuffHeight = useApp.getState().puffHeight || 1.0;
-          
-          // CRITICAL: Much larger displacement scale for visible 3D
-          // Scale = 2.0 means maximum displacement of 2 units when texture is white (255)
-          const displacementScale = currentPuffHeight * 0.5;
-          
-          modelScene.traverse((child: any) => {
-            if (child.isMesh && child.material) {
-              // One-time geometry subdivision
-              if (child.geometry && !child.geometry.userData.puffSubdivided) {
-                const vertexCount = child.geometry.attributes.position.count;
-                if (vertexCount < 10000) {
-                  child.geometry = subdivideGeometry(child.geometry, 3); // More subdivision for smoother
-                  child.geometry.userData.puffSubdivided = true;
-                  console.log('🎨 Subdivided geometry:', vertexCount, '→', child.geometry.attributes.position.count);
-                }
-              }
-              
-              const materials = Array.isArray(child.material) ? child.material : [child.material];
-              materials.forEach((mat: any) => {
-                if (mat.isMeshStandardMaterial) {
-                  mat.displacementMap = dispTexture;
-                  mat.displacementScale = displacementScale;
-                  mat.displacementBias = 0;
-                  
-                  // Generate normal map for realistic lighting
-                  const normalCanvas = document.createElement('canvas');
-                  normalCanvas.width = blurredDisp.width;
-                  normalCanvas.height = blurredDisp.height;
-                  const normCtx = normalCanvas.getContext('2d');
-                  const tempDispCtx = blurredDisp.getContext('2d');
-                  
-                  if (normCtx && tempDispCtx) {
-                    // Convert blurred displacement to normal map
-                    const dispData = tempDispCtx.getImageData(0, 0, blurredDisp.width, blurredDisp.height);
-                    const normData = normCtx.createImageData(blurredDisp.width, blurredDisp.height);
-                    
-                    for (let y = 1; y < blurredDisp.height - 1; y++) {
-                      for (let x = 1; x < blurredDisp.width - 1; x++) {
-                        const idx = (y * blurredDisp.width + x) * 4;
-                        const center = dispData.data[idx];
-                        const left = dispData.data[((y * blurredDisp.width + (x - 1)) * 4)];
-                        const right = dispData.data[((y * blurredDisp.width + (x + 1)) * 4)];
-                        const up = dispData.data[(((y - 1) * blurredDisp.width + x) * 4)];
-                        const down = dispData.data[(((y + 1) * blurredDisp.width + x) * 4)];
-                        
-                        const dx = (right - left) / 255;
-                        const dy = (down - up) / 255;
-                        const dz = 1.0;
-                        
-                        normData.data[idx] = Math.floor((dx + 1) * 127.5);
-                        normData.data[idx + 1] = Math.floor((dy + 1) * 127.5);
-                        normData.data[idx + 2] = Math.floor((dz + 1) * 127.5);
-                        normData.data[idx + 3] = 255;
-                      }
-                    }
-                    normCtx.putImageData(normData, 0, 0);
-                    
-                    const normTexture = new THREE.CanvasTexture(normalCanvas);
-                    normTexture.flipY = false;
-                    normTexture.needsUpdate = true;
-                    mat.normalMap = normTexture;
-                    mat.normalScale = new THREE.Vector2(1.5, 1.5);
+            // TypeScript: blurCtx is checked above, safe to use
+            (blurCtx as CanvasRenderingContext2D).filter = 'blur(2px)'; // Gaussian blur
+            (blurCtx as CanvasRenderingContext2D).drawImage(composedDisp, 0, 0);
+            (blurCtx as CanvasRenderingContext2D).filter = 'none'; // Reset filter
+            
+            const dispTexture = new THREE.CanvasTexture(blurredDisp);
+            dispTexture.flipY = false;
+            dispTexture.needsUpdate = true;
+            dispTexture.wrapS = THREE.ClampToEdgeWrapping;
+            dispTexture.wrapT = THREE.ClampToEdgeWrapping;
+            
+            // Puff height removed - will be rebuilt with new 3D geometry approach
+            const currentPuffHeight = 1.0; // Default (placeholder)
+            
+            // CRITICAL FIX: Much larger displacement scale for visible 3D
+            // OLD: Scale = 0.5 was too low, puffs were barely visible
+            // NEW: Scale = 2.0 means maximum displacement of 2 units when texture is white (255)
+            // This ensures puffs are clearly visible and match real garment puffs
+            const displacementScale = currentPuffHeight * 2.0;
+            
+            if (modelScene) {
+              // TypeScript: modelScene is checked above, safe to use
+              (modelScene as THREE.Object3D).traverse((child: any) => {
+              if (child.isMesh && child.material) {
+                // One-time geometry subdivision
+                if (child.geometry && !child.geometry.userData.puffSubdivided) {
+                  const vertexCount = child.geometry.attributes.position.count;
+                  if (vertexCount < 10000) {
+                    child.geometry = subdivideGeometry(child.geometry, 3); // More subdivision for smoother
+                    child.geometry.userData.puffSubdivided = true;
+                    console.log('🎨 Subdivided geometry:', vertexCount, '→', child.geometry.attributes.position.count);
                   }
-                  
-                  mat.needsUpdate = true;
-                  console.log('🎨 Displacement applied - scale:', displacementScale);
+                }
+                
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                materials.forEach((mat: any) => {
+                  if (mat.isMeshStandardMaterial) {
+                    mat.displacementMap = dispTexture;
+                    mat.displacementScale = displacementScale;
+                    mat.displacementBias = 0;
+                    
+                    // Generate normal map for realistic lighting
+                    const normalCanvas = document.createElement('canvas');
+                    normalCanvas.width = blurredDisp.width;
+                    normalCanvas.height = blurredDisp.height;
+                    const normCtx = normalCanvas.getContext('2d');
+                    const tempDispCtx = blurredDisp.getContext('2d');
+                    
+                    if (normCtx && tempDispCtx) {
+                      // Convert blurred displacement to normal map
+                      const dispData = tempDispCtx.getImageData(0, 0, blurredDisp.width, blurredDisp.height);
+                      const normData = normCtx.createImageData(blurredDisp.width, blurredDisp.height);
+                      
+                      for (let y = 1; y < blurredDisp.height - 1; y++) {
+                        for (let x = 1; x < blurredDisp.width - 1; x++) {
+                          const idx = (y * blurredDisp.width + x) * 4;
+                          const center = dispData.data[idx];
+                          const left = dispData.data[((y * blurredDisp.width + (x - 1)) * 4)];
+                          const right = dispData.data[((y * blurredDisp.width + (x + 1)) * 4)];
+                          const up = dispData.data[(((y - 1) * blurredDisp.width + x) * 4)];
+                          const down = dispData.data[(((y + 1) * blurredDisp.width + x) * 4)];
+                          
+                          const dx = (right - left) / 255;
+                          const dy = (down - up) / 255;
+                          const dz = 1.0;
+                          
+                          normData.data[idx] = Math.floor((dx + 1) * 127.5);
+                          normData.data[idx + 1] = Math.floor((dy + 1) * 127.5);
+                          normData.data[idx + 2] = Math.floor((dz + 1) * 127.5);
+                          normData.data[idx + 3] = 255;
+                        }
+                      }
+                      normCtx.putImageData(normData, 0, 0);
+                      
+                      const normTexture = new THREE.CanvasTexture(normalCanvas);
+                      normTexture.flipY = false;
+                      normTexture.needsUpdate = true;
+                      mat.normalMap = normTexture;
+                      mat.normalScale = new THREE.Vector2(1.5, 1.5);
+                    }
+                    
+                    mat.needsUpdate = true;
+                    console.log('🎨 Displacement applied - scale:', displacementScale);
+                  }
+                });
                 }
               });
             }
-          });
+          }
         }
       } else if (activeTool === 'embroidery') {
         console.log('🎨 Embroidery - updating displacement maps');
@@ -6334,7 +6914,7 @@ const canvasDimensions = {
     document.body.style.cursor = 'default';
     
     // Keep controls disabled for continuous drawing tools (they're managed by useEffect)
-    if (['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'].includes(activeTool)) {
+    if (['brush', 'eraser', 'embroidery', 'fill'].includes(activeTool)) {
       console.log('🎨 Mouse left - keeping controls disabled for continuous drawing tool:', activeTool);
       
       // Complete embroidery path if mouse leaves during embroidery
@@ -6354,8 +6934,7 @@ const canvasDimensions = {
     setIsLoading(false);
     console.log('✅ Model loaded:', data.url);
     
-    // Initialize puff print maps when model loads
-    initializePuffMaps();
+    // Puff maps initialization removed - will be rebuilt with new 3D geometry approach
   }, []);
 
   // Embroidery tool now draws simple lines like brush tool with thread effects
@@ -6547,77 +7126,8 @@ const canvasDimensions = {
   }, []);
 
 
-  // Initialize puff print maps at model load time for better performance
-  const initializePuffMaps = useCallback(() => {
-    console.log('🎨 Initializing puff print maps at model load...');
-    
-    // Create puff canvas if it doesn't exist
-    let puffCanvas = useApp.getState().puffCanvas;
-    if (!puffCanvas) {
-      puffCanvas = document.createElement('canvas');
-      puffCanvas.width = 2048;
-      puffCanvas.height = 2048;
-      useApp.setState({ puffCanvas });
-      console.log('🎨 Created puff canvas:', puffCanvas.width, 'x', puffCanvas.height);
-    }
-    
-    // Pre-create displacement and normal map canvases
-    const displacementCanvas = createDisplacementCanvas();
-    const dispCtx = displacementCanvas.getContext('2d');
-    if (dispCtx) {
-      // CRITICAL FIX: Fill with black (0) for no displacement on initial load
-      dispCtx.clearRect(0, 0, CANVAS_CONFIG.DISPLACEMENT.width, CANVAS_CONFIG.DISPLACEMENT.height);
-      dispCtx.fillStyle = 'rgb(0, 0, 0)';
-      dispCtx.fillRect(0, 0, CANVAS_CONFIG.DISPLACEMENT.width, CANVAS_CONFIG.DISPLACEMENT.height);
-      console.log('🎨 Pre-created black displacement map canvas (no displacement)');
-    }
-    
-    const normalCanvas = createNormalCanvas();
-    const normalCtx = normalCanvas.getContext('2d');
-    if (normalCtx) {
-      // Fill with default normal (pointing up)
-      normalCtx.fillStyle = 'rgb(128, 128, 255)';
-      normalCtx.fillRect(0, 0, CANVAS_CONFIG.NORMAL.width, CANVAS_CONFIG.NORMAL.height);
-      console.log('🎨 Pre-created normal map canvas');
-    }
-    
-    // Store canvases in global state for reuse
-    useApp.setState({ 
-      displacementCanvas, 
-      normalCanvas 
-    });
-    
-    // CRITICAL: Clear all displacement maps from model materials on initialization
-    if (modelScene) {
-      console.log('🎨 Clearing all displacement maps from model materials on initialization');
-      modelScene.traverse((child: any) => {
-        if (child.isMesh && child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach((mat: any) => {
-              if (mat.isMeshStandardMaterial) {
-                mat.displacementMap = null;
-                mat.displacementScale = 0;
-                mat.displacementBias = 0;
-                mat.normalMap = null;
-                mat.normalScale = new THREE.Vector2(1, 1);
-                mat.needsUpdate = true;
-              }
-            });
-          } else if (child.material.isMeshStandardMaterial) {
-            child.material.displacementMap = null;
-            child.material.displacementScale = 0;
-            child.material.displacementBias = 0;
-            child.material.normalMap = null;
-            child.material.normalScale = new THREE.Vector2(1, 1);
-            child.material.needsUpdate = true;
-          }
-        }
-      });
-      console.log('🎨 All displacement maps cleared from model materials');
-    }
-    
-    console.log('🎨 Puff print maps initialized successfully');
-  }, [modelScene]);
+  // REMOVED: initializePuffMaps - old puff tool removed
+  // initializePuffMaps removed - will be rebuilt with new 3D geometry approach
 
   // Embroidery tool draws directly on canvas - no 3D geometry needed
 
@@ -6886,11 +7396,96 @@ const canvasDimensions = {
           canvasHeight={1024}
           onElementMove={(elementId, newPosition) => {
             console.log('🎯 Element moved:', elementId, newPosition);
-            // TODO: Update the actual element position in the layer system
+            
+            // Find the element in the selection system
+            const element = selectedElements.find(el => el.id === elementId);
+            if (!element) return;
+            
+            // Convert pixel coordinates to UV coordinates
+            const { composedCanvas } = useApp.getState();
+            const canvasWidth = composedCanvas?.width || 1024;
+            const canvasHeight = composedCanvas?.height || 1024;
+            const newU = newPosition.x / canvasWidth;
+            const newV = 1 - (newPosition.y / canvasHeight); // Flip V for texture space
+            
+            // Update element based on type
+            switch (element.type) {
+              case 'text':
+                useApp.getState().updateTextElement(elementId, {
+                  u: Math.max(0, Math.min(1, newU)),
+                  v: Math.max(0, Math.min(1, newV))
+                });
+                break;
+              case 'image': {
+                const v2State = useAdvancedLayerStoreV2.getState();
+                v2State.updateImageElementFromApp(elementId, {
+                  u: Math.max(0, Math.min(1, newU)),
+                  v: Math.max(0, Math.min(1, newV))
+                });
+                break;
+              }
+              case 'shape':
+                useApp.getState().updateShapeElement(elementId, {
+                  u: Math.max(0, Math.min(1, newU)),
+                  v: Math.max(0, Math.min(1, newV))
+                });
+                break;
+            }
+            
+            // Force layer composition and texture update
+            useApp.getState().composeLayers();
+            updateModelTexture(true, false);
           }}
           onElementResize={(elementId, newBounds) => {
             console.log('🎯 Element resized:', elementId, newBounds);
-            // TODO: Update the actual element bounds in the layer system
+            
+            // Find the element in the selection system
+            const element = selectedElements.find(el => el.id === elementId);
+            if (!element) return;
+            
+            // Convert pixel coordinates to UV coordinates
+            const { composedCanvas } = useApp.getState();
+            const canvasWidth = composedCanvas?.width || 1024;
+            const canvasHeight = composedCanvas?.height || 1024;
+            const newU = newBounds.minX / canvasWidth;
+            const newV = 1 - (newBounds.minY / canvasHeight); // Flip V for texture space
+            const newUWidth = newBounds.width / canvasWidth;
+            const newUHeight = newBounds.height / canvasHeight;
+            
+            // Update element based on type
+            switch (element.type) {
+              case 'text':
+                // Text elements use fontSize instead of width/height
+                const fontSize = Math.max(8, Math.min(200, newBounds.width * 0.5));
+                useApp.getState().updateTextElement(elementId, {
+                  u: Math.max(0, Math.min(1, newU)),
+                  v: Math.max(0, Math.min(1, newV)),
+                  fontSize: fontSize
+                });
+                break;
+              case 'image': {
+                const v2State = useAdvancedLayerStoreV2.getState();
+                v2State.updateImageElementFromApp(elementId, {
+                  u: Math.max(0, Math.min(1, newU)),
+                  v: Math.max(0, Math.min(1, newV)),
+                  uWidth: Math.max(0.01, Math.min(1, newUWidth)),
+                  uHeight: Math.max(0.01, Math.min(1, newUHeight))
+                });
+                break;
+              }
+              case 'shape':
+                useApp.getState().updateShapeElement(elementId, {
+                  u: Math.max(0, Math.min(1, newU)),
+                  v: Math.max(0, Math.min(1, newV)),
+                  uWidth: Math.max(0.01, Math.min(1, newUWidth)),
+                  uHeight: Math.max(0.01, Math.min(1, newUHeight))
+                });
+                break;
+            }
+            
+            // Force layer composition and texture update
+            useApp.getState().composeLayers();
+            updateModelTexture(true, false);
           }}
         />
       )}
@@ -6900,4 +7495,5 @@ const canvasDimensions = {
 }
 
 export default ShirtRefactored;
+
 

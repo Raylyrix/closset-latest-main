@@ -69,11 +69,11 @@ class UnifiedPerformanceManager {
   
   // Auto-adjustment settings
   private autoAdjustment = {
-    enabled: false, // DISABLED: Too aggressive, causing performance issues
+    enabled: true, // ENABLED: Now with proper FPS tracking
     sensitivity: 0.7,
-    minFPSThreshold: 25,
-    maxFPSThreshold: 55,
-    adjustmentCooldown: 3000, // 3 seconds
+    minFPSThreshold: 30, // Downgrade if FPS < 30
+    maxFPSThreshold: 55, // Upgrade if FPS > 55
+    adjustmentCooldown: 5000, // 5 seconds between adjustments (increased for stability)
     lastAdjustment: 0
   };
   
@@ -81,6 +81,8 @@ class UnifiedPerformanceManager {
   private monitoringInterval: ReturnType<typeof setInterval> | null = null;
   private frameCount = 0;
   private lastFrameTime = 0;
+  private frameTimes: number[] = []; // Track actual frame times
+  private lastRealFrameTime = 0; // Track actual frame time for FPS calculation
   
   private constructor() {
     this.initializePresets();
@@ -379,16 +381,41 @@ class UnifiedPerformanceManager {
     }, 1000); // Update every second
   }
   
-  private updatePerformanceMetrics(): void {
-    const now = Date.now();
-    const deltaTime = now - this.lastFrameTime;
+  /**
+   * Record actual frame time from useFrame hook
+   * This should be called every frame for accurate FPS tracking
+   */
+  public recordFrameTime(frameTime: number): void {
+    this.frameTimes.push(frameTime);
     
-    if (deltaTime > 0) {
-      this.performanceMetrics.currentFPS = 1000 / deltaTime;
-      this.performanceMetrics.averageFPS = this.calculateAverageFPS();
-      this.performanceMetrics.lastUpdateTime = now;
+    // Keep only last 60 frame times (1 second at 60fps)
+    if (this.frameTimes.length > 60) {
+      this.frameTimes.shift();
     }
     
+    this.lastRealFrameTime = frameTime;
+    this.frameCount++;
+  }
+  
+  private updatePerformanceMetrics(): void {
+    const now = Date.now();
+    
+    // Calculate FPS from actual frame times if available
+    if (this.frameTimes.length > 0) {
+      // Calculate average frame time from recent frames
+      const recentFrameTimes = this.frameTimes.slice(-30); // Last 30 frames
+      const avgFrameTime = recentFrameTimes.reduce((sum, time) => sum + time, 0) / recentFrameTimes.length;
+      this.performanceMetrics.currentFPS = 1000 / avgFrameTime;
+    } else {
+      // Fallback: Use interval time (less accurate)
+      const deltaTime = now - this.lastFrameTime;
+      if (deltaTime > 0) {
+        this.performanceMetrics.currentFPS = 1000 / deltaTime;
+      }
+    }
+    
+    this.performanceMetrics.averageFPS = this.calculateAverageFPS();
+    this.performanceMetrics.lastUpdateTime = now;
     this.lastFrameTime = now;
     
     // Update performance history
@@ -413,16 +440,22 @@ class UnifiedPerformanceManager {
       return;
     }
     
-    const { averageFPS } = this.performanceMetrics;
+    // Use currentFPS (from actual frame times) instead of averageFPS for more responsive adjustments
+    const { currentFPS, averageFPS } = this.performanceMetrics;
     const { minFPSThreshold, maxFPSThreshold } = this.autoAdjustment;
     
+    // Use currentFPS if available (more accurate), fallback to averageFPS
+    const fpsToCheck = currentFPS > 0 ? currentFPS : averageFPS;
+    
     // Performance is too low - downgrade preset
-    if (averageFPS < minFPSThreshold) {
+    if (fpsToCheck < minFPSThreshold && fpsToCheck > 0) {
+      console.log(`📉 Performance low (${fpsToCheck.toFixed(1)} FPS < ${minFPSThreshold}), downgrading preset`);
       this.downgradePreset();
       this.autoAdjustment.lastAdjustment = now;
     }
-    // Performance is good - consider upgrading preset
-    else if (averageFPS > maxFPSThreshold) {
+    // Performance is good - consider upgrading preset (only if consistently good)
+    else if (averageFPS > maxFPSThreshold && averageFPS > 0) {
+      console.log(`📈 Performance good (${averageFPS.toFixed(1)} FPS > ${maxFPSThreshold}), upgrading preset`);
       this.upgradePreset();
       this.autoAdjustment.lastAdjustment = now;
     }

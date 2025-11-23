@@ -96,15 +96,8 @@ export function UltimateLayerPanel() {
 
   // Note: Model updates are now handled automatically by the updateLayer function
 
-  // 🔄 SYNC WITH APP STATE: Keep advanced layer system in sync with app's active layer
-  const appActiveLayerId = useApp(state => state.activeLayerId);
-  
-  useEffect(() => {
-    if (appActiveLayerId && appActiveLayerId !== activeLayerId) {
-      console.log('🔄 Syncing app active layer to advanced system:', appActiveLayerId);
-      setActiveLayer(appActiveLayerId);
-    }
-  }, [appActiveLayerId, activeLayerId, setActiveLayer]);
+  // PHASE 2: Removed legacy sync - now using V2 directly
+  // No need to sync from App.tsx since we're using V2 system directly
 
   // Get filtered layers
   const filteredLayerIds = layerOrder.filter(layerId => {
@@ -413,7 +406,7 @@ export function UltimateLayerPanel() {
                      layer.type === 'procedural' ? '🌀' :
                      layer.type === 'fill' ? '🪣' :
                      layer.type === 'ai-smart' ? '🤖' :
-                      layer.type === 'puff' ? '☁️' : // FIXED: puff-print doesn't exist, use puff
+                      // layer.type === 'puff' ? '☁️' : // Removed - will be rebuilt
                      layer.type === 'embroidery' ? '🧵' :
                      '📄'}
                   </span>

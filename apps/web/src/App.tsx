@@ -10,7 +10,7 @@ import { canvasPool } from './utils/CanvasPool';
 import { useAdvancedLayerStoreV2, TextElement, AdvancedLayer } from './core/AdvancedLayerSystemV2';
 import { createDisplacementCanvas, CANVAS_CONFIG } from './constants/CanvasSizes';
 import ShirtRefactored from './components/ShirtRefactored'; // Use new refactored component
-import { AdvancedLayerSystemV2Test } from './components/AdvancedLayerSystemV2Test';
+import { AdvancedLayerSystemV2Test } from '../tests/AdvancedLayerSystemV2Test';
 // PERFORMANCE FIX: Removed Brush3DIntegration import to prevent conflicts with existing painting system
 import { LeftPanel } from './components/LeftPanel';
 import { Section } from './components/Section';
@@ -27,15 +27,11 @@ import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { EmbroideryStitch, EmbroideryPattern } from './services/embroideryService';
 import { handleRenderingError, handleCanvasError, ErrorCategory, ErrorSeverity } from './utils/CentralizedErrorHandler';
 import { vectorStore } from './vector/vectorState';
-import { puffVectorEngine, PuffVectorEngineState } from './vector/PuffVectorEngine';
+// REMOVED: PuffVectorEngine - deleted as part of old puff tool removal
 import { renderStitchType } from './utils/stitchRendering';
 import VectorEditorOverlay from './vector/VectorEditorOverlay';
-import { UnifiedPuffPrintSystem } from './components/UnifiedPuffPrintSystem'; // Re-enabled - using unified puff system
-import { AdvancedPuff3DSystem } from './utils/AdvancedPuff3DSystem';
 import { AdvancedUVSystem } from './utils/AdvancedUVSystem';
-import { AdvancedPuffGenerator } from './utils/AdvancedPuffGenerator';
-import { AdvancedPuffErrorHandler } from './utils/AdvancedPuffErrorHandler';
-import './styles/AdvancedPuffPrint.css';
+import { BlendMode } from './core/AdvancedLayerSystemV2';
 import { history } from './utils/history';
 
 // Import new domain stores for state management
@@ -102,7 +98,7 @@ interface AppStateSnapshot {
     opacity: number;
     canvasData?: string; // Base64 encoded canvas data
   }>;
-  puffCanvasData?: string; // Base64 encoded puff canvas data
+  // puffCanvasData removed - will be rebuilt with new 3D geometry approach
   composedCanvasData?: string; // Base64 encoded composed canvas data
 }
 
@@ -130,9 +126,7 @@ interface AppState {
   setVectorMode: (enabled: boolean) => void;
   showAnchorPoints: boolean;
   setShowAnchorPoints: (enabled: boolean) => void;
-  showPuffVectorPrompt: boolean;
-  puffVectorPromptMessage: string;
-  setPuffVectorPrompt: (visible: boolean, message?: string) => void;
+  // Puff tool removed - will be rebuilt with new 3D geometry approach
   
   // Brush settings
   brushColor: string;
@@ -253,18 +247,6 @@ interface AppState {
   }>;
   clearShapes: () => void;
   
-  // Puff Print settings
-  puffBrushSize: number;
-  puffBrushOpacity: number;
-  puffHeight: number;
-  puffSoftness: number;
-  puffOpacity: number;
-  puffCurvature: number;
-  puffShape: 'cube' | 'sphere' | 'cylinder' | 'pipe';
-  puffColor: string;
-  puffCanvas: HTMLCanvasElement | null;
-  displacementCanvas: HTMLCanvasElement | null;
-  normalCanvas: HTMLCanvasElement | null;
   
   // Embroidery settings
   embroideryStitches: EmbroideryStitch[];
@@ -284,6 +266,7 @@ interface AppState {
   embroiderySpacing: number;
   embroideryDensity: number;
   embroideryCanvas: HTMLCanvasElement | null;
+  
   embroideryAngle: number;
   embroideryScale: number;
   currentEmbroideryPath: {x: number, y: number}[]; // UV coordinates (0-1 range)
@@ -301,17 +284,35 @@ interface AppState {
   
   // Vector editing state
   selectedAnchor: { pathId: string; anchorIndex: number } | null;
-  vectorEditMode: 'pen' | 'select' | 'move' | 'curve';
+  vectorEditMode: 'pen' | 'select' | 'move' | 'curve' | 'addAnchor' | 'removeAnchor' | 'convertAnchor';
   setSelectedAnchor: (anchor: { pathId: string; anchorIndex: number } | null) => void;
-  setVectorEditMode: (mode: 'pen' | 'select' | 'move' | 'curve') => void;
+  setVectorEditMode: (mode: 'pen' | 'select' | 'move' | 'curve' | 'addAnchor' | 'removeAnchor' | 'convertAnchor') => void;
   moveAnchor: (pathId: string, anchorIndex: number, newU: number, newV: number) => void;
   addCurveHandle: (pathId: string, anchorIndex: number, handleType: 'in' | 'out', u: number, v: number) => void;
+  // Advanced vector operations
+  addAnchorAtPoint: (pathId: string, u: number, v: number) => void;
+  removeAnchor: (pathId: string, anchorIndex: number) => void;
+  convertAnchorType: (pathId: string, anchorIndex: number, type: 'corner' | 'smooth' | 'symmetric') => void;
+  closePath: (pathId: string) => void;
+  openPath: (pathId: string) => void;
+  joinPaths: (pathId1: string, pathId2: string) => void;
+  splitPath: (pathId: string, anchorIndex: number) => void;
+  reversePath: (pathId: string) => void;
+  simplifyPath: (pathId: string, tolerance: number) => void;
+  smoothPath: (pathId: string, amount: number) => void;
+  offsetPath: (pathId: string, distance: number) => void;
+  unionPaths: (pathId1: string, pathId2: string) => void;
+  subtractPaths: (pathId1: string, pathId2: string) => void;
+  intersectPaths: (pathId1: string, pathId2: string) => void;
+  excludePaths: (pathId1: string, pathId2: string) => void;
+  scalePath: (pathId: string, scaleX: number, scaleY: number, centerU?: number, centerV?: number) => void;
+  rotatePath: (pathId: string, angle: number, centerU?: number, centerV?: number) => void;
+  flipPath: (pathId: string, direction: 'horizontal' | 'vertical', centerU?: number, centerV?: number) => void;
+  alignAnchors: (pathId: string, alignment: 'left' | 'right' | 'top' | 'bottom' | 'center' | 'distribute') => void;
   
-  // Layers are now managed entirely by AdvancedLayerSystemV2
-  // Legacy layer properties removed to prevent conflicts
-  // But we need to add them back as getters for backward compatibility
-  layers: Layer[];
-  activeLayerId: string | null;
+  // PHASE 2: Legacy layer properties removed - use AdvancedLayerSystemV2 directly
+  // layers: Layer[]; // REMOVED - use useAdvancedLayerStoreV2().layers
+  // activeLayerId: string | null; // REMOVED - use useAdvancedLayerStoreV2().activeLayerId
   composedCanvas: HTMLCanvasElement | null;
   textElements: TextElement[];
   brushStrokes: Array<{
@@ -385,8 +386,7 @@ interface AppState {
   // Vector paths (UV-native)
   vectorPaths: VectorPath[];
   activePathId: string | null;
-  puffVectorHistory: PuffVectorEngineState[];
-  puffVectorFuture: PuffVectorEngineState[];
+  // REMOVED: puffVectorHistory, puffVectorFuture - old puff tool removed
 
   
   // Methods
@@ -394,6 +394,69 @@ interface AppState {
   setBrushColor: (color: string) => void;
   setBrushSize: (size: number) => void;
   setBrushOpacity: (opacity: number) => void;
+  
+  // Puff tool settings
+  puffSize: number;
+  puffHeight: number;
+  puffColor: string;
+  puffOpacity: number;
+  puffSoftness: number;
+  puffHairs: boolean;
+  puffHairHeight: number;
+  puffHairDensity: number;
+  puffHairThickness: number;
+  puffHairVariation: number;
+  
+  // Phase 1: Shape Customization
+  puffTopShape: 'flat' | 'rounded' | 'pointed' | 'beveled';
+  puffBottomShape: 'square' | 'rounded' | 'beveled' | 'tapered';
+  puffCrossSectionShape: 'circle' | 'square' | 'roundedSquare' | 'oval';
+  puffProfileCurve: 'linear' | 'quadratic' | 'cubic' | 'exponential';
+  puffEdgeRadius: number; // 0-100
+  puffTaperAmount: number; // 0-100
+  
+  // Phase 3: Material & Texture
+  puffFabricType: 'cotton' | 'silk' | 'denim' | 'leather' | 'custom';
+  puffRoughness: number; // 0-1
+  puffTextureIntensity: number; // 0-1
+  puffEnableNormalMap: boolean;
+  
+  // Phase 4: Edge Details
+  puffEdgeType: 'none' | 'stitching' | 'hemming' | 'binding' | 'raw';
+  puffEdgeWidth: number; // 1-10
+  puffEdgeColor: string;
+  
+  // Phase 5: Advanced
+  puffDetailLevel: 'low' | 'medium' | 'high' | 'auto';
+  puffSmoothness: number; // 0-100
+  setPuffSize: (size: number) => void;
+  setPuffHeight: (height: number) => void;
+  setPuffColor: (color: string) => void;
+  setPuffOpacity: (opacity: number) => void;
+  setPuffSoftness: (softness: number) => void;
+  
+  // Phase 1: Shape Customization Setters
+  setPuffTopShape: (shape: 'flat' | 'rounded' | 'pointed' | 'beveled') => void;
+  setPuffBottomShape: (shape: 'square' | 'rounded' | 'beveled' | 'tapered') => void;
+  setPuffCrossSectionShape: (shape: 'circle' | 'square' | 'roundedSquare' | 'oval') => void;
+  setPuffProfileCurve: (curve: 'linear' | 'quadratic' | 'cubic' | 'exponential') => void;
+  setPuffEdgeRadius: (radius: number) => void;
+  setPuffTaperAmount: (amount: number) => void;
+  
+  // Phase 3: Material & Texture Setters
+  setPuffFabricType: (type: 'cotton' | 'silk' | 'denim' | 'leather' | 'custom') => void;
+  setPuffRoughness: (roughness: number) => void;
+  setPuffTextureIntensity: (intensity: number) => void;
+  setPuffEnableNormalMap: (enable: boolean) => void;
+  
+  // Phase 4: Edge Details Setters
+  setPuffEdgeType: (type: 'none' | 'stitching' | 'hemming' | 'binding' | 'raw') => void;
+  setPuffEdgeWidth: (width: number) => void;
+  setPuffEdgeColor: (color: string) => void;
+  
+  // Phase 5: Advanced Setters
+  setPuffDetailLevel: (level: 'low' | 'medium' | 'high' | 'auto') => void;
+  setPuffSmoothness: (smoothness: number) => void;
   setBrushHardness: (hardness: number) => void;
   setBrushSpacing: (spacing: number) => void;
   setBrushFlow: (flow: number) => void;
@@ -465,10 +528,8 @@ interface AppState {
   cancelVectorPath: () => void;
   clearVectorPaths: () => void;
   emergencyClearVectorPaths: () => boolean;
-  recordPuffHistory: (snapshot?: PuffVectorEngineState) => void;
-  restorePuffHistoryBackward: () => boolean;
-  restorePuffHistoryForward: () => boolean;
-  clearPuffHistory: () => void;
+  // REMOVED: recordPuffHistory, restorePuffHistoryBackward, restorePuffHistoryForward - old puff tool removed
+  clearPuffHistory: () => void; // Placeholder - will be rebuilt with new 3D geometry approach
   
   // Grid & Scale setters
   setShowGrid: (show: boolean) => void;
@@ -486,14 +547,6 @@ interface AppState {
   setMeasurementUnits: (units: 'px' | 'mm' | 'in') => void;
   
   // Puff Print setters
-  setPuffBrushSize: (size: number) => void;
-  setPuffBrushOpacity: (opacity: number) => void;
-  setPuffHeight: (height: number) => void;
-  setPuffSoftness: (softness: number) => void;
-  setPuffOpacity: (opacity: number) => void;
-  setPuffCurvature: (curvature: number) => void;
-  setPuffShape: (shape: 'cube' | 'sphere' | 'cylinder' | 'pipe') => void;
-  setPuffColor: (color: string) => void;
   
   // Embroidery setters
   setEmbroideryStitches: (stitches: EmbroideryStitch[]) => void;
@@ -514,6 +567,8 @@ interface AppState {
   setEmbroideryAngle: (angle: number) => void;
   setEmbroideryScale: (scale: number) => void;
   setCurrentEmbroideryPath: (path: {x: number, y: number}[]) => void;
+  
+  // Puff Print setters removed - will be rebuilt with new 3D geometry approach
   
   // Additional missing methods
   selectTextElement: (id: string | null) => void;
@@ -652,14 +707,6 @@ export const useApp = create<AppState>((set, get) => ({
         fillContiguous: state.fillContiguous,
         
         // Puff settings
-        puffBrushSize: state.puffBrushSize,
-        puffBrushOpacity: state.puffBrushOpacity,
-        puffHeight: state.puffHeight,
-        puffSoftness: state.puffSoftness,
-        puffOpacity: state.puffOpacity,
-        puffCurvature: state.puffCurvature,
-        puffShape: state.puffShape,
-        puffColor: state.puffColor,
         
         // Embroidery settings
         embroideryStitchType: state.embroideryStitchType,
@@ -703,7 +750,7 @@ export const useApp = create<AppState>((set, get) => ({
       },
         // Layer data - delegated to AdvancedLayerSystemV2
         // Legacy layerData removed to prevent conflicts
-      puffCanvasData: state.puffCanvas ? state.puffCanvas.toDataURL() : undefined,
+      // puffCanvasData removed - will be rebuilt with new 3D geometry approach
       // Composed canvas - delegated to AdvancedLayerSystemV2
       // Legacy composedCanvasData removed to prevent conflicts
     };
@@ -790,7 +837,7 @@ export const useApp = create<AppState>((set, get) => ({
         'text': 'text',
         'shape': 'rectangle',
         'shapes': 'rectangle',
-        'puff': 'brush', // Use brush for puff printing
+        // Puff tool removed - will be rebuilt
         'embroidery': 'brush' // Use brush for embroidery
       };
       
@@ -805,19 +852,12 @@ export const useApp = create<AppState>((set, get) => ({
   },
   vectorMode: false,
   setVectorMode: (enabled: boolean) => {
-    // Allow vector mode with all tools including puff print and embroidery
+    // Allow vector mode with all tools including embroidery
     set({ vectorMode: enabled });
   },
   showAnchorPoints: false,
   setShowAnchorPoints: (enabled: boolean) => set({ showAnchorPoints: enabled }),
-  showPuffVectorPrompt: false,
-  puffVectorPromptMessage: 'Vector paths on puff tools COMING SOON..',
-  setPuffVectorPrompt: (visible: boolean, message?: string) => {
-    set({
-      showPuffVectorPrompt: visible,
-      puffVectorPromptMessage: message ?? get().puffVectorPromptMessage
-    });
-  },
+  // Puff vector prompt removed - will be rebuilt with new 3D geometry approach
   brushColor: '#ff3366',
   brushSize: 50,
   brushOpacity: 1,
@@ -874,18 +914,6 @@ export const useApp = create<AppState>((set, get) => ({
   shapePositionX: 50,
   shapePositionY: 50,
   
-  // Puff Print defaults
-  puffBrushSize: 20,
-  puffBrushOpacity: 1.0,
-  puffHeight: 2.0,
-  puffSoftness: 0.5,
-  puffOpacity: 0.8,
-  puffCurvature: 0.8,
-  puffShape: 'sphere',
-  puffColor: '#ff69b4',
-  puffCanvas: null,
-  displacementCanvas: null,
-  normalCanvas: null,
   
   // Embroidery defaults
   embroideryStitches: [],
@@ -907,24 +935,51 @@ export const useApp = create<AppState>((set, get) => ({
   currentEmbroideryPath: [],
   lastEmbroideryPoint: null,
   
+  // Puff tool settings
+  puffSize: 20, // Default size in pixels (will be converted to world units)
+  puffHeight: 1.2, // Height multiplier (1.2 = 120% of size)
+  puffColor: '#ff69b4', // Default pink color
+  puffOpacity: 0.9, // Default opacity
+  puffSoftness: 0.5, // Softness factor (0-1)
+  puffHairs: false, // Enable/disable hairs on puff
+  puffHairHeight: 0.5, // Hair height multiplier (0.5 = 50% of puff height)
+  puffHairDensity: 50, // Hair density (hairs per unit area)
+  puffHairThickness: 0.02, // Hair thickness multiplier (2% of puff size)
+  puffHairVariation: 0.2, // Hair variation (random rotation/scale variation, 0-1)
+  
+  // Phase 1: Shape Customization - Defaults
+  puffTopShape: 'rounded' as const,
+  puffBottomShape: 'rounded' as const,
+  puffCrossSectionShape: 'circle' as const,
+  puffProfileCurve: 'cubic' as const, // Smoother than quadratic
+  puffEdgeRadius: 10, // 10% edge beveling
+  puffTaperAmount: 0, // No tapering by default
+  
+  // Phase 3: Material & Texture - Defaults
+  puffFabricType: 'cotton' as const,
+  puffRoughness: 0.8, // Cotton-like roughness
+  puffTextureIntensity: 0.3, // Moderate texture
+  puffEnableNormalMap: true,
+  
+  // Phase 4: Edge Details - Defaults
+  puffEdgeType: 'none' as const,
+  puffEdgeWidth: 2, // 2px edge width
+  puffEdgeColor: '#000000', // Black edge
+  
+  // Phase 5: Advanced - Defaults
+  puffDetailLevel: 'auto' as const,
+  puffSmoothness: 80, // 80% smoothness
+  
   // Vector tool initial state
   vectorStrokeColor: '#000000',
   vectorStrokeWidth: 2,
   vectorFillColor: '#ffffff',
   vectorFill: false,
   
-  // Layers are now managed entirely by AdvancedLayerSystemV2
-  // Legacy layer properties removed to prevent conflicts
-  // But we need to add them back as getters for backward compatibility
-  get layers() {
-    const v2State = useAdvancedLayerStoreV2.getState();
-    return v2State.layers.map((layer: any) => v2State.convertToLegacyLayer(layer));
-  },
+  // Puff Print defaults removed - will be rebuilt with new 3D geometry approach
   
-  get activeLayerId() {
-    const v2State = useAdvancedLayerStoreV2.getState();
-    return v2State.activeLayerId;
-  },
+  // PHASE 2: Legacy getters removed - use AdvancedLayerSystemV2 directly
+  // No more getters for layers and activeLayerId - all code should use V2 system
   
   get composedCanvas() {
     const v2State = useAdvancedLayerStoreV2.getState();
@@ -1003,15 +1058,47 @@ export const useApp = create<AppState>((set, get) => ({
   vectorPaths: [],
   activePathId: null,
   selectedAnchor: null,
-  vectorEditMode: 'pen',
-  puffVectorHistory: [puffVectorEngine.getStateSnapshot()],
-  puffVectorFuture: [],
+  vectorEditMode: 'pen' as 'pen' | 'select' | 'move' | 'curve' | 'addAnchor' | 'removeAnchor' | 'convertAnchor',
+  // REMOVED: puffVectorHistory, puffVectorFuture - old puff tool removed
 
   // Methods
   setActiveTool: (tool) => set({ activeTool: tool }),
   setBrushColor: (color) => set({ brushColor: color }),
   setBrushSize: (size) => set({ brushSize: size }),
   setBrushOpacity: (opacity) => set({ brushOpacity: opacity }),
+  setPuffSize: (size) => set({ puffSize: size }),
+  setPuffHeight: (height) => set({ puffHeight: height }),
+  setPuffColor: (color) => set({ puffColor: color }),
+  setPuffOpacity: (opacity) => set({ puffOpacity: opacity }),
+  setPuffSoftness: (softness) => set({ puffSoftness: softness }),
+  setPuffHairs: (hairs) => set({ puffHairs: hairs }),
+  setPuffHairHeight: (height) => set({ puffHairHeight: height }),
+  setPuffHairDensity: (density) => set({ puffHairDensity: density }),
+  setPuffHairThickness: (thickness) => set({ puffHairThickness: thickness }),
+  setPuffHairVariation: (variation) => set({ puffHairVariation: variation }),
+  
+  // Phase 1: Shape Customization Setters
+  setPuffTopShape: (shape) => set({ puffTopShape: shape }),
+  setPuffBottomShape: (shape) => set({ puffBottomShape: shape }),
+  setPuffCrossSectionShape: (shape) => set({ puffCrossSectionShape: shape }),
+  setPuffProfileCurve: (curve) => set({ puffProfileCurve: curve }),
+  setPuffEdgeRadius: (radius) => set({ puffEdgeRadius: radius }),
+  setPuffTaperAmount: (amount) => set({ puffTaperAmount: amount }),
+  
+  // Phase 3: Material & Texture Setters
+  setPuffFabricType: (type) => set({ puffFabricType: type }),
+  setPuffRoughness: (roughness) => set({ puffRoughness: roughness }),
+  setPuffTextureIntensity: (intensity) => set({ puffTextureIntensity: intensity }),
+  setPuffEnableNormalMap: (enable) => set({ puffEnableNormalMap: enable }),
+  
+  // Phase 4: Edge Details Setters
+  setPuffEdgeType: (type) => set({ puffEdgeType: type }),
+  setPuffEdgeWidth: (width) => set({ puffEdgeWidth: width }),
+  setPuffEdgeColor: (color) => set({ puffEdgeColor: color }),
+  
+  // Phase 5: Advanced Setters
+  setPuffDetailLevel: (level) => set({ puffDetailLevel: level }),
+  setPuffSmoothness: (smoothness) => set({ puffSmoothness: smoothness }),
   setBrushHardness: (hardness) => set({ brushHardness: hardness }),
   setBrushSpacing: (spacing) => set({ brushSpacing: spacing }),
   setBrushFlow: (flow) => set({ brushFlow: flow }),
@@ -1441,8 +1528,6 @@ try {
   },
   clearVectorPaths: () => {
     set({ vectorPaths: [], activePathId: null, selectedAnchor: null });
-    puffVectorEngine.clear();
-    get().clearPuffHistory();
     get().composeLayers();
   },
 
@@ -1454,48 +1539,494 @@ try {
     if (totalPoints > 1000) {
       console.warn('🚨 Emergency vector cleanup: Too many anchor points detected, clearing all vector paths');
       set({ vectorPaths: [], activePathId: null, selectedAnchor: null });
-      puffVectorEngine.clear();
-      get().clearPuffHistory();
       get().composeLayers();
       return true;
     }
     return false;
   },
 
-  recordPuffHistory: (snapshot) => {
-    const snap = snapshot || puffVectorEngine.getStateSnapshot();
+  // Advanced Vector Operations
+  addAnchorAtPoint: (pathId, u, v) => {
     set(state => {
-      const merged = [...state.puffVectorHistory, snap];
-      const limit = 50;
-      const trimmed = merged.length > limit ? merged.slice(merged.length - limit) : merged;
-      return { puffVectorHistory: trimmed, puffVectorFuture: [] };
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length === 0) return state;
+      
+      // Find the segment closest to the point
+      let minDist = Infinity;
+      let insertIndex = path.points.length;
+      
+      for (let i = 0; i < path.points.length; i++) {
+        const p1 = path.points[i];
+        const p2 = path.points[(i + 1) % path.points.length];
+        
+        // Calculate distance from point to line segment
+        const dx = p2.u - p1.u;
+        const dy = p2.v - p1.v;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        if (length === 0) continue;
+        
+        const t = Math.max(0, Math.min(1, ((u - p1.u) * dx + (v - p1.v) * dy) / (length * length)));
+        const projU = p1.u + t * dx;
+        const projV = p1.v + t * dy;
+        const dist = Math.sqrt((u - projU) ** 2 + (v - projV) ** 2);
+        
+        if (dist < minDist) {
+          minDist = dist;
+          insertIndex = i + 1;
+        }
+      }
+      
+      const newAnchor = { u, v, inHandle: null, outHandle: null, curveControl: false };
+      const newPoints = [...path.points];
+      newPoints.splice(insertIndex, 0, newAnchor);
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: newPoints } : p
+        ),
+        selectedAnchor: { pathId, anchorIndex: insertIndex }
+      };
     });
+    get().composeLayers();
   },
-  restorePuffHistoryBackward: () => {
-    const state = get();
-    if (state.puffVectorHistory.length <= 1) return false;
-    const history = state.puffVectorHistory.slice(0, state.puffVectorHistory.length - 1);
-    const current = state.puffVectorHistory[state.puffVectorHistory.length - 1];
-    const previous = history[history.length - 1];
-    const future = [current, ...state.puffVectorFuture];
-    puffVectorEngine.replaceState(previous);
-    try { window.dispatchEvent(new Event('puff-updated')); } catch {}
-    set({ puffVectorHistory: history, puffVectorFuture: future });
-    return true;
+  
+  removeAnchor: (pathId, anchorIndex) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length <= 2) return state; // Keep at least 2 points
+      
+      const newPoints = path.points.filter((_, i) => i !== anchorIndex);
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: newPoints } : p
+        ),
+        selectedAnchor: null
+      };
+    });
+    get().composeLayers();
   },
-  restorePuffHistoryForward: () => {
-    const state = get();
-    if (!state.puffVectorFuture.length) return false;
-    const [next, ...rest] = state.puffVectorFuture;
-    const history = [...state.puffVectorHistory, next];
-    puffVectorEngine.replaceState(next);
-    try { window.dispatchEvent(new Event('puff-updated')); } catch {}
-    set({ puffVectorHistory: history, puffVectorFuture: rest });
-    return true;
+  
+  convertAnchorType: (pathId, anchorIndex, type) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || !path.points[anchorIndex]) return state;
+      
+      const anchor = path.points[anchorIndex];
+      let newAnchor = { ...anchor };
+      
+      if (type === 'corner') {
+        // Remove handles to make it a corner
+        newAnchor.inHandle = null;
+        newAnchor.outHandle = null;
+      } else if (type === 'smooth') {
+        // Make handles symmetric
+        if (anchor.outHandle || anchor.inHandle) {
+          const handle = anchor.outHandle || anchor.inHandle;
+          newAnchor.inHandle = handle;
+          newAnchor.outHandle = handle;
+        }
+      } else if (type === 'symmetric') {
+        // Make handles symmetric and opposite
+        if (anchor.outHandle) {
+          const dx = anchor.outHandle.u - anchor.u;
+          const dy = anchor.outHandle.v - anchor.v;
+          newAnchor.inHandle = { u: anchor.u - dx, v: anchor.v - dy };
+          newAnchor.outHandle = anchor.outHandle;
+        }
+      }
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId 
+            ? { ...p, points: p.points.map((pt, i) => i === anchorIndex ? newAnchor : pt) }
+            : p
+        )
+      };
+    });
+    get().composeLayers();
   },
+  
+  closePath: (pathId) => {
+    set(state => ({
+      vectorPaths: state.vectorPaths.map(p => 
+        p.id === pathId ? { ...p, closed: true } : p
+      )
+    }));
+    get().composeLayers();
+  },
+  
+  openPath: (pathId) => {
+    set(state => ({
+      vectorPaths: state.vectorPaths.map(p => 
+        p.id === pathId ? { ...p, closed: false } : p
+      )
+    }));
+    get().composeLayers();
+  },
+  
+  joinPaths: (pathId1, pathId2) => {
+    set(state => {
+      const path1 = state.vectorPaths.find(p => p.id === pathId1);
+      const path2 = state.vectorPaths.find(p => p.id === pathId2);
+      if (!path1 || !path2) return state;
+      
+      // Join path2 to path1
+      const joinedPoints = [...path1.points, ...path2.points];
+      const remainingPaths = state.vectorPaths.filter(p => p.id !== pathId2);
+      
+      return {
+        ...state,
+        vectorPaths: remainingPaths.map(p => 
+          p.id === pathId1 ? { ...p, points: joinedPoints } : p
+        ),
+        activePathId: pathId1
+      };
+    });
+    get().composeLayers();
+  },
+  
+  splitPath: (pathId, anchorIndex) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length < 2) return state;
+      
+      const firstPart = path.points.slice(0, anchorIndex + 1);
+      const secondPart = path.points.slice(anchorIndex);
+      
+      const newPathId = `vpath-${Date.now()}`;
+      return {
+        ...state,
+        vectorPaths: [
+          ...state.vectorPaths.filter(p => p.id !== pathId),
+          { ...path, points: firstPart, closed: false },
+          { id: newPathId, points: secondPart, closed: false }
+        ],
+        activePathId: newPathId
+      };
+    });
+    get().composeLayers();
+  },
+  
+  reversePath: (pathId) => {
+    set(state => ({
+      vectorPaths: state.vectorPaths.map(p => 
+        p.id === pathId ? { ...p, points: [...p.points].reverse() } : p
+      )
+    }));
+    get().composeLayers();
+  },
+  
+  simplifyPath: (pathId, tolerance) => {
+    // Douglas-Peucker algorithm for path simplification
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length <= 2) return state;
+      
+      const simplify = (points: VectorAnchor[], tol: number): VectorAnchor[] => {
+        if (points.length <= 2) return points;
+        
+        let maxDist = 0;
+        let maxIndex = 0;
+        const start = points[0];
+        const end = points[points.length - 1];
+        
+        for (let i = 1; i < points.length - 1; i++) {
+          const p = points[i];
+          const dist = Math.abs((end.v - start.v) * p.u - (end.u - start.u) * p.v + end.u * start.v - end.v * start.u) / 
+                        Math.sqrt((end.v - start.v) ** 2 + (end.u - start.u) ** 2);
+          if (dist > maxDist) {
+            maxDist = dist;
+            maxIndex = i;
+          }
+        }
+        
+        if (maxDist > tol) {
+          const left = simplify(points.slice(0, maxIndex + 1), tol);
+          const right = simplify(points.slice(maxIndex), tol);
+          return [...left.slice(0, -1), ...right];
+        } else {
+          return [start, end];
+        }
+      };
+      
+      const simplified = simplify(path.points, tolerance);
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: simplified } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  smoothPath: (pathId, amount) => {
+    // Simple smoothing using moving average
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length <= 2) return state;
+      
+      const smoothed = path.points.map((pt, i) => {
+        if (i === 0 || i === path.points.length - 1) return pt;
+        const prev = path.points[i - 1];
+        const next = path.points[i + 1];
+        return {
+          ...pt,
+          u: pt.u * (1 - amount) + (prev.u + next.u) / 2 * amount,
+          v: pt.v * (1 - amount) + (prev.v + next.v) / 2 * amount
+        };
+      });
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: smoothed } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  offsetPath: (pathId, distance) => {
+    // Simple offset by moving points perpendicular to path direction
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length < 2) return state;
+      
+      const offsetPoints = path.points.map((pt, i) => {
+        if (path.points.length === 1) return pt;
+        
+        const prev = path.points[(i - 1 + path.points.length) % path.points.length];
+        const next = path.points[(i + 1) % path.points.length];
+        
+        // Calculate perpendicular direction
+        const dx1 = pt.u - prev.u;
+        const dy1 = pt.v - prev.v;
+        const dx2 = next.u - pt.u;
+        const dy2 = next.v - pt.v;
+        
+        const angle1 = Math.atan2(dy1, dx1);
+        const angle2 = Math.atan2(dy2, dx2);
+        const avgAngle = (angle1 + angle2) / 2;
+        const perpAngle = avgAngle + Math.PI / 2;
+        
+        return {
+          ...pt,
+          u: pt.u + Math.cos(perpAngle) * distance,
+          v: pt.v + Math.sin(perpAngle) * distance
+        };
+      });
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: offsetPoints } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  unionPaths: (pathId1, pathId2) => {
+    // Placeholder - would need complex polygon union algorithm
+    console.log('Union paths:', pathId1, pathId2);
+    get().composeLayers();
+  },
+  
+  subtractPaths: (pathId1, pathId2) => {
+    // Placeholder - would need complex polygon subtraction algorithm
+    console.log('Subtract paths:', pathId1, pathId2);
+    get().composeLayers();
+  },
+  
+  intersectPaths: (pathId1, pathId2) => {
+    // Placeholder - would need complex polygon intersection algorithm
+    console.log('Intersect paths:', pathId1, pathId2);
+    get().composeLayers();
+  },
+  
+  excludePaths: (pathId1, pathId2) => {
+    // Placeholder - would need complex polygon exclusion algorithm
+    console.log('Exclude paths:', pathId1, pathId2);
+    get().composeLayers();
+  },
+  
+  scalePath: (pathId, scaleX, scaleY, centerU, centerV) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path) return state;
+      
+      // Calculate center if not provided
+      if (centerU === undefined || centerV === undefined) {
+        const sumU = path.points.reduce((sum, p) => sum + p.u, 0);
+        const sumV = path.points.reduce((sum, p) => sum + p.v, 0);
+        centerU = sumU / path.points.length;
+        centerV = sumV / path.points.length;
+      }
+      
+      const scaled = path.points.map(pt => ({
+        ...pt,
+        u: centerU! + (pt.u - centerU!) * scaleX,
+        v: centerV! + (pt.v - centerV!) * scaleY,
+        inHandle: pt.inHandle ? {
+          u: centerU! + (pt.inHandle.u - centerU!) * scaleX,
+          v: centerV! + (pt.inHandle.v - centerV!) * scaleY
+        } : null,
+        outHandle: pt.outHandle ? {
+          u: centerU! + (pt.outHandle.u - centerU!) * scaleX,
+          v: centerV! + (pt.outHandle.v - centerV!) * scaleY
+        } : null
+      }));
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: scaled } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  rotatePath: (pathId, angle, centerU, centerV) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path) return state;
+      
+      // Calculate center if not provided
+      if (centerU === undefined || centerV === undefined) {
+        const sumU = path.points.reduce((sum, p) => sum + p.u, 0);
+        const sumV = path.points.reduce((sum, p) => sum + p.v, 0);
+        centerU = sumU / path.points.length;
+        centerV = sumV / path.points.length;
+      }
+      
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      
+      const rotatePoint = (u: number, v: number) => {
+        const dx = u - centerU!;
+        const dy = v - centerV!;
+        return {
+          u: centerU! + dx * cos - dy * sin,
+          v: centerV! + dx * sin + dy * cos
+        };
+      };
+      
+      const rotated = path.points.map(pt => ({
+        ...pt,
+        ...rotatePoint(pt.u, pt.v),
+        inHandle: pt.inHandle ? rotatePoint(pt.inHandle.u, pt.inHandle.v) : null,
+        outHandle: pt.outHandle ? rotatePoint(pt.outHandle.u, pt.outHandle.v) : null
+      }));
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: rotated } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  flipPath: (pathId, direction, centerU, centerV) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path) return state;
+      
+      // Calculate center if not provided
+      if (centerU === undefined || centerV === undefined) {
+        const sumU = path.points.reduce((sum, p) => sum + p.u, 0);
+        const sumV = path.points.reduce((sum, p) => sum + p.v, 0);
+        centerU = sumU / path.points.length;
+        centerV = sumV / path.points.length;
+      }
+      
+      const flipped = path.points.map(pt => ({
+        ...pt,
+        u: direction === 'horizontal' ? 2 * centerU! - pt.u : pt.u,
+        v: direction === 'vertical' ? 2 * centerV! - pt.v : pt.v,
+        inHandle: pt.inHandle ? {
+          u: direction === 'horizontal' ? 2 * centerU! - pt.inHandle.u : pt.inHandle.u,
+          v: direction === 'vertical' ? 2 * centerV! - pt.inHandle.v : pt.inHandle.v
+        } : null,
+        outHandle: pt.outHandle ? {
+          u: direction === 'horizontal' ? 2 * centerU! - pt.outHandle.u : pt.outHandle.u,
+          v: direction === 'vertical' ? 2 * centerV! - pt.outHandle.v : pt.outHandle.v
+        } : null
+      }));
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: flipped } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  alignAnchors: (pathId, alignment) => {
+    set(state => {
+      const path = state.vectorPaths.find(p => p.id === pathId);
+      if (!path || path.points.length === 0) return state;
+      
+      let aligned = [...path.points];
+      
+      if (alignment === 'left') {
+        const minU = Math.min(...path.points.map(p => p.u));
+        aligned = path.points.map(p => ({ ...p, u: p.u - minU }));
+      } else if (alignment === 'right') {
+        const maxU = Math.max(...path.points.map(p => p.u));
+        aligned = path.points.map(p => ({ ...p, u: p.u - maxU }));
+      } else if (alignment === 'top') {
+        const minV = Math.min(...path.points.map(p => p.v));
+        aligned = path.points.map(p => ({ ...p, v: p.v - minV }));
+      } else if (alignment === 'bottom') {
+        const maxV = Math.max(...path.points.map(p => p.v));
+        aligned = path.points.map(p => ({ ...p, v: p.v - maxV }));
+      } else if (alignment === 'center') {
+        const avgU = path.points.reduce((sum, p) => sum + p.u, 0) / path.points.length;
+        const avgV = path.points.reduce((sum, p) => sum + p.v, 0) / path.points.length;
+        aligned = path.points.map(p => ({ ...p, u: p.u - avgU, v: p.v - avgV }));
+      } else if (alignment === 'distribute') {
+        // Distribute anchors evenly along path
+        const totalLength = path.points.reduce((sum, p, i) => {
+          if (i === 0) return 0;
+          const prev = path.points[i - 1];
+          return sum + Math.sqrt((p.u - prev.u) ** 2 + (p.v - prev.v) ** 2);
+        }, 0);
+        
+        let currentLength = 0;
+        aligned = path.points.map((p, i) => {
+          if (i === 0) return p;
+          const prev = path.points[i - 1];
+          currentLength += Math.sqrt((p.u - prev.u) ** 2 + (p.v - prev.v) ** 2);
+          const ratio = currentLength / totalLength;
+          const targetU = path.points[0].u + (path.points[path.points.length - 1].u - path.points[0].u) * ratio;
+          const targetV = path.points[0].v + (path.points[path.points.length - 1].v - path.points[0].v) * ratio;
+          return { ...p, u: targetU, v: targetV };
+        });
+      }
+      
+      return {
+        ...state,
+        vectorPaths: state.vectorPaths.map(p => 
+          p.id === pathId ? { ...p, points: aligned } : p
+        )
+      };
+    });
+    get().composeLayers();
+  },
+  
+  // REMOVED: recordPuffHistory, restorePuffHistoryBackward, restorePuffHistoryForward - old puff tool removed
   clearPuffHistory: () => {
-    const snap = puffVectorEngine.getStateSnapshot();
-    set({ puffVectorHistory: [snap], puffVectorFuture: [] });
+    // Placeholder - will be rebuilt with new 3D geometry approach
+    console.log('clearPuffHistory called - will be rebuilt');
   },
   
   // Grid & Scale setters
@@ -1514,15 +2045,6 @@ try {
   setMeasurementUnits: (units) => set({ measurementUnits: units }),
 
   
-  // Puff Print setters
-  setPuffBrushSize: (size) => set({ puffBrushSize: size }),
-  setPuffBrushOpacity: (opacity) => set({ puffBrushOpacity: opacity }),
-  setPuffHeight: (height) => set({ puffHeight: height }),
-  setPuffSoftness: (softness: number) => set({ puffSoftness: softness }),
-  setPuffOpacity: (opacity: number) => set({ puffOpacity: opacity }),
-  setPuffCurvature: (curvature) => set({ puffCurvature: curvature }),
-  setPuffShape: (shape) => set({ puffShape: shape }),
-  setPuffColor: (color) => set({ puffColor: color }),
   
   // Embroidery setters
   setEmbroideryStitches: (stitches) => set({ embroideryStitches: stitches }),
@@ -1550,6 +2072,8 @@ try {
   setEmbroideryScale: (scale: number) => set({ embroideryScale: scale }),
   setCurrentEmbroideryPath: (path: {x: number, y: number}[]) => set({ currentEmbroideryPath: path }),
   
+  // Puff Print setters removed - will be rebuilt with new 3D geometry approach
+  
   // Vector tool setters
   setVectorStrokeColor: (color: string) => set({ vectorStrokeColor: color }),
   setVectorStrokeWidth: (width: number) => set({ vectorStrokeWidth: width }),
@@ -1558,7 +2082,9 @@ try {
   
 
   selectLayerForTransform: (layerId: string) => {
-    const layer = get().layers.find(l => l.id === layerId);
+    // PHASE 2: Use V2 layers directly
+    const { layers } = useAdvancedLayerStoreV2.getState();
+    const layer = layers.find(l => l.id === layerId);
     const composed = get().composedCanvas;
     if (!layer || !composed) return;
     set({ layerTransform: { x: 100, y: 100, cx: 200, cy: 200, width: 200, height: 200, rotation: 0, scale: 1, skewX: 0, skewY: 0 } });
@@ -1586,7 +2112,7 @@ try {
     const decal: Decal = {
       id, name: name || `Decal ${id.slice(0, 4)}`, image, width: w, height: h,
       u: 0.5, v: 0.5, scale, rotation: 0, opacity: 1, blendMode: 'source-over',
-      layerId: get().activeLayerId || undefined
+      layerId: useAdvancedLayerStoreV2.getState().activeLayerId || undefined
     };
     set(state => ({ decals: [...state.decals, decal] }));
     return id;
@@ -1833,8 +2359,9 @@ try {
     const paintDispCtx = paintDisplacementCanvas.getContext('2d', { willReadFrequently: true })!;
     paintDispCtx.imageSmoothingEnabled = true;
     paintDispCtx.imageSmoothingQuality = 'high';
-    // CRITICAL FIX: Fill with black (0) for no displacement, not gray (128)
-    paintDispCtx.fillStyle = 'rgb(0, 0, 0)'; // Black = no displacement
+    // CRITICAL FIX: Fill with neutral gray (128) for Three.js displacement format
+    // Three.js format: 128 = neutral (no displacement), 0 = max inward, 255 = max outward
+    paintDispCtx.fillStyle = 'rgb(128, 128, 128)'; // Neutral gray = no displacement
     paintDispCtx.fillRect(0, 0, paint.width, paint.height);
     
     const layers = [
@@ -1906,91 +2433,43 @@ try {
   },
 
   getActiveLayer: () => {
-    // CRITICAL FIX: Use Advanced Layer System V2 instead of legacy layers
-    const advancedStore = useAdvancedLayerStoreV2.getState();
-    const { layers, activeLayerId } = advancedStore;
-    
+    // PHASE 2: Return V2 layer directly, no conversion needed
+    const { layers, activeLayerId } = useAdvancedLayerStoreV2.getState();
     if (activeLayerId) {
-      const layer = layers.find((l: any) => l.id === activeLayerId);
-      if (layer) {
-        // Convert advanced layer to legacy format for compatibility
-        return {
-          id: layer.id, // CRITICAL: Use the actual Advanced Layer System V2 ID
-          name: layer.name,
-          type: layer.type,
-          visible: layer.visible,
-          opacity: layer.opacity,
-          blendMode: layer.blendMode,
-          order: layer.order,
-          toolType: layer.type, // Use type as toolType
-          canvas: layer.content.canvas || document.createElement('canvas'),
-          displacementCanvas: null // Not used in Advanced Layer System V2
-        };
-      }
+      return layers.find(l => l.id === activeLayerId) || null;
     }
-    
-    // Fallback to legacy system if no advanced layers exist
-    const { layers: legacyLayers, activeLayerId: legacyActiveLayerId } = get();
-    return legacyLayers.find(l => l.id === legacyActiveLayerId) || null;
-  },
-
-  // Enhanced layer management for all tools
-  getOrCreateActiveLayer: (toolType: string) => {
-    // CRITICAL FIX: Use Advanced Layer System V2 instead of legacy layers
-    const advancedStore = useAdvancedLayerStoreV2.getState();
-    const { layers, activeLayerId, createLayer } = advancedStore;
-    
-    // If we have an active layer, check if it's suitable for the current tool
-    if (activeLayerId) {
-      const activeLayer = layers.find((l: any) => l.id === activeLayerId);
-      if (activeLayer && activeLayer.visible) {
-        // Convert advanced layer to legacy format for compatibility
-        return {
-          id: activeLayer.id, // CRITICAL: Use the actual Advanced Layer System V2 ID
-          name: activeLayer.name,
-          type: activeLayer.type,
-          visible: activeLayer.visible,
-          opacity: activeLayer.opacity,
-          blendMode: activeLayer.blendMode,
-          order: activeLayer.order,
-          toolType: activeLayer.type, // Use type as toolType
-          canvas: activeLayer.content.canvas || document.createElement('canvas'),
-          displacementCanvas: null // Not used in Advanced Layer System V2
-        };
-      }
-    }
-
-    // Create a new layer for the tool if none exists or current one is hidden
-    const layerName = get().getLayerNameForTool(toolType);
-    const layerId = createLayer(toolType as any, layerName);
-    
-    // Set the new layer as active
-    useAdvancedLayerStoreV2.setState({ activeLayerId: layerId });
-    
-    console.log(`🎨 Created new layer "${layerName}" for tool: ${toolType} with ID: ${layerId}`);
-    
-    const newLayer = layers.find((l: any) => l.id === layerId);
-    if (newLayer) {
-      return {
-        id: newLayer.id, // CRITICAL: Use the actual Advanced Layer System V2 ID
-        name: newLayer.name,
-        type: newLayer.type,
-        visible: newLayer.visible,
-        opacity: newLayer.opacity,
-        blendMode: newLayer.blendMode,
-        order: newLayer.order,
-        toolType: newLayer.type, // Use type as toolType
-        canvas: newLayer.content.canvas || document.createElement('canvas'),
-        displacementCanvas: null // Not used in Advanced Layer System V2
-      };
-    }
-    
     return null;
   },
 
+  // SINGLE TEXTURE LAYER: All tools work on the same texture layer
+  getOrCreateActiveLayer: (toolType: string) => {
+    const v2Store = useAdvancedLayerStoreV2.getState();
+    const { layers, activeLayerId, createLayer, setActiveLayer } = v2Store;
+    
+    // SINGLE TEXTURE LAYER MODE: Find or create "Texture Layer" for all tools
+    const textureLayerName = 'Texture Layer';
+    let textureLayer = layers.find(l => l.name === textureLayerName);
+    
+    if (!textureLayer) {
+      // Create the single texture layer once
+      console.log('🎨 Creating single Texture Layer for all tools');
+      const layerId = createLayer('paint', textureLayerName);
+      setActiveLayer(layerId);
+      textureLayer = v2Store.layers.find(l => l.id === layerId) || null;
+    } else {
+      // Use existing texture layer
+      if (activeLayerId !== textureLayer.id) {
+        setActiveLayer(textureLayer.id);
+      }
+    }
+    
+    return textureLayer;
+  },
+
   getLayerNameForTool: (toolType: string) => {
+    // PHASE 2: Use V2 layers directly
     const baseName = toolType.charAt(0).toUpperCase() + toolType.slice(1);
-    const { layers } = get();
+    const { layers } = useAdvancedLayerStoreV2.getState();
     
     // Check if a layer with this name already exists
     let counter = 1;
@@ -2004,30 +2483,22 @@ try {
     return layerName;
   },
 
-  // Enhanced layer operations with tool integration
+  // PHASE 2: Use V2 system directly - this function may be deprecated
   createToolLayer: (toolType: string, options?: any) => {
+    // Use V2 system to create layer
+    const v2Store = useAdvancedLayerStoreV2.getState();
     const layerName = get().getLayerNameForTool(toolType);
-    const addLayerFunc = get().addLayer;
-    if (!addLayerFunc) return '';
-    const layerId = addLayerFunc(layerName);
+    const layerId = v2Store.createLayer(toolType as any, layerName);
     
-    // Set layer properties based on tool type
-    const updatedLayers = get().layers.map(l => {
-      if (l.id === layerId) {
-        return {
-          ...l,
-          toolType: toolType,
-          blendMode: options?.blendMode || 'normal',
-          opacity: options?.opacity || 1.0,
-          visible: true,
-          locked: false,
-          order: get().layers.length - 1 // Set order to be at the end
-        };
-      }
-      return l;
-    });
-    
-    set({ layers: updatedLayers, activeLayerId: layerId });
+    // Set layer properties
+    if (options?.blendMode) {
+      v2Store.setLayerBlendMode(layerId, options.blendMode);
+    }
+    if (options?.opacity !== undefined) {
+      v2Store.setLayerOpacity(layerId, options.opacity);
+    }
+    v2Store.setLayerVisibility(layerId, true);
+    v2Store.setActiveLayer(layerId);
     
     console.log(`🎨 Created tool-specific layer "${layerName}" for ${toolType}`);
     return layerId;
@@ -2079,8 +2550,7 @@ try {
       console.log('🎨 Calling composeLayers()');
       get().composeLayers();
       
-      // Also update displacement maps for puff effects
-      get().composeDisplacementMaps();
+      // Displacement maps composition removed - will be rebuilt with new 3D geometry approach
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
@@ -2121,8 +2591,7 @@ try {
       // Force composition and visual update
       get().composeLayers();
       
-      // Also update displacement maps for puff effects
-      get().composeDisplacementMaps();
+      // Displacement maps composition removed - will be rebuilt with new 3D geometry approach
       
       // Trigger immediate visual update on 3D model
       setTimeout(() => {
@@ -2140,75 +2609,16 @@ try {
   },
 
   duplicateLayer: (layerId: string) => {
-    const { layers } = get();
-    const layerToDuplicate = layers.find(l => l.id === layerId);
+    // PHASE 2: Use V2 duplicateLayer function directly
+    const v2Store = useAdvancedLayerStoreV2.getState();
+    const layerToDuplicate = v2Store.layers.find(l => l.id === layerId);
     if (!layerToDuplicate) return '';
 
-    const newLayerName = `${layerToDuplicate.name} Copy`;
-    const addLayerFunc = get().addLayer;
-    if (!addLayerFunc) return '';
-    const newLayerId = addLayerFunc(newLayerName);
+    // Use V2's duplicateLayer function
+    const newLayerId = v2Store.duplicateLayer(layerId);
+    if (!newLayerId) return '';
     
-    // Copy layer properties and canvas content
-    const updatedLayers = get().layers.map(layer => {
-      if (layer.id === newLayerId) {
-        // Create a new displacement canvas for the duplicated layer
-        const newDisplacementCanvas = document.createElement('canvas');
-        newDisplacementCanvas.width = layerToDuplicate.canvas.width;
-        newDisplacementCanvas.height = layerToDuplicate.canvas.height;
-        const newDispCtx = newDisplacementCanvas.getContext('2d', { willReadFrequently: true })!;
-        newDispCtx.imageSmoothingEnabled = true;
-        newDispCtx.imageSmoothingQuality = 'high';
-        
-        // Copy displacement data if the original layer has a displacement canvas
-        if (layerToDuplicate.displacementCanvas) {
-          newDispCtx.drawImage(layerToDuplicate.displacementCanvas, 0, 0);
-        } else {
-          // CRITICAL FIX: Fill with black (0) for no displacement
-          newDispCtx.fillStyle = 'rgb(0, 0, 0)';
-          newDispCtx.fillRect(0, 0, newDisplacementCanvas.width, newDisplacementCanvas.height);
-        }
-        
-        return {
-          ...layer,
-          ...layerToDuplicate,
-          id: newLayerId,
-          name: newLayerName,
-          order: layers.length,
-          displacementCanvas: newDisplacementCanvas
-        };
-      }
-      return layer;
-    });
-    
-    // Copy canvas content
-    const newLayer = updatedLayers.find(l => l.id === newLayerId);
-    if (newLayer && layerToDuplicate.canvas && newLayer.canvas) {
-      const sourceCtx = layerToDuplicate.canvas.getContext('2d');
-      const targetCtx = newLayer.canvas.getContext('2d');
-      if (sourceCtx && targetCtx) {
-        targetCtx.clearRect(0, 0, newLayer.canvas.width, newLayer.canvas.height);
-        targetCtx.drawImage(layerToDuplicate.canvas, 0, 0);
-      }
-    }
-    
-    set({ layers: updatedLayers, activeLayerId: newLayerId });
-    
-    // Force composition and visual update
-    get().composeLayers();
-    
-    // Trigger immediate visual update on 3D model
-    setTimeout(() => {
-      const textureEvent = new CustomEvent('forceTextureUpdate', {
-        detail: { source: 'layer-duplication', layerId: newLayerId }
-      });
-      window.dispatchEvent(textureEvent);
-      console.log('🔄 Triggered texture update after layer duplication');
-    }, 50);
-    
-    // V2 system handles layer duplication automatically
-    
-    console.log(`🎨 Duplicated layer: ${layerId} -> ${newLayerId}`);
+    console.log(`🎨 Duplicated layer ${layerId} to ${newLayerId}`);
     return newLayerId;
   },
 
@@ -2258,9 +2668,9 @@ try {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       
-      // CRITICAL FIX: Fill with black (0) for no displacement, not gray (128)
-      // With black base and bias=0, only painted areas will be displaced
-      ctx.fillStyle = 'rgb(0, 0, 0)'; // Black = no displacement
+      // CRITICAL FIX: Fill with neutral gray (128) for Three.js displacement format
+      // Three.js format: 128 = neutral (no displacement), 0 = max inward, 255 = max outward
+      ctx.fillStyle = 'rgb(128, 128, 128)'; // Neutral gray = no displacement
       ctx.fillRect(0, 0, CANVAS_CONFIG.DISPLACEMENT.width, CANVAS_CONFIG.DISPLACEMENT.height);
       
       // Sort layers by order for proper layering
@@ -2273,45 +2683,38 @@ try {
           name: l.name, 
           order: l.order,
           visible: l.visible,
-          brushStrokesCount: l.content.brushStrokes?.length || 0
+          hasDisplacementCanvas: !!l.content.displacementCanvas
         })));
       }
 
+      // CRITICAL FIX: Only compose displacement from layers that have displacement content
+      // Do NOT draw regular brush strokes as displacement - that breaks the model!
+      let hasAnyDisplacementContent = false;
       for (const layer of sortedLayers) {
         if (!layer.visible) continue;
         
+        // Only process layers with displacement canvas (e.g., embroidery layers)
+        if (layer.content.displacementCanvas) {
         ctx.save();
         ctx.globalAlpha = layer.opacity;
-        
-        // Draw brush strokes as displacement data
-        const brushStrokes = layer.content.brushStrokes || [];
-        for (const stroke of brushStrokes) {
-          if (stroke.points && stroke.points.length > 0) {
-            ctx.save();
-            ctx.strokeStyle = 'rgb(128, 128, 128)'; // Gray for displacement
-            ctx.lineWidth = stroke.size;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.globalAlpha = stroke.opacity;
-            
-            ctx.beginPath();
-            for (let i = 0; i < stroke.points.length; i++) {
-              const point = stroke.points[i];
-              if (i === 0) {
-                ctx.moveTo(point.x, point.y);
-              } else {
-                ctx.lineTo(point.x, point.y);
-              }
-            }
-            ctx.stroke();
+          ctx.globalCompositeOperation = 'source-over';
+          
+          // Draw the layer's displacement canvas directly
+          ctx.drawImage(layer.content.displacementCanvas, 0, 0);
+          hasAnyDisplacementContent = true;
+          
             ctx.restore();
           }
         }
         
-        ctx.restore();
-      }
+      // CRITICAL FIX: Store the composed displacement canvas in global state
+      // This ensures updateModelTexture can access it
+      (set as any)({ displacementCanvas: composedDisplacementCanvas }); // Used for embroidery displacement
       
-      console.log('🎨 Displacement map composition complete using V2 system');
+      console.log('🎨 Displacement map composition complete using V2 system', {
+        hasDisplacementContent: hasAnyDisplacementContent,
+        layersProcessed: sortedLayers.filter(l => l.visible && l.content.displacementCanvas).length
+      });
       return composedDisplacementCanvas;
       
     } catch (error) {
@@ -2437,42 +2840,56 @@ try {
           // This ensures 1:1 pixel correspondence between UV coordinates and texture pixels
           ctx.drawImage(textureImage, 0, 0, baseTextureCanvas.width, baseTextureCanvas.height);
           console.log('🎨 Successfully drew model texture as base layer with perfect UV alignment');
+          
+          // SOLUTION 1: Clone the canvas to prevent modification
+          // Store a clone instead of the reference to prevent accidental modification
+          const clonedCanvas = document.createElement('canvas');
+          clonedCanvas.width = baseTextureCanvas.width;
+          clonedCanvas.height = baseTextureCanvas.height;
+          const cloneCtx = clonedCanvas.getContext('2d');
+          if (cloneCtx) {
+            cloneCtx.drawImage(baseTextureCanvas, 0, 0);
+            console.log('🎨 Cloned base texture canvas to prevent modification');
+            get().setBaseTexture(clonedCanvas as any);
+          } else {
+            console.warn('⚠️ Failed to clone base texture canvas');
+            get().setBaseTexture(null); // Don't store invalid canvas
+          }
         } catch (error) {
-          console.log('🎨 Failed to draw texture, using fallback:', error);
-          // Fallback to white background
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, baseTextureCanvas.width, baseTextureCanvas.height);
+          console.log('🎨 Failed to draw texture:', error);
+          // SOLUTION 2: Don't store white background as base texture
+          // If extraction fails, don't store white - leave baseTexture as null
+          console.warn('⚠️ Cannot extract base texture - leaving as null to prevent white background');
+          get().setBaseTexture(null);
         }
       } else {
-        // Fallback to white background if no texture found
-        console.log('🎨 No usable texture found, using white background');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, baseTextureCanvas.width, baseTextureCanvas.height);
+        // SOLUTION 2: Don't store white background as base texture
+        console.warn('⚠️ No usable texture found - leaving baseTexture as null');
+        get().setBaseTexture(null);
       }
     } else {
-      // Fallback to white background if no texture found
-      console.log('🎨 No model texture found, using white background');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, baseTextureCanvas.width, baseTextureCanvas.height);
+      // SOLUTION 2: Don't store white background as base texture
+      console.warn('⚠️ No model texture found - leaving baseTexture as null');
+      get().setBaseTexture(null);
     }
     
-    // CRITICAL FIX: Store the original model texture directly as canvas
-    // This avoids the Image conversion which might lose data
-    console.log('🎨 Storing base texture canvas directly');
-    get().setBaseTexture(baseTextureCanvas as any);
-    
-    // CRITICAL FIX: Copy the original texture to the composed canvas
-    // This preserves the original model texture as the base layer
-    const composedCtx = composedCanvas.getContext('2d');
-    if (composedCtx) {
-      composedCtx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
-      composedCtx.drawImage(baseTextureCanvas, 0, 0);
-      console.log('🎨 Original model texture copied to composed canvas');
-      
-      // DEBUG: Check if the composed canvas has content
-      const imageData = composedCtx.getImageData(composedCanvas.width/2, composedCanvas.height/2, 1, 1);
-      const pixel = imageData.data;
-      console.log('🎨 DEBUG: Composed canvas center pixel after base texture copy:', `rgba(${pixel[0]}, ${pixel[1]}, ${pixel[2]}, ${pixel[3]})`);
+    // CRITICAL FIX: Copy the original texture to the composed canvas only if base texture was successfully extracted
+    // Only copy if we actually have a valid base texture (not null)
+    const baseTexture = get().baseTexture;
+    if (baseTexture) {
+      const composedCtx = composedCanvas.getContext('2d');
+      if (composedCtx) {
+        composedCtx.clearRect(0, 0, composedCanvas.width, composedCanvas.height);
+        composedCtx.drawImage(baseTexture, 0, 0);
+        console.log('🎨 Original model texture copied to composed canvas');
+        
+        // DEBUG: Check if the composed canvas has content
+        const imageData = composedCtx.getImageData(composedCanvas.width/2, composedCanvas.height/2, 1, 1);
+        const pixel = imageData.data;
+        console.log('🎨 DEBUG: Composed canvas center pixel after base texture copy:', `rgba(${pixel[0]}, ${pixel[1]}, ${pixel[2]}, ${pixel[3]})`);
+      }
+    } else {
+      console.warn('⚠️ Base texture is null - not copying to composed canvas to prevent white background');
     }
     
     console.log('🎨 Base texture generation complete');
@@ -2487,7 +2904,7 @@ try {
     const decal: Decal = {
       id, name: file.name.replace(/\.[^/.]+$/, '') || `Decal ${id.slice(0, 4)}`, image, width: w, height: h,
       u: 0.5, v: 0.5, scale, rotation: 0, opacity: 1, blendMode: 'source-over',
-      layerId: get().activeLayerId || undefined
+      layerId: useAdvancedLayerStoreV2.getState().activeLayerId || undefined
     };
     set(state => ({ decals: [...state.decals, decal] }));
     get().composeLayers();
@@ -2510,16 +2927,21 @@ try {
       // Text elements are now managed by V2 system
     };
     
+    // PHASE 2: Use V2 layers for checkpoint saving
     const layerEntries: { id: string; name: string; visible: boolean; width: number; height: number; key: string }[] = [];
     let totalBytes = 0;
     const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> => new Promise((resolve) => canvas.toBlob(b => resolve(b || new Blob()), 'image/png'));
-    for (let i = 0; i < state.layers.length; i++) {
-      const l = state.layers[i];
-      const blob = await canvasToBlob(l.canvas);
+    const v2Layers = useAdvancedLayerStoreV2.getState().layers;
+    for (let i = 0; i < v2Layers.length; i++) {
+      const l = v2Layers[i];
+      const layerCanvas = l.content?.canvas;
+      if (!layerCanvas) continue;
+      
+      const blob = await canvasToBlob(layerCanvas);
       totalBytes += blob.size;
       const key = `checkpoint-${id}-layer-${i}`;
       await localforage.setItem(key, blob);
-      layerEntries.push({ id: l.id, name: l.name, visible: l.visible, width: l.canvas.width, height: l.canvas.height, key });
+      layerEntries.push({ id: l.id, name: l.name, visible: l.visible, width: layerCanvas.width, height: layerCanvas.height, key });
     }
     
     (checkpoint as any).layers = layerEntries;
@@ -2630,32 +3052,30 @@ try {
       const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> => 
         new Promise((resolve) => canvas.toBlob(b => resolve(b || new Blob()), 'image/png'));
       
-      // Save layer canvases as blobs
+      // PHASE 2: Save V2 layer canvases as blobs
       const layerData = [];
-      for (let i = 0; i < state.layers.length; i++) {
-        const layer = state.layers[i];
-        const blob = await canvasToBlob(layer.canvas);
+      const v2Layers = useAdvancedLayerStoreV2.getState().layers;
+      for (let i = 0; i < v2Layers.length; i++) {
+        const layer = v2Layers[i];
+        const layerCanvas = layer.content?.canvas;
+        if (!layerCanvas) continue;
+        
+        const blob = await canvasToBlob(layerCanvas);
         const key = `project-layer-${layer.id}`;
         await localforage.setItem(key, blob);
         layerData.push({
           id: layer.id,
           name: layer.name,
           visible: layer.visible,
-          width: layer.canvas.width,
-          height: layer.canvas.height,
+          width: layerCanvas.width,
+          height: layerCanvas.height,
           key
         });
       }
 
-      // Save puff and displacement canvases
-      const puffCanvas = state.puffCanvas;
-      const displacementCanvas = state.displacementCanvas;
-      const normalCanvas = state.normalCanvas;
-      
-      if (puffCanvas) {
-        const puffBlob = await canvasToBlob(puffCanvas);
-        await localforage.setItem('project-puff-canvas', puffBlob);
-      }
+      // Save displacement canvases (puff canvas removed - will be rebuilt)
+      const displacementCanvas = (state as any).displacementCanvas; // Used for embroidery displacement
+      const normalCanvas = (state as any).normalCanvas; // Used for embroidery normal maps
       
       if (displacementCanvas) {
         const dispBlob = await canvasToBlob(displacementCanvas);
@@ -2708,8 +3128,8 @@ try {
         modelBoundsHeight: state.modelBoundsHeight,
         modelMinDimension: state.modelMinDimension,
         
-        // Layer settings
-        activeLayerId: state.activeLayerId,
+        // PHASE 2: Layer settings - use V2 system
+        activeLayerId: useAdvancedLayerStoreV2.getState().activeLayerId,
         layers: layerData,
         
         // Text settings
@@ -2740,15 +3160,8 @@ try {
         vectorPaths: state.vectorPaths,
         activePathId: state.activePathId,
         vectorMode: state.vectorMode,
-        puffVectorHistory: state.puffVectorHistory,
-        puffVectorFuture: state.puffVectorFuture,
+        // puffVectorHistory/puffVectorFuture removed - will be rebuilt with new 3D geometry approach
         
-        // Puff settings
-        puffBrushSize: state.puffBrushSize,
-        puffBrushOpacity: state.puffBrushOpacity,
-        puffColor: state.puffColor,
-        puffHeight: state.puffHeight,
-        puffCurvature: state.puffCurvature,
         
         // Embroidery settings
         embroideryStitches: state.embroideryStitches,
@@ -2817,21 +3230,38 @@ try {
 
       const projectState = JSON.parse(LZString.decompress(compressed) || '{}');
       
-      // Load layer canvases
-      const layers: Layer[] = [];
+      // PHASE 2: Load layers into V2 system instead of legacy layers
+      const v2Store = useAdvancedLayerStoreV2.getState();
+      
+      // Clear existing layers before loading saved project
+      v2Store.deleteAllLayers({ skipConfirmation: true });
+      
+      const loadedLayerIds: string[] = [];
+      
       for (const layerData of projectState.layers || []) {
         const blob = await localforage.getItem<Blob>(layerData.key);
         if (!blob) continue;
         
+        // Load canvas from blob
         const canvas = document.createElement('canvas');
         canvas.width = layerData.width;
         canvas.height = layerData.height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const img = new Image();
-          img.onload = () => ctx.drawImage(img, 0, 0);
-          img.src = URL.createObjectURL(blob);
-        }
+        
+        // Create promise to wait for image to load
+        await new Promise<void>((resolve) => {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            const img = new Image();
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0);
+              resolve();
+            };
+            img.onerror = () => resolve(); // Continue even if image fails
+            img.src = URL.createObjectURL(blob);
+          } else {
+            resolve();
+          }
+        });
         
         // Create displacement canvas for the loaded layer
         const layerDisplacementCanvas = document.createElement('canvas');
@@ -2844,35 +3274,35 @@ try {
         layerDispCtx.fillStyle = 'rgb(0, 0, 0)';
         layerDispCtx.fillRect(0, 0, canvas.width, canvas.height);
         
-        layers.push({
-          id: layerData.id,
-          name: layerData.name,
-          visible: layerData.visible,
-          canvas,
-          history: [],
-          future: [],
-          order: layers.length,
+        // Determine layer type from saved data or default to 'paint'
+        const layerType = (layerData.type || 'paint') as any;
+        
+        // Create layer in V2 system
+        const layerId = v2Store.createLayer(layerType, layerData.name || 'Loaded Layer');
+        
+        // Update layer content with loaded canvas
+        v2Store.updateLayerContent(layerId, {
+          canvas: canvas,
           displacementCanvas: layerDisplacementCanvas
         });
+        
+        // Update layer visibility
+        v2Store.setLayerVisibility(layerId, layerData.visible !== false);
+        
+        loadedLayerIds.push(layerId);
+      }
+      
+      // Set active layer to first loaded layer
+      // Note: Original layer IDs are not preserved (new IDs are generated)
+      // So we just use the first loaded layer as active
+      if (loadedLayerIds.length > 0) {
+        v2Store.setActiveLayer(loadedLayerIds[0]);
+        console.log(`💾 Set active layer to first loaded layer: ${loadedLayerIds[0]}`);
       }
 
-      // Load puff and displacement canvases
-      let puffCanvas = null;
+      // Load displacement canvases (puff canvas loading removed - will be rebuilt)
       let displacementCanvas = null;
       let normalCanvas = null;
-      
-      const puffBlob = await localforage.getItem<Blob>('project-puff-canvas');
-      if (puffBlob) {
-        puffCanvas = document.createElement('canvas');
-        puffCanvas.width = 2048;
-        puffCanvas.height = 2048;
-        const puffCtx = puffCanvas.getContext('2d');
-        if (puffCtx) {
-          const puffImg = new Image();
-          puffImg.onload = () => puffCtx.drawImage(puffImg, 0, 0);
-          puffImg.src = URL.createObjectURL(puffBlob);
-        }
-      }
       
       const dispBlob = await localforage.getItem<Blob>('project-displacement-canvas');
       if (dispBlob) {
@@ -2941,9 +3371,8 @@ try {
         modelBoundsHeight: projectState.modelBoundsHeight || 0,
         modelMinDimension: projectState.modelMinDimension || 0,
         
-        // Layer settings
-        activeLayerId: projectState.activeLayerId || null,
-        layers: layers,
+        // PHASE 2: Layer settings - layers are now in V2 system, not App state
+        // activeLayerId and layers removed - managed by V2 system
         
         // Text settings
         textSize: projectState.textSize || 24,
@@ -2975,15 +3404,8 @@ try {
         vectorPaths: projectState.vectorPaths || [],
         activePathId: projectState.activePathId || null,
         vectorMode: projectState.vectorMode || false,
-        puffVectorHistory: projectState.puffVectorHistory || [],
-        puffVectorFuture: projectState.puffVectorFuture || [],
+        // puffVectorHistory/puffVectorFuture removed - will be rebuilt with new 3D geometry approach
         
-        // Puff settings
-        puffBrushSize: projectState.puffBrushSize || 20,
-        puffBrushOpacity: projectState.puffBrushOpacity || 1,
-        puffColor: projectState.puffColor || '#ff69b4',
-        puffHeight: projectState.puffHeight || 2,
-        puffCurvature: projectState.puffCurvature || 0.5,
         
         // Embroidery settings
         embroideryStitches: projectState.embroideryStitches || [],
@@ -3025,9 +3447,9 @@ try {
         symmetryAngle: projectState.symmetryAngle || 0,
         
         // Canvas settings
-        puffCanvas: puffCanvas,
-        displacementCanvas: displacementCanvas,
-        normalCanvas: normalCanvas
+        // puffCanvas removed - will be rebuilt with new 3D geometry approach
+        displacementCanvas: displacementCanvas, // Used for embroidery displacement
+        normalCanvas: normalCanvas // Used for embroidery normal maps
       });
 
       console.log('💾 Project state loaded successfully');
@@ -3153,9 +3575,7 @@ export function App() {
   }, []);
   const activeTool = useApp(s => s.activeTool);
   const vectorMode = useApp(s => s.vectorMode);
-  const showPuffVectorPrompt = useApp(s => s.showPuffVectorPrompt);
-  const puffVectorPromptMessage = useApp(s => s.puffVectorPromptMessage);
-  const setPuffVectorPrompt = useApp(s => s.setPuffVectorPrompt);
+  // Puff vector prompt removed - will be rebuilt with new 3D geometry approach
   const setTool = useApp(s => s.setTool);
   const setVectorMode = useApp(s => s.setVectorMode);
   const [showLayerTest, setShowLayerTest] = useState(false);
@@ -3174,7 +3594,7 @@ export function App() {
   }, [showLayerTest]);
 
   const drawingActive = vectorMode || [
-    'brush','eraser','fill','picker','smudge','blur','select','transform','move','puffPrint','embroidery',
+    'brush','eraser','fill','picker','smudge','blur','select','transform','move','embroidery',
     'line','rect','ellipse','moveText','gradient','vectorTools','advancedSelection',
     'advancedBrush','meshDeformation','3dPainting','smartFill'
   ].includes(activeTool as any); // Removed 'text' and 'image' - they need normal cursor, not custom overlay
@@ -3194,12 +3614,7 @@ export function App() {
   }, []);
 
 
-  const handleClosePuffPrompt = () => setPuffVectorPrompt(false);
-  const handleSwitchToPuff = () => {
-    setVectorMode(false);
-    setPuffVectorPrompt(false);
-    setTool('puffPrint');
-  };
+  // Puff prompt handlers removed - will be rebuilt with new 3D geometry approach
 
   // Initialize canvases with reduced resolution for better performance
   useEffect(() => {
@@ -3424,7 +3839,7 @@ export function App() {
             onPointerDown={(e) => {
               // Handle clicks outside the model for camera controls
               const activeTool = useApp.getState().activeTool;
-              const continuousDrawingTools = ['brush', 'eraser', 'puffPrint', 'embroidery', 'fill'];
+              const continuousDrawingTools = ['brush', 'eraser', 'embroidery', 'fill'];
               
               if (continuousDrawingTools.includes(activeTool)) {
                 // For Canvas-level events, we assume clicks are outside the model
@@ -3523,10 +3938,6 @@ export function App() {
           {/* Legacy TransformGizmo - REMOVED (using simplified AdvancedLayerSystemV2) */}
           <CursorManager wrapRef={wrapRef} drawingActive={drawingActive} />
           <ToolRouter active={true} />
-          <UnifiedPuffPrintSystem
-            active={useApp(s => s.activeTool === 'puffPrint')}
-            onError={(error) => console.error('Puff Print Error:', error)}
-          />
                 </div>
       </ResponsiveLayout>
 
@@ -3539,50 +3950,7 @@ export function App() {
       {/* Performance Monitor */}
       <PerformanceMonitor />
 
-      {/* Removed puff vector prompt - puff print and embroidery now work with vector paths */}
-      {false && showPuffVectorPrompt && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.78)', backdropFilter: 'blur(6px)', zIndex: 999999999 }}>
-          <div style={{ maxWidth: 420, margin: '12vh auto 0', background: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)', borderRadius: '18px', padding: '32px 28px', boxShadow: '0 40px 80px rgba(15, 23, 42, 0.55)', border: '1px solid rgba(148, 163, 184, 0.22)', position: 'relative' }}>
-            <button
-              onClick={handleClosePuffPrompt}
-              aria-label="Close puff/vector prompt"
-              style={{ position: 'absolute', top: 18, right: 18, background: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.28)', color: '#cbd5f5', width: 32, height: 32, borderRadius: '8px', cursor: 'pointer', fontSize: 16, fontWeight: 600 }}
-            >
-              ×
-            </button>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
-                <div style={{ width: 56, height: 56, borderRadius: '20px', background: 'linear-gradient(135deg, #f97316 0%, #facc15 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0f172a', fontSize: 28, fontWeight: 700, boxShadow: '0 18px 35px rgba(250, 204, 21, 0.35)' }}>
-                  ⚠️
-                </div>
-                <div style={{ flex: 1 }}>
-                  <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#e2e8f0' }}>Vector paths & puff print</h2>
-                  <p style={{ margin: '10px 0 0', fontSize: 15, lineHeight: 1.6, color: '#cbd5f5' }}>{puffVectorPromptMessage}</p>
-                </div>
-              </div>
-              <ul style={{ margin: '0 0 8px', paddingLeft: 22, color: '#94a3b8', fontSize: 14, lineHeight: 1.6 }}>
-                <li>Vector mode is designed for precise path editing on the overlay.</li>
-                <li>Puff print brushes render directly to the garment texture.</li>
-                <li>Switch tools or exit vector mode before returning to puff print.</li>
-              </ul>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                <button
-                  onClick={handleSwitchToPuff}
-                  style={{ flex: '1 1 180px', padding: '12px 18px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #f97316 0%, #ec4899 100%)', color: '#ffffff', fontWeight: 600, fontSize: 14, cursor: 'pointer', boxShadow: '0 18px 40px rgba(236, 72, 153, 0.35)' }}
-                >
-                  Switch to Puff Brush
-                </button>
-                <button
-                  onClick={handleClosePuffPrompt}
-                  style={{ flex: '1 1 170px', padding: '12px 18px', borderRadius: '12px', border: '1px solid rgba(148, 163, 184, 0.35)', background: 'rgba(148, 163, 184, 0.12)', color: '#e2e8f0', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
-                >
-                  Keep Editing Vectors
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Puff vector prompt removed - will be rebuilt with new 3D geometry approach */}
     </>
   );
 }
@@ -3591,7 +3959,7 @@ function CursorManager({ wrapRef, drawingActive }: { wrapRef: React.RefObject<HT
   const tool = useApp(s => s.activeTool);
   const vectorMode = useApp(s => s.vectorMode);
   const brushSize = useApp(s => s.brushSize);
-  const puffBrushSize = useApp(s => s.puffBrushSize);
+  // puffBrushSize removed - will be rebuilt with new 3D geometry approach
   const textSize = useApp(s => s.textSize);
   const shapeSize = useApp(s => s.shapeSize);
   const shape = useApp(s => s.brushShape);
@@ -3641,8 +4009,7 @@ function CursorManager({ wrapRef, drawingActive }: { wrapRef: React.RefObject<HT
       case 'blur':
       case 'fill':
         return brushSize;
-      case 'puffPrint':
-        return puffBrushSize;
+      // puffPrint case removed - will be rebuilt with new 3D geometry approach
       case 'text':
         return textSize;
       case 'shapes':

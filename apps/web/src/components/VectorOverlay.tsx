@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useApp } from '../App';
 import { vectorStore } from '../vector/vectorState';
-import { puffVectorEngine } from '../vector/PuffVectorEngine';
+// REMOVED: puffVectorEngine - old puff tool removed
 
 export function VectorOverlay() {
   const { composedCanvas, activeTool, vectorMode } = useApp();
@@ -12,7 +12,7 @@ export function VectorOverlay() {
   const [shapes, setShapes] = useState(vectorStore.getState().shapes);
   const [selected, setSelected] = useState(vectorStore.getState().selected);
   const [currentPath, setCurrentPath] = useState(vectorStore.getState().currentPath);
-  const [puffShapes, setPuffShapes] = useState(() => puffVectorEngine.getState().shapes || []);
+  // REMOVED: puffShapes - old puff tool removed
   const [tool, setTool] = useState(vectorStore.getState().tool);
 
   const [isDown, setIsDown] = useState(false);
@@ -28,10 +28,8 @@ export function VectorOverlay() {
       setCurrentPath(st.currentPath);
       setTool(st.tool);
     });
-    const unsubPuff = puffVectorEngine.subscribe((state) => {
-      setPuffShapes(state.shapes || []);
-    });
-    return () => { unsub(); unsubPuff(); };
+    // REMOVED: puffVectorEngine subscription - old puff tool removed
+    return () => { unsub(); };
   }, []);
 
   // helpers
@@ -142,28 +140,8 @@ export function VectorOverlay() {
       }
     });
 
-    // Draw committed puff shapes from PuffVectorEngine (dashed highlight)
-    puffShapes.forEach((shape: any) => {
-      const pts = Array.isArray(shape?.worldPoints) ? shape.worldPoints : [];
-      if (pts.length < 2) return;
-      ctx.save();
-      ctx.beginPath();
-      const first = pts[0];
-      ctx.moveTo(first.x * scaleX, first.y * scaleY);
-      for (let i = 1; i < pts.length; i++) {
-        const p = pts[i];
-        ctx.lineTo(p.x * scaleX, p.y * scaleY);
-      }
-      if (shape.closed) {
-        ctx.closePath();
-      }
-      ctx.setLineDash([6, 4]);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(0, 255, 102, 0.8)';
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    });
+    // REMOVED: Draw committed puff shapes - old puff tool removed
+    // NEW PUFF TOOL: Puffs are drawn directly on the layer canvas
 
     if (currentPath && currentPath.points.length){
       drawBezier(currentPath.points);
@@ -194,7 +172,7 @@ export function VectorOverlay() {
         ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill();
       });
     }
-  }, [shapes, selected, currentPath, puffShapes, composedCanvas]);
+  }, [shapes, selected, currentPath, composedCanvas]); // REMOVED: puffShapes - old puff tool removed
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -245,7 +223,7 @@ export function VectorOverlay() {
     // Allow vector path creation even when brush/puff/embroidery is selected
     const isVectorPathCreation = activeTool === 'vector' || 
                                    activeTool === 'brush' || 
-                                   activeTool === 'puffPrint' || 
+                                   // activeTool === 'puffPrint' || // Removed - will be rebuilt 
                                    activeTool === 'embroidery';
     
     if (!isVectorPathCreation) return;
@@ -260,7 +238,7 @@ export function VectorOverlay() {
     }
     
     // In vector mode, all drawing tools act as pen tool
-    if (tool === 'pen' || activeTool === 'brush' || activeTool === 'puffPrint' || activeTool === 'embroidery') {
+    if (tool === 'pen' || activeTool === 'brush' || activeTool === 'embroidery') { // puffPrint removed - will be rebuilt
       const st = vectorStore.getState();
       if (!st.currentPath){
         const pts = [{ x: pos.x, y: pos.y, type:'corner' as const }];
@@ -317,7 +295,7 @@ export function VectorOverlay() {
     // Allow vector path editing even when brush/puff/embroidery is selected
     const isVectorPathCreation = activeTool === 'vector' || 
                                    activeTool === 'brush' || 
-                                   activeTool === 'puffPrint' || 
+                                   // activeTool === 'puffPrint' || // Removed - will be rebuilt 
                                    activeTool === 'embroidery';
     
     if (!isVectorPathCreation) return;
@@ -377,7 +355,7 @@ export function VectorOverlay() {
       inset: 0, 
       zIndex: 10000,
       // Only capture pointer events when vector mode is active and using drawing tools
-      pointerEvents: vectorMode && (activeTool === 'vector' || activeTool === 'brush' || activeTool === 'puffPrint' || activeTool === 'embroidery') ? 'auto' : 'none'
+      pointerEvents: vectorMode && (activeTool === 'vector' || activeTool === 'brush' || activeTool === 'embroidery') ? 'auto' : 'none' // puffPrint removed - will be rebuilt
     }}>
       <canvas
         ref={canvasRef}
@@ -388,7 +366,7 @@ export function VectorOverlay() {
           inset: 0, 
           // Capture pointer events when vector mode is active and using any drawing tool
           // This allows brush/puff/embroidery to create vector paths in vector mode
-          pointerEvents: vectorMode && (activeTool === 'vector' || activeTool === 'brush' || activeTool === 'puffPrint' || activeTool === 'embroidery') ? 'auto' : 'none', 
+          pointerEvents: vectorMode && (activeTool === 'vector' || activeTool === 'brush' || activeTool === 'embroidery') ? 'auto' : 'none', // puffPrint removed - will be rebuilt
           zIndex: 10000 
         }}
         onMouseDown={onMouseDown}

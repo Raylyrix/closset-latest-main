@@ -75,7 +75,7 @@ export function Navigation({ active }: NavigationProps) {
       icon: '📐',
       color: '#8B5CF6',
       tools: [
-        { id: 'vectorTools', name: 'Vector Tools', icon: '✏️', description: 'Pen tool and path editing', category: 'vector' }
+        { id: 'vector', name: 'Vector Tools', icon: '✏️', description: 'Pen tool and path editing', category: 'vector' }
       ]
     },
     {
