@@ -4284,35 +4284,42 @@ export function ShirtRefactored({
   // UNIFIED SHAPE BOUNDS CALCULATION
   // This function calculates shape bounds once and uses them everywhere
   // Similar to getImageBounds but for shapes (which use positionX/positionY percentages)
+  // CRITICAL: Shapes render with Y=0 at top, but Three.js UV has Y=0 at bottom
+  // So we need to flip Y coordinates when converting between positionY and UV
   const getShapeBounds = useCallback((shapeEl: any) => {
     // CRITICAL FIX: Use the actual composed canvas size
     const appState = useApp.getState();
     const composedCanvas = appState.composedCanvas;
     const canvasSize = composedCanvas ? composedCanvas.width : 1024;
+    const canvasHeight = composedCanvas ? composedCanvas.height : 1024;
     
     // Shapes use positionX/positionY as percentages (0-100%)
+    // positionX: 0% = left, 100% = right
+    // positionY: 0% = top, 100% = bottom (canvas coordinates, Y=0 at top)
     const positionX = shapeEl.positionX || 50; // Percentage
     const positionY = shapeEl.positionY || 50; // Percentage
     const size = shapeEl.size || 50; // Pixels
     
-    // Convert percentage to UV coordinates (0-1)
-    const centerU = positionX / 100;
-    const centerV = positionY / 100;
-    const sizeU = size / canvasSize; // Convert pixels to UV
-    const sizeV = size / canvasSize;
+    // Convert percentage to pixel coordinates (for rendering)
+    const pixelX = (positionX / 100) * canvasSize;
+    const pixelY = (positionY / 100) * canvasHeight; // Y=0 at top
     
-    // Calculate bounds in UV coordinates
+    // Convert pixel coordinates to UV for hitbox detection
+    // CRITICAL: Three.js UV has Y=0 at bottom, so we flip Y like images do
+    const centerU = pixelX / canvasSize;
+    const centerV = 1 - (pixelY / canvasHeight); // Flip Y to match Three.js UV (Y=0 at bottom)
+    
+    const sizeU = size / canvasSize; // Convert pixels to UV
+    const sizeV = size / canvasHeight; // Convert pixels to UV
+    
+    // Calculate bounds in UV coordinates (Three.js UV space: Y=0 at bottom)
     const halfSizeU = sizeU / 2;
     const halfSizeV = sizeV / 2;
     
     const uvLeft = centerU - halfSizeU;
     const uvRight = centerU + halfSizeU;
-    const uvTop = centerV - halfSizeV; // Note: Y is NOT flipped for shapes (they use same coordinate system)
-    const uvBottom = centerV + halfSizeV;
-    
-    // Convert to pixel coordinates for rendering
-    const pixelX = (centerU - halfSizeU) * canvasSize;
-    const pixelY = (centerV - halfSizeV) * canvasSize;
+    const uvTop = centerV - halfSizeV; // In Three.js UV: top has higher V value
+    const uvBottom = centerV + halfSizeV; // In Three.js UV: bottom has lower V value
     
     return {
       centerU,
@@ -4323,7 +4330,7 @@ export function ShirtRefactored({
       pixelY,
       pixelWidth: size,
       pixelHeight: size,
-      // UV bounds for hitbox detection
+      // UV bounds for hitbox detection (Three.js UV space: Y=0 at bottom)
       uvLeft,
       uvRight,
       uvTop,
@@ -5563,8 +5570,10 @@ const canvasDimensions = {
           // Get UV coordinates from the event
           const uv = e.uv as THREE.Vector2 | undefined;
           if (uv) {
+            // CRITICAL FIX: Three.js UV has Y=0 at bottom, but shapes use positionY with Y=0 at top
+            // So we need to flip Y to match how shapes are rendered
             const clickU = uv.x;
-            const clickV = uv.y; // Note: shapes use same coordinate system, no flip
+            const clickV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
             
             // Check if clicking on an existing shape (similar to image tool)
             const appState = useApp.getState();
@@ -5695,8 +5704,8 @@ const canvasDimensions = {
                   opacity: appState.shapeOpacity || 1,
                   color: appState.shapeColor || '#ff69b4',
                   rotation: appState.shapeRotation || 0,
-                  positionX: clickU * 100, // Convert UV to percentage
-                  positionY: clickV * 100, // Convert UV to percentage
+                  positionX: clickU * 100, // Convert UV to percentage (0-100%)
+                  positionY: clickV * 100, // Convert UV to percentage (0-100%, Y=0 at top)
                   gradient: null // Will be set based on color mode
                 };
                 
@@ -6763,8 +6772,10 @@ const canvasDimensions = {
       if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging && (window as any).__shapeDragStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
+          // CRITICAL FIX: Three.js UV has Y=0 at bottom, but shapes use positionY with Y=0 at top
+          // So we need to flip Y to match how shapes are rendered
           const currentU = uv.x;
-          const currentV = uv.y; // Note: shapes use same coordinate system, no flip
+          const currentV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
           
           const dragStart = (window as any).__shapeDragStart;
           const deltaU = currentU - dragStart.u;
@@ -6830,8 +6841,10 @@ const canvasDimensions = {
       if ((activeTool as string) === 'shapes' && (window as any).__shapeResizing && (window as any).__shapeResizeStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
+          // CRITICAL FIX: Three.js UV has Y=0 at bottom, but shapes use positionY with Y=0 at top
+          // So we need to flip Y to match how shapes are rendered
           const currentU = uv.x;
-          const currentV = uv.y; // Note: shapes use same coordinate system, no flip
+          const currentV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
           
           const resizeStart = (window as any).__shapeResizeStart;
           const deltaU = currentU - resizeStart.u;
