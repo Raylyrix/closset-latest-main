@@ -4318,8 +4318,12 @@ export function ShirtRefactored({
     
     const uvLeft = centerU - halfSizeU;
     const uvRight = centerU + halfSizeU;
-    const uvTop = centerV - halfSizeV; // In Three.js UV: top has higher V value
-    const uvBottom = centerV + halfSizeV; // In Three.js UV: bottom has lower V value
+    // CRITICAL: In Three.js UV, Y=0 is at bottom, so:
+    // - Top of shape (lower pixelY) has HIGHER V value
+    // - Bottom of shape (higher pixelY) has LOWER V value
+    // Since centerV = 1 - (pixelY / canvasHeight), shape top has higher V
+    const uvTop = centerV + halfSizeV; // Top of shape (higher V in Three.js UV)
+    const uvBottom = centerV - halfSizeV; // Bottom of shape (lower V in Three.js UV)
     
     return {
       centerU,
@@ -5570,10 +5574,11 @@ const canvasDimensions = {
           // Get UV coordinates from the event
           const uv = e.uv as THREE.Vector2 | undefined;
           if (uv) {
-            // CRITICAL FIX: Three.js UV has Y=0 at bottom, but shapes use positionY with Y=0 at top
-            // So we need to flip Y to match how shapes are rendered
+            // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
+            // Shapes use positionY where 0% = top, 100% = bottom (canvas coordinates)
+            // So: positionY = uv.y * 100 (NO flip when converting UV to positionY)
             const clickU = uv.x;
-            const clickV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
+            const clickV = uv.y; // NO flip - uv.y already represents position from bottom (0) to top (1)
             
             // Check if clicking on an existing shape (similar to image tool)
             const appState = useApp.getState();
