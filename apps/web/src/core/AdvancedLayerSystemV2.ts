@@ -3239,6 +3239,207 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }
         }
         
+        // Draw shape elements (rectangles, circles, triangles, stars, etc.)
+        const appStateForShapes = useApp.getState();
+        const shapeElements = appStateForShapes.shapeElements || [];
+        console.log(`🔷 Rendering ${shapeElements.length} shape elements for layer ${layer.id}`);
+        
+        for (const shapeEl of shapeElements) {
+          if (shapeEl.visible === false) continue;
+          
+          ctx.save();
+          
+          // Convert position percentages (0-100) to canvas coordinates
+          const shapeX = Math.round((shapeEl.positionX / 100) * composedCanvas.width);
+          const shapeY = Math.round((shapeEl.positionY / 100) * composedCanvas.height);
+          const shapeSize = shapeEl.size || 50;
+          const shapeRadius = shapeSize / 2;
+          
+          // Apply opacity
+          ctx.globalAlpha = (shapeEl.opacity || 1) * (layer.opacity || 1);
+          
+          // Set fill color (support gradient if present)
+          let fillStyle: string | CanvasGradient = shapeEl.color || shapeEl.fill || '#ff69b4';
+          
+          if (shapeEl.gradient) {
+            const grad = ctx.createLinearGradient(
+              shapeX - shapeRadius,
+              shapeY - shapeRadius,
+              shapeX + shapeRadius,
+              shapeY + shapeRadius
+            );
+            if (shapeEl.gradient.stops && Array.isArray(shapeEl.gradient.stops)) {
+              shapeEl.gradient.stops.forEach((stop: any) => {
+                grad.addColorStop(stop.position || 0, stop.color || '#ff69b4');
+              });
+            }
+            fillStyle = grad;
+          }
+          
+          ctx.fillStyle = fillStyle;
+          ctx.strokeStyle = shapeEl.stroke || shapeEl.color || '#000000';
+          ctx.lineWidth = shapeEl.strokeWidth || 0;
+          
+          // Apply rotation
+          if (shapeEl.rotation && shapeEl.rotation !== 0) {
+            ctx.translate(shapeX, shapeY);
+            ctx.rotate((shapeEl.rotation * Math.PI) / 180);
+            ctx.translate(-shapeX, -shapeY);
+          }
+          
+          // Draw shape based on type
+          ctx.beginPath();
+          
+          switch (shapeEl.type) {
+            case 'rectangle':
+            case 'rect':
+              ctx.rect(shapeX - shapeRadius, shapeY - shapeRadius, shapeSize, shapeSize);
+              break;
+              
+            case 'circle':
+              ctx.arc(shapeX, shapeY, shapeRadius, 0, Math.PI * 2);
+              break;
+              
+            case 'triangle':
+              ctx.moveTo(shapeX, shapeY - shapeRadius);
+              ctx.lineTo(shapeX - shapeRadius, shapeY + shapeRadius);
+              ctx.lineTo(shapeX + shapeRadius, shapeY + shapeRadius);
+              ctx.closePath();
+              break;
+              
+            case 'star':
+              // Draw 5-pointed star
+              const spikes = 5;
+              const outerRadius = shapeRadius;
+              const innerRadius = shapeRadius * 0.4;
+              for (let i = 0; i < spikes * 2; i++) {
+                const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                const angle = (i * Math.PI) / spikes - Math.PI / 2;
+                const x = shapeX + radius * Math.cos(angle);
+                const y = shapeY + radius * Math.sin(angle);
+                if (i === 0) {
+                  ctx.moveTo(x, y);
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              }
+              ctx.closePath();
+              break;
+              
+            case 'polygon':
+              // Draw hexagon
+              const sides = 6;
+              for (let i = 0; i < sides; i++) {
+                const angle = (i * 2 * Math.PI) / sides - Math.PI / 2;
+                const x = shapeX + shapeRadius * Math.cos(angle);
+                const y = shapeY + shapeRadius * Math.sin(angle);
+                if (i === 0) {
+                  ctx.moveTo(x, y);
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              }
+              ctx.closePath();
+              break;
+              
+            case 'heart':
+              // Draw heart shape
+              const heartSize = shapeRadius;
+              ctx.moveTo(shapeX, shapeY + heartSize * 0.3);
+              ctx.bezierCurveTo(
+                shapeX, shapeY,
+                shapeX - heartSize * 0.5, shapeY - heartSize * 0.5,
+                shapeX - heartSize * 0.5, shapeY - heartSize * 0.2
+              );
+              ctx.bezierCurveTo(
+                shapeX - heartSize * 0.5, shapeY + heartSize * 0.1,
+                shapeX, shapeY + heartSize * 0.6,
+                shapeX, shapeY + heartSize * 0.9
+              );
+              ctx.bezierCurveTo(
+                shapeX, shapeY + heartSize * 0.6,
+                shapeX + heartSize * 0.5, shapeY + heartSize * 0.1,
+                shapeX + heartSize * 0.5, shapeY - heartSize * 0.2
+              );
+              ctx.bezierCurveTo(
+                shapeX + heartSize * 0.5, shapeY - heartSize * 0.5,
+                shapeX, shapeY,
+                shapeX, shapeY + heartSize * 0.3
+              );
+              break;
+              
+            case 'diamond':
+              ctx.moveTo(shapeX, shapeY - shapeRadius);
+              ctx.lineTo(shapeX + shapeRadius, shapeY);
+              ctx.lineTo(shapeX, shapeY + shapeRadius);
+              ctx.lineTo(shapeX - shapeRadius, shapeY);
+              ctx.closePath();
+              break;
+              
+            default:
+              // Default to circle
+              ctx.arc(shapeX, shapeY, shapeRadius, 0, Math.PI * 2);
+          }
+          
+          // Fill and stroke
+          ctx.fill();
+          if (ctx.lineWidth > 0) {
+            ctx.stroke();
+          }
+          
+          ctx.restore();
+        }
+        
+        // Draw selection border for selected shape elements
+        const appStateForShapeSelection = useApp.getState();
+        if (appStateForShapeSelection.activeShapeId && shapeElements.length > 0) {
+          const selectedShapeEl = shapeElements.find(shapeEl => shapeEl.id === appStateForShapeSelection.activeShapeId);
+          
+          if (selectedShapeEl) {
+            console.log(`🔷 Drawing selection border for shape element:`, selectedShapeEl.id);
+            
+            ctx.save();
+            
+            const shapeX = Math.round((selectedShapeEl.positionX / 100) * composedCanvas.width);
+            const shapeY = Math.round((selectedShapeEl.positionY / 100) * composedCanvas.height);
+            const shapeSize = selectedShapeEl.size || 50;
+            const shapeRadius = shapeSize / 2;
+            
+            // Apply rotation if needed
+            if (selectedShapeEl.rotation && selectedShapeEl.rotation !== 0) {
+              ctx.translate(shapeX, shapeY);
+              ctx.rotate((selectedShapeEl.rotation * Math.PI) / 180);
+              ctx.translate(-shapeX, -shapeY);
+            }
+            
+            // Draw selection border
+            ctx.strokeStyle = '#007acc';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.globalAlpha = 1.0;
+            ctx.beginPath();
+            ctx.rect(shapeX - shapeRadius - 5, shapeY - shapeRadius - 5, shapeSize + 10, shapeSize + 10);
+            ctx.stroke();
+            
+            // Draw resize handles
+            const handleSize = 8;
+            const handles = [
+              { x: shapeX - shapeRadius - 5, y: shapeY - shapeRadius - 5 }, // Top-left
+              { x: shapeX + shapeRadius + 5, y: shapeY - shapeRadius - 5 }, // Top-right
+              { x: shapeX - shapeRadius - 5, y: shapeY + shapeRadius + 5 }, // Bottom-left
+              { x: shapeX + shapeRadius + 5, y: shapeY + shapeRadius + 5 }  // Bottom-right
+            ];
+            
+            ctx.fillStyle = '#007acc';
+            ctx.setLineDash([]);
+            for (const handle of handles) {
+              ctx.fillRect(handle.x - handleSize/2, handle.y - handleSize/2, handleSize, handleSize);
+            }
+            
+            ctx.restore();
+          }
+        }
+        
         // Draw puff elements
         const puffElements = layer.content.puffElements || [];
         for (const puffEl of puffElements) {

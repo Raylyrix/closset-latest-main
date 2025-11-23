@@ -201,18 +201,23 @@ export function LeftPanelCompact() {
             <button
               key={s.shape}
               onClick={() => {
-                // Add shape to canvas at center
+                // Add shape at center of model (50% position)
+                // Use positionX and positionY (0-100 percentage) for proper UV mapping
+                const appState = useApp.getState();
                 addShapeElement({
                   type: s.shape,
-                  x: 512,
-                  y: 512,
-                  width: 200,
-                  height: 200,
-                  color: '#FFFFFF',
-                  opacity: 1,
-                  rotation: 0
+                  positionX: 50, // Center X position (0-100%)
+                  positionY: 50, // Center Y position (0-100%)
+                  size: appState.shapeSize || 50, // Use current shape size setting
+                  color: appState.shapeColor || '#ff69b4', // Use current shape color
+                  opacity: appState.shapeOpacity || 1, // Use current shape opacity
+                  rotation: appState.shapeRotation || 0, // Use current rotation
+                  // Also set UV coordinates for compatibility
+                  u: 0.5,
+                  v: 0.5
                 });
                 setActiveTool('shapes');
+                console.log('🔷 Added shape at center:', s.shape);
               }}
               style={{
                 padding: '8px',
