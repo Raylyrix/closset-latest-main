@@ -94,27 +94,45 @@ export function SelectionIntegration({ children }: SelectionIntegrationProps) {
 
   // Convert shape elements to universal elements
   const universalShapeElements = useMemo(() => {
-    return shapeElements.map((shape): UniversalElement => ({
-      id: shape.id,
-      type: 'shape',
-      bounds: {
-        x: (shape.u || 0) * 1024,
-        y: (1 - (shape.v || 0)) * 1024,
-        width: (shape.uWidth || 0.25) * 1024,
-        height: (shape.uHeight || 0.25) * 1024,
-        rotation: shape.rotation || 0
-      },
-      visible: shape.visible !== false,
-      locked: false,
-      zIndex: 0,
-      data: {
-        shapeType: shape.type,
-        points: shape.points || [],
-        stroke: shape.stroke || shape.color,
-        fill: shape.fill || shape.color,
-        strokeWidth: shape.strokeWidth || 1
-      }
-    }));
+    return shapeElements.map((shape): UniversalElement => {
+      // CRITICAL FIX: Shapes use positionX/positionY (0-100%) and size (pixels)
+      // Convert to pixel coordinates for bounds
+      const canvasWidth = 1024; // Standard canvas width
+      const canvasHeight = 1024; // Standard canvas height
+      
+      // Convert positionX/positionY (0-100%) to pixel coordinates
+      const shapeX = (shape.positionX || 50) / 100 * canvasWidth;
+      const shapeY = (shape.positionY || 50) / 100 * canvasHeight;
+      const shapeSize = shape.size || 50; // Size is already in pixels
+      const shapeRadius = shapeSize / 2;
+      
+      // Calculate bounds (square bounding box centered on shape position)
+      return {
+        id: shape.id,
+        type: 'shape',
+        bounds: {
+          x: shapeX - shapeRadius,
+          y: shapeY - shapeRadius,
+          width: shapeSize,
+          height: shapeSize,
+          rotation: shape.rotation || 0
+        },
+        visible: shape.visible !== false,
+        locked: false,
+        zIndex: 0,
+        data: {
+          shapeType: shape.type,
+          points: shape.points || [],
+          stroke: shape.stroke || shape.color,
+          fill: shape.fill || shape.color,
+          strokeWidth: shape.strokeWidth || 1,
+          // Store original shape properties for updates
+          positionX: shape.positionX,
+          positionY: shape.positionY,
+          size: shape.size
+        }
+      };
+    });
   }, [shapeElements]);
 
   // Sync elements with universal selection store

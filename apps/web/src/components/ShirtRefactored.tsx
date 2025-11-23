@@ -7679,9 +7679,14 @@ const canvasDimensions = {
                 break;
               }
               case 'shape':
+                // CRITICAL FIX: Shapes use positionX/positionY (0-100%)
+                // Convert pixel coordinates to percentage
+                const newShapePositionX = newPosition.x / canvasWidth * 100;
+                const newShapePositionY = newPosition.y / canvasHeight * 100;
+                
                 useApp.getState().updateShapeElement(elementId, {
-                  u: Math.max(0, Math.min(1, newU)),
-                  v: Math.max(0, Math.min(1, newV))
+                  positionX: Math.max(0, Math.min(100, newShapePositionX)),
+                  positionY: Math.max(0, Math.min(100, newShapePositionY))
                 });
                 break;
             }
@@ -7728,11 +7733,17 @@ const canvasDimensions = {
                 break;
               }
               case 'shape':
+                // CRITICAL FIX: Shapes use positionX/positionY (0-100%) and size (pixels)
+                // Convert pixel coordinates back to percentage and size
+                const newPositionX = (newBounds.minX + newBounds.width / 2) / canvasWidth * 100;
+                const newPositionY = (newBounds.minY + newBounds.height / 2) / canvasHeight * 100;
+                // Size is the larger of width or height (shapes are square-based)
+                const newSize = Math.max(newBounds.width, newBounds.height);
+                
                 useApp.getState().updateShapeElement(elementId, {
-                  u: Math.max(0, Math.min(1, newU)),
-                  v: Math.max(0, Math.min(1, newV)),
-                  uWidth: Math.max(0.01, Math.min(1, newUWidth)),
-                  uHeight: Math.max(0.01, Math.min(1, newUHeight))
+                  positionX: Math.max(0, Math.min(100, newPositionX)),
+                  positionY: Math.max(0, Math.min(100, newPositionY)),
+                  size: Math.max(10, Math.min(500, newSize)) // Min 10px, max 500px
                 });
                 break;
             }
