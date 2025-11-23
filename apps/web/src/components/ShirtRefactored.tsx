@@ -5576,9 +5576,11 @@ const canvasDimensions = {
           if (uv) {
             // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
             // Shapes use positionY where 0% = top, 100% = bottom (canvas coordinates)
-            // So: positionY = uv.y * 100 (NO flip when converting UV to positionY)
+            // When converting UV to positionY: uv.y=0 (bottom) -> positionY=100% (bottom)
+            //                                  uv.y=1 (top) -> positionY=0% (top)
+            // So: positionY = (1 - uv.y) * 100 (FLIP needed)
             const clickU = uv.x;
-            const clickV = uv.y; // NO flip - uv.y already represents position from bottom (0) to top (1)
+            const clickV = 1 - uv.y; // Flip Y: uv.y=0 (bottom) -> clickV=1 (top), uv.y=1 (top) -> clickV=0 (top)
             
             // Check if clicking on an existing shape (similar to image tool)
             const appState = useApp.getState();
@@ -6777,8 +6779,11 @@ const canvasDimensions = {
       if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging && (window as any).__shapeDragStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
-          // CRITICAL FIX: Three.js UV has Y=0 at bottom, but shapes use positionY with Y=0 at top
-          // So we need to flip Y to match how shapes are rendered
+          // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
+          // Shapes use positionY where 0% = top, 100% = bottom
+          // When converting UV to positionY: uv.y=0 (bottom) -> positionY=100% (bottom)
+          //                                  uv.y=1 (top) -> positionY=0% (top)
+          // So: currentV = 1 - uv.y (FLIP needed to match shape coordinate system)
           const currentU = uv.x;
           const currentV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
           
@@ -6846,8 +6851,11 @@ const canvasDimensions = {
       if ((activeTool as string) === 'shapes' && (window as any).__shapeResizing && (window as any).__shapeResizeStart) {
         const uv = e.uv as THREE.Vector2 | undefined;
         if (uv) {
-          // CRITICAL FIX: Three.js UV has Y=0 at bottom, but shapes use positionY with Y=0 at top
-          // So we need to flip Y to match how shapes are rendered
+          // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
+          // Shapes use positionY where 0% = top, 100% = bottom
+          // When converting UV to positionY: uv.y=0 (bottom) -> positionY=100% (bottom)
+          //                                  uv.y=1 (top) -> positionY=0% (top)
+          // So: currentV = 1 - uv.y (FLIP needed to match shape coordinate system)
           const currentU = uv.x;
           const currentV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
           
