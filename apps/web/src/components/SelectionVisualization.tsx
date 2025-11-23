@@ -113,7 +113,7 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
 
   const getHandleAtPoint = (x: number, y: number, bounds: SelectedElement['bounds']): string | null => {
     const handleSize = 8;
-    const tolerance = 4;
+    const tolerance = 8; // CRITICAL FIX: Increase tolerance for easier handle clicking
 
     const handles = [
       { x: bounds.minX - handleSize/2, y: bounds.minY - handleSize/2, type: 'nw' },
@@ -277,29 +277,51 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
         left: 0,
         width: canvasWidth,
         height: canvasHeight,
-        pointerEvents: 'none', // Disable pointer events to prevent conflicts
+        pointerEvents: 'none', // Disable pointer events on container
         zIndex: 1000,
       }}
     >
-      {/* Simple selection feedback without canvas */}
-      {selectedElements.map((element, index) => (
-        <div
-          key={element.id}
-          style={{
-            position: 'absolute',
-            left: element.bounds.minX,
-            top: element.bounds.minY,
-            width: element.bounds.width,
-            height: element.bounds.height,
-            border: index === 0 ? '2px solid #00ff00' : '2px solid #0066ff',
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            boxSizing: 'border-box',
-          }}
-        />
-      ))}
+      {/* CRITICAL FIX: Render canvas with event handlers for resize handles */}
+      <canvas
+        ref={canvasRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp} // Stop dragging when mouse leaves
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'auto', // Enable pointer events on canvas to capture mouse events
+          cursor: isDragging && dragHandle ? getCursorForHandle(dragHandle) : 'default',
+        }}
+      />
     </div>
   );
+};
+
+// Helper function to get cursor style for resize handles
+const getCursorForHandle = (handle: string | null): string => {
+  if (!handle || handle === 'move') return 'move';
+  
+  switch (handle) {
+    case 'nw':
+    case 'se':
+      return 'nwse-resize';
+    case 'ne':
+    case 'sw':
+      return 'nesw-resize';
+    case 'n':
+    case 's':
+      return 'ns-resize';
+    case 'e':
+    case 'w':
+      return 'ew-resize';
+    default:
+      return 'default';
+  }
 };
 
 export default SelectionVisualization;

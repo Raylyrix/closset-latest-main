@@ -7783,6 +7783,7 @@ const canvasDimensions = {
       {/* Selection Visualization - Shows bounding boxes and transform handles */}
       {selectedElements.length > 0 && (
         <Html fullscreen style={{ pointerEvents: 'none' }}>
+          {/* CRITICAL FIX: SelectionVisualization handles pointer events internally on its canvas */}
           <SelectionVisualization
             canvasWidth={1024}
             canvasHeight={1024}
