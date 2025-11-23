@@ -940,6 +940,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createTextureBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic textured brush with canvas/paper-like grain
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -950,9 +951,33 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Add canvas-like grain
-        const textureNoise = Math.sin(x * 0.2) * Math.cos(y * 0.2) + Math.sin(x * 0.5) * Math.sin(y * 0.5);
-        const textureFactor = 0.8 + textureNoise * 0.4;
+        
+        // Create multi-layered texture for realistic canvas/paper grain
+        let textureFactor = 0;
+        const textureLayers = 3;
+        
+        for (let layer = 0; layer < textureLayers; layer++) {
+          const layerScale = Math.pow(2, layer);
+          const freqX = 0.15 * layerScale;
+          const freqY = 0.15 * layerScale;
+          
+          // Create canvas weave pattern
+          const weave1 = Math.sin(x * freqX) * Math.cos(y * freqY);
+          const weave2 = Math.sin(x * freqX * 1.3) * Math.sin(y * freqY * 0.8);
+          const weave3 = Math.cos(x * freqX * 0.7) * Math.cos(y * freqY * 1.2);
+          
+          const combinedWeave = (weave1 + weave2 + weave3) / 3;
+          const layerIntensity = 0.7 + combinedWeave * 0.3;
+          textureFactor += layerIntensity / textureLayers;
+        }
+        
+        // Add some random texture variation
+        const randomVariation = Math.sin(x * 0.3 + y * 0.2) * Math.cos(x * 0.1 - y * 0.15);
+        textureFactor += randomVariation * 0.1;
+        
+        // Normalize texture factor
+        textureFactor = Math.max(0.6, Math.min(1.0, textureFactor));
+        
         const alpha = settings.opacity * 255 * textureFactor * Math.exp(-normalizedDistance * normalizedDistance);
         
         // Get color (solid or gradient)
@@ -1391,6 +1416,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createMarkerBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic marker with smooth coverage and slight streak patterns
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1401,8 +1427,17 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Marker with smooth, even coverage
-        const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 1.2);
+        
+        // Marker has smooth, even coverage with slight streak patterns
+        const baseAlpha = settings.opacity * 255;
+        
+        // Add marker streak patterns (markers often leave streaks)
+        const streakPattern = Math.sin(x * 0.12 + y * 0.08);
+        const streakFactor = 0.92 + streakPattern * 0.16;
+        
+        // Smooth falloff
+        const falloff = Math.exp(-normalizedDistance * normalizedDistance * 1.2);
+        const alpha = baseAlpha * streakFactor * falloff;
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1462,6 +1497,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createCalligraphyBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic calligraphy brush with angled tip and ink flow variation
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1471,12 +1507,24 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const sin = Math.sin(angleRad);
         const rotatedDx = dx * cos - dy * sin;
         const rotatedDy = dx * sin + dy * cos;
-        const ellipseDist = Math.sqrt(rotatedDx * rotatedDx + rotatedDy * rotatedDy * 2) / radius;
+        
+        // Elliptical shape (wider perpendicular to angle)
+        const ellipseDist = Math.sqrt(rotatedDx * rotatedDx + rotatedDy * rotatedDy * 2.5) / radius;
         
         if (ellipseDist > 1) continue;
         
         const index = (y * size + x) * 4;
-        const alpha = settings.opacity * 255;
+        
+        // Calligraphy brush has variable ink flow based on angle and pressure
+        const baseAlpha = settings.opacity * 255;
+        
+        // Ink flow variation (more ink at center, less at edges)
+        const flowVariation = Math.sin(rotatedDx * 0.1) * Math.cos(rotatedDy * 0.1);
+        const flowFactor = 0.85 + flowVariation * 0.3;
+        
+        // Smooth falloff
+        const falloff = Math.exp(-ellipseDist * ellipseDist * 1.5);
+        const alpha = baseAlpha * flowFactor * falloff;
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1487,12 +1535,13 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         data[index] = r;
         data[index + 1] = g;
         data[index + 2] = b;
-        data[index + 3] = alpha;
+        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createStencilBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic stencil effect with hard edges and cutout pattern
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = Math.abs(x - centerX);
@@ -1503,7 +1552,28 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 0.95) continue;
         
         const index = (y * size + x) * 4;
-        const alpha = settings.opacity * 255;
+        
+        // Stencil has hard edges with slight bleed effect
+        let alpha = settings.opacity * 255;
+        
+        // Create stencil cutout pattern (grid-like openings)
+        const gridSize = Math.max(4, Math.floor(radius / 4));
+        const gridX = Math.floor((x - centerX + radius) / gridSize);
+        const gridY = Math.floor((y - centerY + radius) / gridSize);
+        
+        // Create alternating pattern for stencil effect
+        const isCutout = (gridX + gridY) % 2 === 0;
+        if (isCutout && normalizedDistance < 0.8) {
+          // Cutout area - no paint
+          alpha = 0;
+        } else {
+          // Stencil area - full opacity with hard edges
+          if (normalizedDistance > 0.85) {
+            // Edge area - slight bleed
+            const edgeFalloff = (0.95 - normalizedDistance) / 0.1;
+            alpha *= edgeFalloff;
+          }
+        }
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1514,12 +1584,13 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         data[index] = r;
         data[index + 1] = g;
         data[index + 2] = b;
-        data[index + 3] = alpha;
+        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createStampBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic stamp effect with even coverage and slight texture variation
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1530,7 +1601,19 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 0.9) continue;
         
         const index = (y * size + x) * 4;
-        const alpha = settings.opacity * 255;
+        
+        // Stamp has even coverage with slight texture for realism
+        const textureVariation = Math.sin(x * 0.1) * Math.cos(y * 0.1);
+        const textureFactor = 0.95 + textureVariation * 0.1;
+        
+        // Hard edges with slight softness at very edge
+        let alpha = settings.opacity * 255;
+        if (normalizedDistance > 0.85) {
+          // Very edge - slight falloff
+          const edgeFalloff = (0.9 - normalizedDistance) / 0.05;
+          alpha *= edgeFalloff;
+        }
+        alpha *= textureFactor;
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1541,7 +1624,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         data[index] = r;
         data[index + 1] = g;
         data[index + 2] = b;
-        data[index + 3] = alpha;
+        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
