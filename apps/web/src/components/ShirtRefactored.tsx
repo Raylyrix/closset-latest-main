@@ -30,7 +30,7 @@ import { ShirtRenderer } from './Shirt/ShirtRenderer';
 // import { Brush3DIntegration } from './Brush3DIntegrationNew'; // Using existing useApp painting system instead
 
 // Import selection system
-import { useLayerSelectionSystem, elementDetection } from '../core/LayerSelectionSystem';
+import { useLayerSelectionSystem, elementDetection, SelectedElement } from '../core/LayerSelectionSystem';
 import SelectionVisualization from './SelectionVisualization';
 
 // Import domain stores
@@ -1992,10 +1992,11 @@ export function ShirtRefactored({
       const appState = useApp.getState();
       let clickedShapeElement = null;
       for (const shapeEl of appState.shapeElements || []) {
-        // Shape bounds calculation (simplified - adjust based on actual shape implementation)
-        const shapeU = shapeEl.u || 0.5;
-        const shapeV = shapeEl.v || 0.5;
-        const shapeSize = (shapeEl.size || 50) / canvas.width;
+        // CRITICAL FIX: Shapes use positionX/positionY (0-100%) not u/v
+        // Convert positionX/positionY to UV coordinates for hit testing
+        const shapeU = (shapeEl.positionX || 50) / 100; // Convert percentage to 0-1
+        const shapeV = (shapeEl.positionY || 50) / 100; // Convert percentage to 0-1
+        const shapeSize = (shapeEl.size || 50) / canvas.width; // Convert pixels to UV space
         
         if (clickU >= shapeU - shapeSize/2 && clickU <= shapeU + shapeSize/2 &&
             clickV >= shapeV - shapeSize/2 && clickV <= shapeV + shapeSize/2) {
@@ -2017,6 +2018,45 @@ export function ShirtRefactored({
           } else if (clickedShapeElement) {
             useApp.setState({ activeShapeId: clickedShapeElement.id, activeTextId: null, selectedImageId: null });
             debugLog('🎯 Vector: Selected shape element:', clickedShapeElement.id);
+            
+            // CRITICAL FIX: Add shape to selection system for resize handles
+            const { composedCanvas } = useApp.getState();
+            const canvasWidth = composedCanvas?.width || 1024;
+            const canvasHeight = composedCanvas?.height || 1024;
+            
+            // Convert shape position to pixel coordinates for selection system
+            const shapeX = (clickedShapeElement.positionX || 50) / 100 * canvasWidth;
+            const shapeY = (clickedShapeElement.positionY || 50) / 100 * canvasHeight;
+            const shapeSize = clickedShapeElement.size || 50;
+            const shapeRadius = shapeSize / 2;
+            
+            const shapeElement: SelectedElement = {
+              id: clickedShapeElement.id,
+              type: 'shape',
+              layerId: 'default', // Shapes are on default layer
+              bounds: {
+                minX: shapeX - shapeRadius,
+                minY: shapeY - shapeRadius,
+                maxX: shapeX + shapeRadius,
+                maxY: shapeY + shapeRadius,
+                width: shapeSize,
+                height: shapeSize
+              },
+              position: {
+                x: shapeX,
+                y: shapeY
+              },
+              data: {
+                shapeType: clickedShapeElement.type, // Preserve shape type
+                positionX: clickedShapeElement.positionX,
+                positionY: clickedShapeElement.positionY,
+                size: clickedShapeElement.size
+              }
+            };
+            
+            // Add to selection system
+            selectElement(shapeElement);
+            debugLog('🔷 Shape added to selection system:', clickedShapeElement.id);
           }
           return; // Don't create vector path when selecting elements
         } else if (vectorEditMode === 'pen') {
