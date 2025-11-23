@@ -6759,6 +6759,42 @@ const canvasDimensions = {
         return;
       }
       
+      // Handle shape dragging (similar to image dragging)
+      if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging && (window as any).__shapeDragStart) {
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const currentU = uv.x;
+          const currentV = uv.y; // Note: shapes use same coordinate system, no flip
+          
+          const dragStart = (window as any).__shapeDragStart;
+          const deltaU = currentU - dragStart.u;
+          const deltaV = currentV - dragStart.v;
+          
+          // Calculate new position in percentage (0-100%)
+          const newPositionX = dragStart.positionX + (deltaU * 100);
+          const newPositionY = dragStart.positionY + (deltaV * 100);
+          
+          // Clamp position to valid range (0-100%)
+          const clampedX = Math.max(0, Math.min(100, newPositionX));
+          const clampedY = Math.max(0, Math.min(100, newPositionY));
+          
+          // Update shape element
+          const { composeLayers } = useApp.getState();
+          if (dragStart.shapeId) {
+            useApp.getState().updateShapeElement(dragStart.shapeId, {
+              positionX: clampedX,
+              positionY: clampedY
+            });
+            
+            // Force layer composition and texture update for real-time feedback
+            console.log('🔷 Shape dragging - Forcing immediate layer composition');
+            composeLayers(true);
+            updateModelTexture(true, false);
+          }
+        }
+        return;
+      }
+      
       // Handle vector anchor dragging
       // PERFORMANCE: Throttle anchor dragging updates using requestAnimationFrame
       if (activeTool === 'vector' && isDraggingAnchorRef.current && dragStartPosRef.current) {
