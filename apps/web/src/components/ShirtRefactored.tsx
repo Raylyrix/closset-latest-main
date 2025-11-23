@@ -6934,6 +6934,32 @@ const canvasDimensions = {
     lastBrushPointRef.current = null;
     smudgeStateRef.current = { lastX: 0, lastY: 0, initialized: false };
     
+    // WET BRUSH BLENDING: Apply color bleeding for watercolor brushes before resetting
+    if (activeTool === 'brush' && wetBrushStateRef.current.initialized && wetBrushStateRef.current.points.length > 0) {
+      const layer = getActiveLayer();
+      const layerCtx = layer?.canvas?.getContext('2d');
+      if (layerCtx && currentBrushShape === 'watercolor') {
+        const wetness = 0.8; // Default wetness for watercolor
+        const brushSize = useApp.getState().brushSize;
+        
+        // Apply color bleeding along the entire stroke path
+        applyColorBleeding(
+          layerCtx,
+          wetBrushStateRef.current.points,
+          brushSize / 2,
+          wetness,
+          2.0 // Bleeding multiplier
+        );
+        
+        // Recompose layers to show the bleeding effect
+        useApp.getState().composeLayers();
+        updateModelTexture(false, false);
+      }
+      
+      // Reset wet brush state for next stroke
+      wetBrushStateRef.current = { points: [], initialized: false };
+    }
+    
     // Clear last embroidery point when mouse released
     if (activeTool === 'embroidery') {
       useApp.setState({ lastEmbroideryPoint: null });
