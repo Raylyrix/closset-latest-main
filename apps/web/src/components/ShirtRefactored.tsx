@@ -415,6 +415,10 @@ export function ShirtRefactored({
   const lastPuffUpdateRef = useRef(0);
   const isDraggingAnchorRef = useRef(false);
   const dragStartPosRef = useRef<{x: number, y: number} | null>(null);
+  
+  // VECTOR TOOL: Track handle dragging for curve mode
+  const isDraggingHandleRef = useRef(false);
+  const draggingHandleInfoRef = useRef<{pathId: string; anchorIndex: number; handleType: 'in' | 'out'} | null>(null);
   const textPromptActiveRef = useRef(false); // Prevent double text prompts
   const lastTextPromptTimeRef = useRef(0); // Track last prompt time
   const userManuallyEnabledControlsRef = useRef(false); // Track when user manually enables controls
@@ -2145,42 +2149,10 @@ export function ShirtRefactored({
         
       } else if (vectorEditMode === 'curve') {
         // Curve mode - edit bezier handles of selected anchor
-        if (selectedAnchor) {
-          // If clicking near a handle, edit it; otherwise select anchor first
-          const clickUV = { u: uv.x, v: uv.y };
-          const path = (vectorPaths || []).find(p => p.id === selectedAnchor.pathId);
-          const anchor = path?.points[selectedAnchor.anchorIndex];
-          
-          if (anchor) {
-            // Check if clicking near out handle
-            if (anchor.outHandle) {
-              const handleUV = { u: anchor.outHandle.u, v: anchor.outHandle.v };
-              if (distanceInUV(clickUV, handleUV) < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
-                // Edit out handle
-                useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'out', uv.x, uv.y);
-                debugLog('🎯 Vector: Editing out handle');
-                return;
-              }
-            }
-            
-            // Check if clicking near in handle
-            if (anchor.inHandle) {
-              const handleUV = { u: anchor.inHandle.u, v: anchor.inHandle.v };
-              if (distanceInUV(clickUV, handleUV) < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
-                // Edit in handle
-                useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, 'in', uv.x, uv.y);
-                debugLog('🎯 Vector: Editing in handle');
-                return;
-              }
-            }
-            
-            // Not clicking on handle - create/update handle at click position
-            const handleType = 'out'; // Default to out handle
-            useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, handleType, uv.x, uv.y);
-            debugLog('🎯 Vector: Added curve handle to anchor');
-          }
-        } else {
-          // No anchor selected - try to select one first
+        // CRITICAL FIX: Support dragging handles, not just clicking
+        
+        // First, try to select anchor if none selected
+        if (!selectedAnchor) {
           const clickUV = { u: uv.x, v: uv.y };
           const nearestAnchor = findNearestAnchor(vectorPaths || [], clickUV, VECTOR_ANCHOR_DETECTION_THRESHOLD);
           if (nearestAnchor) {
@@ -2192,8 +2164,73 @@ export function ShirtRefactored({
               activePathId: nearestAnchor.pathId
             });
             debugLog('🎯 Vector: Selected anchor in curve mode');
+            return; // Exit to allow user to click again to edit handle
+          } else {
+            debugLog('🎯 Vector: No anchor selected and none found nearby');
+            return; // Can't edit handles without anchor
           }
         }
+        
+        // Anchor is selected - check if clicking on handle or creating new one
+        const clickUV = { u: uv.x, v: uv.y };
+        const path = (vectorPaths || []).find(p => p.id === selectedAnchor.pathId);
+        const anchor = path?.points[selectedAnchor.anchorIndex];
+        
+        if (!anchor) {
+          debugLog('🎯 Vector: Selected anchor not found in path');
+          return;
+        }
+        
+        // Check if clicking near out handle
+        if (anchor.outHandle) {
+          const handleUV = { u: anchor.outHandle.u, v: anchor.outHandle.v };
+          const dist = distanceInUV(clickUV, handleUV);
+          if (dist < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
+            // CRITICAL FIX: Set drag state for handle dragging
+            isDraggingHandleRef.current = true;
+            draggingHandleInfoRef.current = {
+              pathId: selectedAnchor.pathId,
+              anchorIndex: selectedAnchor.anchorIndex,
+              handleType: 'out'
+            };
+            dragStartPosRef.current = { x: uv.x, y: uv.y };
+            debugLog('🎯 Vector: Started dragging out handle');
+            return;
+          }
+        }
+        
+        // Check if clicking near in handle
+        if (anchor.inHandle) {
+          const handleUV = { u: anchor.inHandle.u, v: anchor.inHandle.v };
+          const dist = distanceInUV(clickUV, handleUV);
+          if (dist < VECTOR_ANCHOR_DETECTION_THRESHOLD) {
+            // CRITICAL FIX: Set drag state for handle dragging
+            isDraggingHandleRef.current = true;
+            draggingHandleInfoRef.current = {
+              pathId: selectedAnchor.pathId,
+              anchorIndex: selectedAnchor.anchorIndex,
+              handleType: 'in'
+            };
+            dragStartPosRef.current = { x: uv.x, y: uv.y };
+            debugLog('🎯 Vector: Started dragging in handle');
+            return;
+          }
+        }
+        
+        // Not clicking on handle - create new handle at click position
+        // Default to out handle if neither exists, otherwise create opposite
+        const handleType = !anchor.outHandle ? 'out' : (!anchor.inHandle ? 'in' : 'out');
+        useApp.getState().addCurveHandle(selectedAnchor.pathId, selectedAnchor.anchorIndex, handleType, uv.x, uv.y);
+        
+        // CRITICAL FIX: Set drag state immediately after creating handle so user can drag it
+        isDraggingHandleRef.current = true;
+        draggingHandleInfoRef.current = {
+          pathId: selectedAnchor.pathId,
+          anchorIndex: selectedAnchor.anchorIndex,
+          handleType: handleType
+        };
+        dragStartPosRef.current = { x: uv.x, y: uv.y };
+        debugLog(`🎯 Vector: Created and started dragging ${handleType} handle`);
       }
 
       // CRITICAL FIX: Vector tool updates state - useEffect will handle rendering
@@ -6272,6 +6309,36 @@ const canvasDimensions = {
         return;
       }
       
+      // CRITICAL FIX: Handle vector handle dragging (before anchor dragging)
+      if (activeTool === 'vector' && isDraggingHandleRef.current && draggingHandleInfoRef.current && dragStartPosRef.current) {
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const handleInfo = draggingHandleInfoRef.current;
+          const { vectorPaths } = useApp.getState();
+          const path = vectorPaths.find(p => p.id === handleInfo.pathId);
+          
+          if (path && path.points[handleInfo.anchorIndex]) {
+            const anchor = path.points[handleInfo.anchorIndex];
+            const currentHandle = handleInfo.handleType === 'in' ? anchor.inHandle : anchor.outHandle;
+            
+            if (currentHandle) {
+              // Move handle directly to new position (relative to anchor)
+              // For bezier handles, we store absolute UV position
+              useApp.getState().moveCurveHandle(
+                handleInfo.pathId,
+                handleInfo.anchorIndex,
+                handleInfo.handleType,
+                uv.x,
+                uv.y
+              );
+              
+              debugLog(`🎯 Vector: Dragging ${handleInfo.handleType} handle to`, { u: uv.x, v: uv.y });
+            }
+          }
+        }
+        return;
+      }
+      
       // Handle vector anchor dragging
       if (activeTool === 'vector' && isDraggingAnchorRef.current && dragStartPosRef.current) {
         const uv = e.uv as THREE.Vector2 | undefined;
@@ -6739,9 +6806,19 @@ const canvasDimensions = {
       }
     }
     
-    // Handle vector tool mouse release
-    if (activeTool === 'vector') {
-      console.log('🎨 Vector: onPointerUp - checking drag state');
+    // CRITICAL FIX: Reset handle dragging state
+    if (activeTool === 'vector' && isDraggingHandleRef.current) {
+      isDraggingHandleRef.current = false;
+      draggingHandleInfoRef.current = null;
+      dragStartPosRef.current = null;
+      console.log('🎯 Vector: onPointerUp - handle drag ended');
+    }
+    
+    // Reset anchor dragging state
+    if (activeTool === 'vector' && isDraggingAnchorRef.current) {
+      console.log('🎨 Vector: Stopped dragging anchor');
+      isDraggingAnchorRef.current = false;
+      dragStartPosRef.current = null;
     }
 
     // SMOOTH BRUSH: Reset last paint position to prevent connecting different strokes

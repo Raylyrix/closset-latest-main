@@ -1552,14 +1552,17 @@ export function MainLayout({ children }: MainLayoutProps) {
                         console.log('✅ Changes committed to layer history');
                       }
                       
-                      // CRITICAL FIX: Clear vector paths AFTER committing to history
-                      // Paths are cleared to allow new path creation. User can recreate paths if needed.
+                      // CRITICAL FIX: Optionally clear vector paths AFTER committing to history
+                      // By default, keep paths for applying another tool or further editing
+                      // User can explicitly clear paths using the Clear button if needed
+                      // Only clear activePathId to stop editing, but keep paths in vectorPaths
                       useApp.setState({ 
-                        vectorPaths: [],        // Clear all paths - they're already applied to layer
-                        activePathId: null,     // Clear active path
+                        activePathId: null,     // Clear active path (stop editing)
                         selectedAnchor: null    // Clear selection
+                        // CRITICAL: Keep vectorPaths array - don't clear paths
+                        // This allows applying another tool or further editing
                       });
-                      console.log('✅ Cleared all vector paths - ready for new path creation');
+                      console.log('✅ Paths applied to layer - paths kept for further editing or applying another tool');
                       
                       // Now recompose layers
                       if (appState.composeLayers) {

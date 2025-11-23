@@ -289,6 +289,7 @@ interface AppState {
   setVectorEditMode: (mode: 'pen' | 'select' | 'move' | 'curve' | 'addAnchor' | 'removeAnchor' | 'convertAnchor') => void;
   moveAnchor: (pathId: string, anchorIndex: number, newU: number, newV: number) => void;
   addCurveHandle: (pathId: string, anchorIndex: number, handleType: 'in' | 'out', u: number, v: number) => void;
+  moveCurveHandle: (pathId: string, anchorIndex: number, handleType: 'in' | 'out', newU: number, newV: number) => void;
   // Advanced vector operations
   addAnchorAtPoint: (pathId: string, u: number, v: number) => void;
   removeAnchor: (pathId: string, anchorIndex: number) => void;
@@ -1211,6 +1212,31 @@ export const useApp = create<AppState>((set, get) => ({
           : path
       )
     }));
+    get().composeLayers();
+  },
+  
+  moveCurveHandle: (pathId, anchorIndex, handleType, newU, newV) => {
+    set(state => ({
+      vectorPaths: state.vectorPaths.map(path => 
+        path.id === pathId 
+          ? {
+              ...path,
+              points: path.points.map((point, index) => 
+                index === anchorIndex 
+                  ? {
+                      ...point,
+                      [handleType === 'in' ? 'inHandle' : 'outHandle']: { 
+                        u: Math.min(1, Math.max(0, newU)), 
+                        v: Math.min(1, Math.max(0, newV)) 
+                      }
+                    }
+                  : point
+              )
+            }
+          : path
+      )
+    }));
+    get().composeLayers();
   },
 
   // Legacy layer system implementations - REMOVED (using simplified AdvancedLayerSystemV2)
@@ -1508,8 +1534,9 @@ try {
       paintToLayerFallback();
     }
 
-    // Clear selection and schedule compose
-    set({ activePathId: null, selectedAnchor: null });
+    // CRITICAL FIX: Don't clear activePathId - keep path editable after finishing
+    // Path should remain in vectorPaths and activePathId should stay set for continued editing
+    set({ selectedAnchor: null }); // Only clear selection, keep path active
     try {
       const raf = requestAnimationFrame(() => { get().composeLayers(); });
       setTimeout(() => {
@@ -1521,9 +1548,12 @@ try {
     }
   },
   cancelVectorPath: () => {
+    // CRITICAL FIX: Don't delete path - just stop editing it
+    // Path should remain in vectorPaths for undo/redo or re-editing
     const { activePathId } = get();
     if (!activePathId) return;
-    set(state => ({ vectorPaths: state.vectorPaths.filter(p => p.id !== activePathId), activePathId: null, selectedAnchor: null }));
+    // Only clear activePathId and selection, don't delete path
+    set({ activePathId: null, selectedAnchor: null });
     get().composeLayers();
   },
   clearVectorPaths: () => {
