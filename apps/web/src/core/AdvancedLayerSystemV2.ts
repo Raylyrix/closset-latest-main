@@ -3247,6 +3247,17 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         for (const shapeEl of shapeElements) {
           if (shapeEl.visible === false) continue;
           
+          // DEBUG: Log shape type to verify it's preserved
+          if (Math.random() < 0.1) { // Log 10% of shapes to avoid spam
+            console.log(`🔷 Rendering shape:`, {
+              id: shapeEl.id,
+              type: shapeEl.type,
+              positionX: shapeEl.positionX,
+              positionY: shapeEl.positionY,
+              size: shapeEl.size
+            });
+          }
+          
           ctx.save();
           
           // Convert position percentages (0-100) to canvas coordinates
@@ -3290,7 +3301,10 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           // Draw shape based on type
           ctx.beginPath();
           
-          switch (shapeEl.type) {
+          // CRITICAL: Ensure type is a string and handle case variations
+          const shapeType = String(shapeEl.type || 'circle').toLowerCase();
+          
+          switch (shapeType) {
             case 'rectangle':
             case 'rect':
               ctx.rect(shapeX - shapeRadius, shapeY - shapeRadius, shapeSize, shapeSize);

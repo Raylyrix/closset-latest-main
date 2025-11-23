@@ -169,6 +169,57 @@ export function ShirtRefactored({
     removeFromSelection,
   } = useLayerSelectionSystem();
   
+  // CRITICAL FIX: Sync activeShapeId with selection system for resize handles
+  const activeShapeId = useApp(s => s.activeShapeId);
+  const shapeElements = useApp(s => s.shapeElements);
+  useEffect(() => {
+    if (activeShapeId) {
+      const shapeEl = shapeElements.find(s => s.id === activeShapeId);
+      if (shapeEl) {
+        const { composedCanvas } = useApp.getState();
+        const canvasWidth = composedCanvas?.width || 1024;
+        const canvasHeight = composedCanvas?.height || 1024;
+        
+        const shapeX = (shapeEl.positionX || 50) / 100 * canvasWidth;
+        const shapeY = (shapeEl.positionY || 50) / 100 * canvasHeight;
+        const shapeSize = shapeEl.size || 50;
+        const shapeRadius = shapeSize / 2;
+        
+        const shapeElement: SelectedElement = {
+          id: shapeEl.id,
+          type: 'shape',
+          layerId: 'default',
+          bounds: {
+            minX: shapeX - shapeRadius,
+            minY: shapeY - shapeRadius,
+            maxX: shapeX + shapeRadius,
+            maxY: shapeY + shapeRadius,
+            width: shapeSize,
+            height: shapeSize
+          },
+          position: { x: shapeX, y: shapeY },
+          data: {
+            shapeType: shapeEl.type, // Preserve shape type
+            positionX: shapeEl.positionX,
+            positionY: shapeEl.positionY,
+            size: shapeEl.size
+          }
+        };
+        
+        // Clear previous selection and add this shape
+        clearSelection();
+        selectElement(shapeElement);
+        console.log('🔷 Synced activeShapeId to selection system:', activeShapeId, 'type:', shapeEl.type);
+      }
+    } else {
+      // Clear selection if no active shape
+      const hasShapeSelected = selectedElements.some(el => el.type === 'shape');
+      if (hasShapeSelected) {
+        clearSelection();
+      }
+    }
+  }, [activeShapeId, shapeElements, selectElement, clearSelection, selectedElements]);
+  
   // Track modifier keys for selection behavior
   const [modifierKeys, setModifierKeys] = useState({
     ctrl: false,
@@ -2069,6 +2120,39 @@ export function ShirtRefactored({
             useApp.setState({ selectedImageId: clickedImageElement.id });
           } else if (clickedShapeElement) {
             useApp.setState({ activeShapeId: clickedShapeElement.id });
+            
+            // CRITICAL FIX: Also add to selection system for resize handles
+            const { composedCanvas } = useApp.getState();
+            const canvasWidth = composedCanvas?.width || 1024;
+            const canvasHeight = composedCanvas?.height || 1024;
+            
+            const shapeX = (clickedShapeElement.positionX || 50) / 100 * canvasWidth;
+            const shapeY = (clickedShapeElement.positionY || 50) / 100 * canvasHeight;
+            const shapeSize = clickedShapeElement.size || 50;
+            const shapeRadius = shapeSize / 2;
+            
+            const shapeElement: SelectedElement = {
+              id: clickedShapeElement.id,
+              type: 'shape',
+              layerId: 'default',
+              bounds: {
+                minX: shapeX - shapeRadius,
+                minY: shapeY - shapeRadius,
+                maxX: shapeX + shapeRadius,
+                maxY: shapeY + shapeRadius,
+                width: shapeSize,
+                height: shapeSize
+              },
+              position: { x: shapeX, y: shapeY },
+              data: {
+                shapeType: clickedShapeElement.type,
+                positionX: clickedShapeElement.positionX,
+                positionY: clickedShapeElement.positionY,
+                size: clickedShapeElement.size
+              }
+            };
+            
+            selectElement(shapeElement);
           }
           return;
         }
