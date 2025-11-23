@@ -10,6 +10,7 @@ import { useApp } from '../App';
 import { vectorStore } from '../vector/vectorState';
 import { PerformanceSettingsPopup } from './PerformanceSettingsPopup';
 import { performanceOptimizer } from '../utils/PerformanceOptimizer';
+import { renderStitchType, StitchPoint, StitchConfig } from '../utils/stitchRendering';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -505,6 +506,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const setVectorMode = useApp(s => s.setVectorMode);
   const showAnchorPoints = useApp(s => s.showAnchorPoints);
   const setShowAnchorPoints = useApp(s => s.setShowAnchorPoints);
+  const vectorPaths = useApp(s => s.vectorPaths || []);
   
   // Vector toolbar state
   const [showVectorToolbar, setShowVectorToolbar] = useState(false);
@@ -1122,6 +1124,10 @@ export function MainLayout({ children }: MainLayoutProps) {
 
           <button
             data-apply-tool-button
+            disabled={vectorPaths.length === 0}
+            title={vectorPaths.length === 0 
+              ? 'No vector paths to apply. Create paths first.' 
+              : `Apply ${activeTool || 'tool'} to ${vectorPaths.length} path${vectorPaths.length !== 1 ? 's' : ''}`}
             onClick={() => {
                     console.log('🎨 Apply Tool button clicked - applying tools to vector paths');
                     try {
@@ -1131,7 +1137,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                       
                       if (vectorPaths.length === 0) {
                         console.log('⚠️ No vector paths to apply tools to');
-                        console.log('🎨 Available vector paths:', vectorPaths);
+                        // Show user-friendly message
+                        alert('No vector paths to apply. Please create vector paths first using the vector tool.');
                         return;
                       }
                       
@@ -1140,6 +1147,15 @@ export function MainLayout({ children }: MainLayoutProps) {
                       
                       // Get current tool settings
                       const currentTool = appState.activeTool;
+                      
+                      // CRITICAL FIX: Check if tool supports vector path application
+                      const supportedTools = ['brush', 'embroidery', 'fill', 'eraser', 'puffPrint'];
+                      if (!supportedTools.includes(currentTool)) {
+                        console.warn(`⚠️ Tool "${currentTool}" does not support vector path application`);
+                        alert(`The "${currentTool}" tool cannot be applied to vector paths. Please select Brush, Embroidery, Fill, Eraser, or Puff Print tool.`);
+                        return;
+                      }
+                      
                       console.log(`🎨 Applying ${currentTool} to ${vectorPaths.length} vector paths`);
                       
                       // CRITICAL FIX: Validate paths before applying
@@ -1245,6 +1261,131 @@ export function MainLayout({ children }: MainLayoutProps) {
                         
                         // Apply tool based on current active tool
                         switch (currentTool) {
+                          case 'fill':
+                            console.log('🎨 Applying fill tool to closed paths');
+                            if (path.closed && points.length >= 3) {
+                              // Fill closed paths
+                              const composedCanvas = appState.composedCanvas;
+                              const canvasWidth = composedCanvas?.width || layer.canvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layer.canvas.height || 2048;
+                              
+                              ctx.save();
+                              ctx.globalCompositeOperation = appState.blendMode || 'source-over';
+                              ctx.globalAlpha = appState.brushOpacity || 1.0;
+                              ctx.fillStyle = appState.brushColor || '#000000';
+                              
+                              // Create path from points
+                              ctx.beginPath();
+                              points.forEach((point: any, index: number) => {
+                                const x = Math.floor((point.u || point.x || 0) * canvasWidth);
+                                const y = Math.floor((point.v || point.y || 0) * canvasHeight);
+                                
+                                if (index === 0) {
+                                  ctx.moveTo(x, y);
+                                } else {
+                                  // Check for bezier handles
+                                  const prevPoint = points[index - 1];
+                                  if (prevPoint.outHandle || point.inHandle) {
+                                    const cp1X = prevPoint.outHandle ? Math.floor(prevPoint.outHandle.u * canvasWidth) : x;
+                                    const cp1Y = prevPoint.outHandle ? Math.floor(prevPoint.outHandle.v * canvasHeight) : y;
+                                    const cp2X = point.inHandle ? Math.floor(point.inHandle.u * canvasWidth) : x;
+                                    const cp2Y = point.inHandle ? Math.floor(point.inHandle.v * canvasHeight) : y;
+                                    ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, x, y);
+                                  } else {
+                                    ctx.lineTo(x, y);
+                                  }
+                                }
+                              });
+                              ctx.closePath();
+                              ctx.fill();
+                              ctx.restore();
+                              
+                              console.log('✅ Fill applied to closed path:', path.id);
+                            } else {
+                              console.warn('⚠️ Path must be closed and have 3+ points for fill');
+                            }
+                            break;
+                            
+                          case 'eraser':
+                            console.log('🎨 Applying eraser tool to', sampledPoints.length, 'points');
+                            // Erase along the path
+                            ctx.save();
+                            ctx.globalCompositeOperation = 'destination-out';
+                            ctx.globalAlpha = appState.brushOpacity || 1.0;
+                            ctx.strokeStyle = '#000000';
+                            ctx.lineWidth = appState.brushSize || 10;
+                            ctx.lineCap = 'round';
+                            ctx.lineJoin = 'round';
+                            
+                            // Erase along path
+                            ctx.beginPath();
+                            sampledPoints.forEach((point: any, index: number) => {
+                              const x = Math.round(point.u * layer.canvas.width);
+                              const y = Math.round(point.v * layer.canvas.height);
+                              
+                              if (index === 0) {
+                                ctx.moveTo(x, y);
+                              } else {
+                                ctx.lineTo(x, y);
+                              }
+                            });
+                            ctx.stroke();
+                            ctx.restore();
+                            
+                            console.log('✅ Eraser applied to path:', path.id);
+                            break;
+                            
+                          case 'puffPrint':
+                            console.log('🎨 Applying puff print tool to', sampledPoints.length, 'points');
+                            // Apply puff print along path
+                            const puffBridge = typeof ((window as any).__applyPuffFromVector) === 'function'
+                              ? (window as any).__applyPuffFromVector as (pts: Array<{ x: number; y: number }>, opts: { width?: number; opacity?: number; color?: string }) => void
+                              : undefined;
+                            
+                            if (puffBridge) {
+                              // Convert UV points to canvas coordinates
+                              const composedCanvas = appState.composedCanvas;
+                              const canvasWidth = composedCanvas?.width || layer.canvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layer.canvas.height || 2048;
+                              
+                              const canvasPoints = sampledPoints.map((point: any) => ({
+                                x: Math.floor(point.u * canvasWidth),
+                                y: Math.floor(point.v * canvasHeight)
+                              }));
+                              
+                              // Apply puff with current settings
+                              puffBridge(canvasPoints, {
+                                width: appState.puffHeight || 5,
+                                opacity: appState.brushOpacity || 1.0,
+                                color: appState.brushColor || '#000000'
+                              });
+                              
+                              console.log('✅ Puff print applied to path:', path.id);
+                            } else {
+                              console.warn('⚠️ Puff print bridge not available');
+                              // Fallback: draw on canvas as brush stroke
+                              ctx.save();
+                              ctx.globalCompositeOperation = 'source-over';
+                              ctx.globalAlpha = appState.brushOpacity || 1.0;
+                              ctx.strokeStyle = appState.brushColor || '#000000';
+                              ctx.lineWidth = appState.brushSize || 5;
+                              ctx.lineCap = 'round';
+                              ctx.lineJoin = 'round';
+                              
+                              ctx.beginPath();
+                              sampledPoints.forEach((point: any, index: number) => {
+                                const x = Math.round(point.u * layer.canvas.width);
+                                const y = Math.round(point.v * layer.canvas.height);
+                                if (index === 0) ctx.moveTo(x, y);
+                                else ctx.lineTo(x, y);
+                              });
+                              ctx.stroke();
+                              ctx.restore();
+                              
+                              console.log('✅ Fallback: Puff print rendered as brush stroke');
+                            }
+                            break;
+                            
                           case 'brush':
                             console.log('🎨 Applying brush tool to', sampledPoints.length, 'points');
                             const brushEngine = (window as any).__brushEngine;
@@ -1339,45 +1480,57 @@ export function MainLayout({ children }: MainLayoutProps) {
                           // case 'puffPrint': // Removed - will be rebuilt with new 3D geometry approach
                           case 'embroidery':
                             console.log('🎨 Applying embroidery tool to', sampledPoints.length, 'points');
-                            // Apply embroidery to each sampled point
-                            const embroideryCanvas = appState.embroideryCanvas;
-                            console.log('🎨 Embroidery canvas found:', !!embroideryCanvas);
+                            // Get stitch type from app state (default to satin)
+                            const stitchType = appState.embroideryStitchType || 'satin';
+                            const embroideryCanvas = appState.embroideryCanvas || layer.canvas;
                             
                             if (embroideryCanvas) {
                               const embCtx = embroideryCanvas.getContext('2d');
                               if (embCtx) {
-                                console.log('🎨 Drawing continuous embroidery stroke');
+                                console.log(`🎨 Drawing ${stitchType} embroidery stitch`);
                                 
-                                embCtx.save();
-                                embCtx.globalCompositeOperation = 'source-over';
-                                embCtx.globalAlpha = appState.brushOpacity || 1.0;
-                                embCtx.strokeStyle = appState.brushColor || '#000000';
-                                embCtx.lineWidth = appState.brushSize || 5;
-                                embCtx.lineCap = 'round';
-                                embCtx.lineJoin = 'round';
-                                embCtx.shadowColor = 'rgba(0,0,0,0.3)';
-                                embCtx.shadowBlur = 4;
-                                embCtx.shadowOffsetX = 2;
-                                embCtx.shadowOffsetY = 2;
+                                // Convert sampled points to canvas coordinates
+                                const composedCanvas = appState.composedCanvas;
+                                const canvasWidth = composedCanvas?.width || embroideryCanvas.width || 2048;
+                                const canvasHeight = composedCanvas?.height || embroideryCanvas.height || 2048;
                                 
-                                // Draw continuous embroidery stroke
-                                embCtx.beginPath();
-                                sampledPoints.forEach((point: any, index: number) => {
-                                  const x = Math.round(point.u * embroideryCanvas.width);
-                                  const y = Math.round(point.v * embroideryCanvas.height);
-                                  
-                                  if (index === 0) {
-                                    embCtx.moveTo(x, y);
-                                  } else {
-                                    embCtx.lineTo(x, y);
-                                  }
-                                  
-                                  console.log(`🎨 Drawing embroidery point ${index}:`, { x, y, u: point.u, v: point.v });
-                                });
-                                embCtx.stroke();
-                                embCtx.restore();
+                                const stitchPoints: StitchPoint[] = sampledPoints.map((point: any) => ({
+                                  x: Math.floor((point.u || 0) * canvasWidth),
+                                  y: Math.floor((point.v || 0) * canvasHeight),
+                                  u: point.u,
+                                  v: point.v
+                                }));
                                 
-                                console.log('🎨 Continuous embroidery stroke completed');
+                                // Create stitch config from current settings
+                                const stitchConfig: StitchConfig = {
+                                  type: stitchType,
+                                  color: appState.embroideryThreadColor || appState.embroideryColor || appState.brushColor || '#000000',
+                                  thickness: appState.embroideryThreadThickness || appState.embroideryThickness || appState.brushSize || 5,
+                                  opacity: appState.embroideryOpacity || appState.brushOpacity || 1.0
+                                };
+                                
+                                // Render using proper stitch rendering function
+                                try {
+                                  renderStitchType(embCtx, stitchPoints, stitchConfig);
+                                  console.log(`✅ ${stitchType} stitch applied to path:`, path.id);
+                                } catch (error) {
+                                  console.error('❌ Error rendering stitch:', error);
+                                  // Fallback to simple stroke
+                                  embCtx.save();
+                                  embCtx.globalCompositeOperation = 'source-over';
+                                  embCtx.globalAlpha = stitchConfig.opacity;
+                                  embCtx.strokeStyle = stitchConfig.color;
+                                  embCtx.lineWidth = stitchConfig.thickness;
+                                  embCtx.lineCap = 'round';
+                                  embCtx.lineJoin = 'round';
+                                  embCtx.beginPath();
+                                  stitchPoints.forEach((point, index) => {
+                                    if (index === 0) embCtx.moveTo(point.x, point.y);
+                                    else embCtx.lineTo(point.x, point.y);
+                                  });
+                                  embCtx.stroke();
+                                  embCtx.restore();
+                                }
                               } else {
                                 console.log('⚠️ No embroidery canvas context found');
                               }
@@ -1400,6 +1553,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                       }
                       
                       // CRITICAL FIX: Clear vector paths AFTER committing to history
+                      // Paths are cleared to allow new path creation. User can recreate paths if needed.
                       useApp.setState({ 
                         vectorPaths: [],        // Clear all paths - they're already applied to layer
                         activePathId: null,     // Clear active path
@@ -1434,16 +1588,20 @@ export function MainLayout({ children }: MainLayoutProps) {
             }}
             style={{
                     padding: '4px 8px',
-                    background: '#FFFFFF',
+                    background: vectorPaths.length === 0 ? 'rgba(255, 255, 255, 0.3)' : '#FFFFFF',
                     borderRadius: '4px',
-                    color: '#000000',
+                    color: vectorPaths.length === 0 ? 'rgba(255, 255, 255, 0.5)' : '#000000',
                     fontSize: '9px',
                     fontWeight: '500',
-              cursor: 'pointer',
-                    border: 'none'
+                    cursor: vectorPaths.length === 0 ? 'not-allowed' : 'pointer',
+                    border: 'none',
+                    opacity: vectorPaths.length === 0 ? 0.5 : 1.0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
               }}
             >
-                  ✅ Apply
+                  ✅ Apply {vectorPaths.length > 0 && `(${vectorPaths.length})`}
             </button>
 
           <button
