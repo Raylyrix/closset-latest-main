@@ -37,7 +37,12 @@ import SelectionVisualization from './SelectionVisualization';
 import { useModelStore } from '../stores/domainStores';
 
 // Import types
-import { ModelData } from '../types/app';
+import { ModelData, BrushPoint } from '../types/app';
+import { 
+  createEnhancedBrushPoint, 
+  createVelocityTracker,
+  calculateAdvancedBrushDynamics 
+} from '../utils/AdvancedBrushFeatures';
 
 // Helper function to convert hex color to RGB
 const hexToRgb = (hex: string): {r: number, g: number, b: number} | null => {
@@ -183,6 +188,10 @@ export function ShirtRefactored({
   // PERFORMANCE: Track when to save history (debounced)
   const lastHistorySaveRef = useRef(0);
   const HISTORY_SAVE_DELAY = 500; // Don't save history more than once every 500ms
+  
+  // ADVANCED BRUSH FEATURES: Velocity tracking for pressure simulation
+  const velocityTrackerRef = useRef(createVelocityTracker(10));
+  const lastBrushPointRef = useRef<BrushPoint | null>(null);
   
   // SMOOTH BRUSH: Track last paint position for interpolation
   const lastPaintPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -2532,18 +2541,17 @@ export function ShirtRefactored({
       const canvasX = Math.floor(uv.x * canvasWidth);
       const canvasY = Math.floor(uv.y * canvasHeight);
       
-      const brushPoint = {
-        x: canvasX,
-        y: canvasY,
-        pressure: 1,
-        tiltX: 0,
-        tiltY: 0,
-        velocity: 0,
-        timestamp: Date.now(),
-        distance: 0,
-        uv: { x: uv.x, y: uv.y },
-        worldPosition: point
-      };
+      // ADVANCED: Create enhanced brush point with pressure, velocity, and tilt detection
+      const brushPoint = createEnhancedBrushPoint(
+        e,
+        canvasX,
+        canvasY,
+        velocityTrackerRef.current,
+        lastBrushPointRef.current || undefined
+      );
+      
+      // Update last brush point for next iteration
+      lastBrushPointRef.current = brushPoint;
 
       // Get gradient settings if in gradient mode
       const gradientSettings = (window as any).getGradientSettings?.();
@@ -2576,9 +2584,14 @@ export function ShirtRefactored({
           opacityPressure: true,
           anglePressure: false,
           spacingPressure: false,
-          velocitySize: false,
-          velocityOpacity: false
+          velocitySize: true, // Enable velocity-based size for natural strokes
+          velocityOpacity: true // Enable velocity-based opacity for natural strokes
         },
+        // ADVANCED: Add pressure curve for natural pressure response
+        pressureCurve: 'sigmoid' as const, // Smooth S-curve for natural feel
+        pressureMapSize: 1.0, // Map pressure to brush size (0.5-2.0)
+        pressureMapOpacity: 1.0, // Map pressure to opacity (0.5-2.0)
+        simulatePressureFromVelocity: true, // Simulate pressure from mouse velocity
         texture: { 
           enabled: false, 
           pattern: null, 
@@ -6617,6 +6630,9 @@ const canvasDimensions = {
       // CRITICAL: Reset paintingActiveRef immediately after finishing stroke
       // This prevents the puff tool from continuing to draw after mouse is lifted
       paintingActiveRef.current = false;
+      // Reset velocity tracker for next stroke
+      velocityTrackerRef.current = createVelocityTracker(10);
+      lastBrushPointRef.current = null;
       console.log('🎈 Puff tool: Reset paintingActiveRef to false');
       
       // CRITICAL FIX: Re-enable 3D controls after puff drawing ends
@@ -6640,6 +6656,9 @@ const canvasDimensions = {
     if (paintingActiveRef.current) {
       console.log('🎨 ShirtRefactored: onPointerUp - ending painting');
       paintingActiveRef.current = false;
+      // Reset velocity tracker for next stroke
+      velocityTrackerRef.current = createVelocityTracker(10);
+      lastBrushPointRef.current = null;
       
       // 🚀 AUTOMATIC LAYER CREATION: Trigger layer creation end for drawing events
       triggerBrushEnd();
