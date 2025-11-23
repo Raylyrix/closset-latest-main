@@ -7877,7 +7877,8 @@ const canvasDimensions = {
             useApp.getState().composeLayers();
             updateModelTexture(true, false);
           }}
-        />
+          />
+        </Html>
       )}
 
     </>
