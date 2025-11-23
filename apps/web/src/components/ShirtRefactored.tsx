@@ -4281,6 +4281,56 @@ export function ShirtRefactored({
     return bounds;
   }, []);
 
+  // UNIFIED SHAPE BOUNDS CALCULATION
+  // This function calculates shape bounds once and uses them everywhere
+  // Similar to getImageBounds but for shapes (which use positionX/positionY percentages)
+  const getShapeBounds = useCallback((shapeEl: any) => {
+    // CRITICAL FIX: Use the actual composed canvas size
+    const appState = useApp.getState();
+    const composedCanvas = appState.composedCanvas;
+    const canvasSize = composedCanvas ? composedCanvas.width : 1024;
+    
+    // Shapes use positionX/positionY as percentages (0-100%)
+    const positionX = shapeEl.positionX || 50; // Percentage
+    const positionY = shapeEl.positionY || 50; // Percentage
+    const size = shapeEl.size || 50; // Pixels
+    
+    // Convert percentage to UV coordinates (0-1)
+    const centerU = positionX / 100;
+    const centerV = positionY / 100;
+    const sizeU = size / canvasSize; // Convert pixels to UV
+    const sizeV = size / canvasSize;
+    
+    // Calculate bounds in UV coordinates
+    const halfSizeU = sizeU / 2;
+    const halfSizeV = sizeV / 2;
+    
+    const uvLeft = centerU - halfSizeU;
+    const uvRight = centerU + halfSizeU;
+    const uvTop = centerV - halfSizeV; // Note: Y is NOT flipped for shapes (they use same coordinate system)
+    const uvBottom = centerV + halfSizeV;
+    
+    // Convert to pixel coordinates for rendering
+    const pixelX = (centerU - halfSizeU) * canvasSize;
+    const pixelY = (centerV - halfSizeV) * canvasSize;
+    
+    return {
+      centerU,
+      centerV,
+      sizeU,
+      sizeV,
+      pixelX,
+      pixelY,
+      pixelWidth: size,
+      pixelHeight: size,
+      // UV bounds for hitbox detection
+      uvLeft,
+      uvRight,
+      uvTop,
+      uvBottom
+    };
+  }, []);
+
   // Brush tool event handlers with smart behavior
   const onPointerDown = useCallback((e: any) => {
     console.log('🎨 ============================================================');
@@ -5510,82 +5560,180 @@ const canvasDimensions = {
             }
           }
         } else if (activeTool === 'shapes') {
-          // CRITICAL: Prevent double shape creation with timestamp check
-          const now = Date.now();
-          if (now - lastTextPromptTimeRef.current < 500) {
-            console.log('🎨 Shapes tool: Skipping - shape creation triggered too soon (within 500ms)');
-            return;
-          }
-          
-          // CRITICAL: Stop all event propagation to prevent double triggers
-          if (e.stopPropagation) e.stopPropagation();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-          if (e.nativeEvent?.stopPropagation) e.nativeEvent.stopPropagation();
-          if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
-          
-          // Prevent double shape creation with flag
-          if (textPromptActiveRef.current) {
-            console.log('🎨 Shapes tool: Skipping - shape creation already active');
-            return;
-          }
-          
-          // Handle shapes tool - draw shape at click position
-          console.log('🎨 Shapes tool: Handling shape placement');
-          textPromptActiveRef.current = true;
-          lastTextPromptTimeRef.current = now;
-          
           // Get UV coordinates from the event
           const uv = e.uv as THREE.Vector2 | undefined;
           if (uv) {
-            try {
-              console.log('🎨 Adding shape element at UV:', uv.x, uv.y);
+            const clickU = uv.x;
+            const clickV = uv.y; // Note: shapes use same coordinate system, no flip
+            
+            // Check if clicking on an existing shape (similar to image tool)
+            const appState = useApp.getState();
+            const shapeElements = appState.shapeElements || [];
+            let clickedShape: any = null;
+            
+            // Find clicked shape (reverse order to check top-most first)
+            for (let i = shapeElements.length - 1; i >= 0; i--) {
+              const shapeEl = shapeElements[i];
+              if (!shapeEl || shapeEl.visible === false) continue;
               
-              // Get shape settings from store
-              const appState = useApp.getState();
-              const shapeSettings = {
-                type: appState.shapeType || 'rectangle',
-                size: appState.shapeSize || 50,
-                opacity: appState.shapeOpacity || 1,
-                color: appState.shapeColor || '#ff69b4',
-                rotation: appState.shapeRotation || 0,
-                positionX: uv.x * 100, // Convert UV to percentage
-                positionY: uv.y * 100, // Convert UV to percentage
-                gradient: null // Will be set based on color mode
+              const bounds = getShapeBounds(shapeEl);
+              
+              // Check if click is within shape bounds
+              const isWithinBounds = (
+                clickU >= bounds.uvLeft &&
+                clickU <= bounds.uvRight &&
+                clickV >= bounds.uvTop &&
+                clickV <= bounds.uvBottom
+              );
+              
+              if (isWithinBounds) {
+                clickedShape = shapeEl;
+                console.log('🔷 Shape tool: Clicked on shape:', shapeEl.id, 'type:', shapeEl.type);
+                appState.setActiveShapeId(shapeEl.id);
+                break;
+              }
+            }
+            
+            if (clickedShape) {
+              // CRITICAL FIX: Use unified bounds calculation for resize anchor detection (same as image tool)
+              const bounds = getShapeBounds(clickedShape);
+              const anchorSize = 0.04; // Anchor hitbox size in UV space (4% of canvas)
+              
+              // Calculate anchor positions using shape bounds (same pattern as image tool)
+              const anchors = {
+                // Corner anchors
+                topLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
+                topRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
+                bottomLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
+                bottomRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
+                // Edge anchors
+                top: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
+                bottom: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
+                left: { u: bounds.uvLeft - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 },
+                right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 }
               };
               
-              // Check if gradient mode is active for shapes
-              const gradientSettings = (window as any).getGradientSettings ? (window as any).getGradientSettings() : null;
-              const isShapesGradientMode = gradientSettings && gradientSettings.shapes && gradientSettings.shapes.mode === 'gradient';
-              
-              if (isShapesGradientMode && gradientSettings) {
-                shapeSettings.gradient = gradientSettings.shapes;
+              // Check which anchor was clicked (corners first, then edges) - same pattern as image tool
+              let clickedAnchor: string | null = null;
+              for (const [anchorName, anchorPos] of Object.entries(anchors)) {
+                if (
+                  clickU >= anchorPos.u &&
+                  clickU <= anchorPos.u + anchorSize &&
+                  clickV >= anchorPos.v &&
+                  clickV <= anchorPos.v + anchorSize
+                ) {
+                  clickedAnchor = anchorName;
+                  break;
+                }
               }
               
-              // Add shape element using the existing addShapeElement function
-              if (appState.addShapeElement) {
-                appState.addShapeElement(shapeSettings);
-                console.log('🎨 Shape element added successfully');
+              if (clickedAnchor) {
+                console.log('🔷 Shape tool: Clicked on resize anchor:', clickedAnchor);
+                // Start resizing the shape (same pattern as image tool)
+                (window as any).__shapeResizing = true;
+                (window as any).__shapeResizeStart = {
+                  u: clickU,
+                  v: clickV,
+                  positionX: clickedShape.positionX || 50,
+                  positionY: clickedShape.positionY || 50,
+                  size: clickedShape.size || 50,
+                  shapeId: clickedShape.id,
+                  anchor: clickedAnchor
+                };
                 
-                // Trigger texture update
-                setTimeout(() => {
-                  if ((window as any).updateModelTexture) {
-                    (window as any).updateModelTexture(true, true);
-                  }
-                }, 10);
+                // Disable controls during resize
+                setControlsEnabled(false);
               } else {
-                console.error('🎨 addShapeElement function not found');
+                // Start dragging the shape (same pattern as image tool)
+                console.log('🔷 Shape tool: Started dragging shape');
+                (window as any).__shapeDragging = true;
+                (window as any).__shapeDragStart = {
+                  u: clickU,
+                  v: clickV,
+                  positionX: clickedShape.positionX || 50,
+                  positionY: clickedShape.positionY || 50,
+                  shapeId: clickedShape.id
+                };
+                
+                // Disable controls during drag
+                setControlsEnabled(false);
               }
-            } catch (error) {
-              console.error('🎨 Error adding shape element:', error);
+            } else {
+              // No shape clicked - create new shape
+              // CRITICAL: Prevent double shape creation with timestamp check
+              const now = Date.now();
+              if (now - lastTextPromptTimeRef.current < 500) {
+                console.log('🎨 Shapes tool: Skipping - shape creation triggered too soon (within 500ms)');
+                return;
+              }
+              
+              // CRITICAL: Stop all event propagation to prevent double triggers
+              if (e.stopPropagation) e.stopPropagation();
+              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              if (e.nativeEvent?.stopPropagation) e.nativeEvent.stopPropagation();
+              if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
+              
+              // Prevent double shape creation with flag
+              if (textPromptActiveRef.current) {
+                console.log('🎨 Shapes tool: Skipping - shape creation already active');
+                return;
+              }
+              
+              // Handle shapes tool - draw shape at click position
+              console.log('🎨 Shapes tool: Handling shape placement');
+              textPromptActiveRef.current = true;
+              lastTextPromptTimeRef.current = now;
+              
+              try {
+                console.log('🎨 Adding shape element at UV:', clickU, clickV);
+                
+                // Get shape settings from store
+                const appState = useApp.getState();
+                const shapeSettings = {
+                  type: appState.shapeType || 'rectangle',
+                  size: appState.shapeSize || 50,
+                  opacity: appState.shapeOpacity || 1,
+                  color: appState.shapeColor || '#ff69b4',
+                  rotation: appState.shapeRotation || 0,
+                  positionX: clickU * 100, // Convert UV to percentage
+                  positionY: clickV * 100, // Convert UV to percentage
+                  gradient: null // Will be set based on color mode
+                };
+                
+                // Check if gradient mode is active for shapes
+                const gradientSettings = (window as any).getGradientSettings ? (window as any).getGradientSettings() : null;
+                const isShapesGradientMode = gradientSettings && gradientSettings.shapes && gradientSettings.shapes.mode === 'gradient';
+                
+                if (isShapesGradientMode && gradientSettings) {
+                  shapeSettings.gradient = gradientSettings.shapes;
+                }
+                
+                // Add shape element using the existing addShapeElement function
+                if (appState.addShapeElement) {
+                  appState.addShapeElement(shapeSettings);
+                  console.log('🎨 Shape element added successfully');
+                  
+                  // Trigger texture update
+                  setTimeout(() => {
+                    if ((window as any).updateModelTexture) {
+                      (window as any).updateModelTexture(true, true);
+                    }
+                  }, 10);
+                } else {
+                  console.error('🎨 addShapeElement function not found');
+                }
+              } catch (error) {
+                console.error('🎨 Error adding shape element:', error);
+              }
+              
+              // Reset flag after shape creation with a small delay to prevent rapid re-triggers
+              setTimeout(() => {
+                textPromptActiveRef.current = false;
+              }, 100);
             }
           } else {
             console.log('🎨 Shapes tool: No UV coordinates available');
           }
-          
-          // Reset flag after shape creation with a small delay to prevent rapid re-triggers
-          setTimeout(() => {
-            textPromptActiveRef.current = false;
-          }, 100);
         } else if (activeTool === 'move') {
           // Handle move tool - move selected shape to click position
           console.log('🎨 Move tool: Handling shape movement');
@@ -6989,6 +7137,22 @@ const canvasDimensions = {
       console.log('🎨 Image tool: Ended dragging');
       (window as any).__imageDragging = false;
       delete (window as any).__imageDragStart;
+      setControlsEnabled(true);
+    }
+    
+    // Handle shape tool resize end (same pattern as image tool)
+    if ((activeTool as string) === 'shapes' && (window as any).__shapeResizing) {
+      console.log('🔷 Shape tool: Ended resizing');
+      (window as any).__shapeResizing = false;
+      delete (window as any).__shapeResizeStart;
+      setControlsEnabled(true);
+    }
+    
+    // Handle shape tool drag end (same pattern as image tool)
+    if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging) {
+      console.log('🔷 Shape tool: Ended dragging');
+      (window as any).__shapeDragging = false;
+      delete (window as any).__shapeDragStart;
       setControlsEnabled(true);
     }
     
