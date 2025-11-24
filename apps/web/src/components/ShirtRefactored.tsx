@@ -169,69 +169,17 @@ export function ShirtRefactored({
     removeFromSelection,
   } = useLayerSelectionSystem();
   
-  // CRITICAL FIX: Sync activeShapeId with selection system for resize handles
-  const activeShapeId = useApp(s => s.activeShapeId);
-  const shapeElements = useApp(s => s.shapeElements);
-  const prevActiveShapeIdRef = useRef<string | null>(null);
+  // Shape tool removed - will be rebuilt from scratch
+  // const activeShapeId = useApp(s => s.activeShapeId);
+  // const shapeElements = useApp(s => s.shapeElements);
+  // Shape tool sync removed - will be rebuilt from scratch
+  // const prevActiveShapeIdRef = useRef<string | null>(null);
   
-  useEffect(() => {
-    // CRITICAL FIX: Only sync if activeShapeId actually changed to prevent infinite loops
-    if (activeShapeId === prevActiveShapeIdRef.current) {
-      return; // No change, skip update
-    }
-    
-    prevActiveShapeIdRef.current = activeShapeId;
-    
-    if (activeShapeId) {
-      const shapeEl = shapeElements.find(s => s.id === activeShapeId);
-      if (shapeEl) {
-        const { composedCanvas } = useApp.getState();
-        const canvasWidth = composedCanvas?.width || 1024;
-        const canvasHeight = composedCanvas?.height || 1024;
-        
-        const shapeX = (shapeEl.positionX || 50) / 100 * canvasWidth;
-        const shapeY = (shapeEl.positionY || 50) / 100 * canvasHeight;
-        const shapeSize = shapeEl.size || 50;
-        const shapeRadius = shapeSize / 2;
-        
-        const shapeElement: SelectedElement = {
-          id: shapeEl.id,
-          type: 'shape',
-          layerId: 'default',
-          bounds: {
-            minX: shapeX - shapeRadius,
-            minY: shapeY - shapeRadius,
-            maxX: shapeX + shapeRadius,
-            maxY: shapeY + shapeRadius,
-            width: shapeSize,
-            height: shapeSize
-          },
-          position: { x: shapeX, y: shapeY },
-          data: {
-            shapeType: shapeEl.type, // Preserve shape type
-            positionX: shapeEl.positionX,
-            positionY: shapeEl.positionY,
-            size: shapeEl.size
-          }
-        };
-        
-        // Only update if shape is not already selected
-        const isAlreadySelected = selectedElements.some(el => el.id === activeShapeId);
-        if (!isAlreadySelected) {
-          // Clear previous selection and add this shape
-          clearSelection();
-          selectElement(shapeElement);
-          console.log('🔷 Synced activeShapeId to selection system:', activeShapeId, 'type:', shapeEl.type);
-        }
-      }
-    } else {
-      // Clear selection if no active shape - but only if there are shapes selected
-      const hasShapeSelected = selectedElements.length > 0 && selectedElements.some(el => el.type === 'shape');
-      if (hasShapeSelected) {
-        clearSelection();
-      }
-    }
-  }, [activeShapeId, shapeElements, selectElement, clearSelection]);
+  // useEffect(() => {
+  //   Shape sync code removed
+  // }, [activeShapeId, shapeElements, selectedElements, clearSelection, selectElement]);
+  
+  // Shape tool sync useEffect removed - will be rebuilt from scratch
   
   // Track modifier keys for selection behavior
   const [modifierKeys, setModifierKeys] = useState({
@@ -1976,7 +1924,8 @@ export function ShirtRefactored({
       // UNIFIED VECTOR TOOL - Works with all element types (text, image, shapes, vector paths)
       // CRITICAL FIX: Get fresh state each time to avoid stale state issues
       const vectorState = useApp.getState();
-      let { vectorEditMode, selectedAnchor, vectorPaths, activeTextId, activeShapeId, selectedImageId } = vectorState;
+      let { vectorEditMode, selectedAnchor, vectorPaths, activeTextId, selectedImageId } = vectorState;
+      // activeShapeId removed - shape tool will be rebuilt
       
       // CRITICAL FIX: Ensure composedCanvas is available or initialize it
       let composedCanvas = useApp.getState().composedCanvas;
@@ -2052,76 +2001,21 @@ export function ShirtRefactored({
         }
       }
       
-      // Check shape elements
-      const appState = useApp.getState();
-      let clickedShapeElement = null;
-      for (const shapeEl of appState.shapeElements || []) {
-        // CRITICAL FIX: Shapes use positionX/positionY (0-100%) not u/v
-        // Convert positionX/positionY to UV coordinates for hit testing
-        const shapeU = (shapeEl.positionX || 50) / 100; // Convert percentage to 0-1
-        const shapeV = (shapeEl.positionY || 50) / 100; // Convert percentage to 0-1
-        const shapeSize = (shapeEl.size || 50) / canvas.width; // Convert pixels to UV space
-        
-        if (clickU >= shapeU - shapeSize/2 && clickU <= shapeU + shapeSize/2 &&
-            clickV >= shapeV - shapeSize/2 && clickV <= shapeV + shapeSize/2) {
-          clickedShapeElement = shapeEl;
-          break;
-        }
-      }
+      // Shape element checking removed - will be rebuilt from scratch
+      const clickedShapeElement = null;
 
       // STEP 2: Handle element selection/editing
       if (clickedTextElement || clickedImageElement || clickedShapeElement) {
         if (vectorEditMode === 'select') {
           // Select mode - select the element
           if (clickedTextElement) {
-            useApp.setState({ activeTextId: clickedTextElement.id, activeShapeId: null, selectedImageId: null });
+            useApp.setState({ activeTextId: clickedTextElement.id, selectedImageId: null });
             debugLog('🎯 Vector: Selected text element:', clickedTextElement.id);
           } else if (clickedImageElement) {
-            useApp.setState({ selectedImageId: clickedImageElement.id, activeTextId: null, activeShapeId: null });
+            useApp.setState({ selectedImageId: clickedImageElement.id, activeTextId: null });
             debugLog('🎯 Vector: Selected image element:', clickedImageElement.id);
-          } else if (clickedShapeElement) {
-            useApp.setState({ activeShapeId: clickedShapeElement.id, activeTextId: null, selectedImageId: null });
-            debugLog('🎯 Vector: Selected shape element:', clickedShapeElement.id);
-            
-            // CRITICAL FIX: Add shape to selection system for resize handles
-            const { composedCanvas } = useApp.getState();
-            const canvasWidth = composedCanvas?.width || 1024;
-            const canvasHeight = composedCanvas?.height || 1024;
-            
-            // Convert shape position to pixel coordinates for selection system
-            const shapeX = (clickedShapeElement.positionX || 50) / 100 * canvasWidth;
-            const shapeY = (clickedShapeElement.positionY || 50) / 100 * canvasHeight;
-            const shapeSize = clickedShapeElement.size || 50;
-            const shapeRadius = shapeSize / 2;
-            
-            const shapeElement: SelectedElement = {
-              id: clickedShapeElement.id,
-              type: 'shape',
-              layerId: 'default', // Shapes are on default layer
-              bounds: {
-                minX: shapeX - shapeRadius,
-                minY: shapeY - shapeRadius,
-                maxX: shapeX + shapeRadius,
-                maxY: shapeY + shapeRadius,
-                width: shapeSize,
-                height: shapeSize
-              },
-              position: {
-                x: shapeX,
-                y: shapeY
-              },
-              data: {
-                shapeType: clickedShapeElement.type, // Preserve shape type
-                positionX: clickedShapeElement.positionX,
-                positionY: clickedShapeElement.positionY,
-                size: clickedShapeElement.size
-              }
-            };
-            
-            // Add to selection system
-            selectElement(shapeElement);
-            debugLog('🔷 Shape added to selection system:', clickedShapeElement.id);
           }
+          // Shape selection removed - will be rebuilt from scratch
           return; // Don't create vector path when selecting elements
         } else if (vectorEditMode === 'pen') {
           // Pen mode - convert element to vector path or start editing
@@ -2131,42 +2025,8 @@ export function ShirtRefactored({
             useApp.setState({ activeTextId: clickedTextElement.id });
           } else if (clickedImageElement) {
             useApp.setState({ selectedImageId: clickedImageElement.id });
-          } else if (clickedShapeElement) {
-            useApp.setState({ activeShapeId: clickedShapeElement.id });
-            
-            // CRITICAL FIX: Also add to selection system for resize handles
-            const { composedCanvas } = useApp.getState();
-            const canvasWidth = composedCanvas?.width || 1024;
-            const canvasHeight = composedCanvas?.height || 1024;
-            
-            const shapeX = (clickedShapeElement.positionX || 50) / 100 * canvasWidth;
-            const shapeY = (clickedShapeElement.positionY || 50) / 100 * canvasHeight;
-            const shapeSize = clickedShapeElement.size || 50;
-            const shapeRadius = shapeSize / 2;
-            
-            const shapeElement: SelectedElement = {
-              id: clickedShapeElement.id,
-              type: 'shape',
-              layerId: 'default',
-              bounds: {
-                minX: shapeX - shapeRadius,
-                minY: shapeY - shapeRadius,
-                maxX: shapeX + shapeRadius,
-                maxY: shapeY + shapeRadius,
-                width: shapeSize,
-                height: shapeSize
-              },
-              position: { x: shapeX, y: shapeY },
-              data: {
-                shapeType: clickedShapeElement.type,
-                positionX: clickedShapeElement.positionX,
-                positionY: clickedShapeElement.positionY,
-                size: clickedShapeElement.size
-              }
-            };
-            
-            selectElement(shapeElement);
           }
+          // Shape selection removed - will be rebuilt from scratch
           return;
         }
       }
@@ -2192,7 +2052,7 @@ export function ShirtRefactored({
             },
             activePathId: nearestAnchor.pathId, // Also set active path
             activeTextId: null,
-            activeShapeId: null,
+            // activeShapeId removed - shape tool will be rebuilt
             selectedImageId: null
           });
           
@@ -2210,7 +2070,7 @@ export function ShirtRefactored({
           useApp.setState({ 
             selectedAnchor: null,
             activeTextId: null,
-            activeShapeId: null,
+            // activeShapeId removed - shape tool will be rebuilt
             selectedImageId: null
           });
           
@@ -2285,7 +2145,7 @@ export function ShirtRefactored({
             },
             activePathId: nearestAnchor.pathId, // Also set active path
             activeTextId: null,
-            activeShapeId: null,
+            // activeShapeId removed - shape tool will be rebuilt
             selectedImageId: null
           });
           
@@ -2298,7 +2158,7 @@ export function ShirtRefactored({
           useApp.setState({ 
             selectedAnchor: null,
             activeTextId: null,
-            activeShapeId: null,
+            // activeShapeId removed - shape tool will be rebuilt
             selectedImageId: null
           });
           debugLog('🎯 Vector: No anchor selected');
@@ -3171,38 +3031,7 @@ export function ShirtRefactored({
           }
         });
         
-        // Erase shape elements (partial erasing by reducing opacity)
-        const { shapeElements, updateShapeElement } = appState;
-        shapeElements.forEach(shapeEl => {
-          // Convert shape position percentages to canvas coordinates
-          const shapeX = Math.round((shapeEl.positionX / 100) * composedCanvas.width);
-          const shapeY = Math.round((shapeEl.positionY / 100) * composedCanvas.height);
-          
-          // Calculate shape bounds
-          const shapeRadius = shapeEl.size / 2;
-          
-          // Check if eraser intersects with shape bounds
-          const distance = Math.sqrt((eraserX - shapeX) ** 2 + (eraserY - shapeY) ** 2);
-          const intersects = distance <= (eraserRadius + shapeRadius);
-          
-          if (intersects) {
-            // Calculate how much of the shape is within eraser radius
-            const overlapRadius = Math.min(eraserRadius, shapeRadius);
-            const overlapArea = Math.PI * overlapRadius * overlapRadius;
-            const totalArea = Math.PI * shapeRadius * shapeRadius;
-            const overlapPercentage = overlapArea / totalArea;
-            
-            // Reduce opacity based on overlap percentage
-            // CRITICAL FIX: Use currentBrushOpacity from app state
-            const opacityReduction = overlapPercentage * currentBrushOpacity;
-            const newOpacity = Math.max(0, shapeEl.opacity - opacityReduction);
-            
-            if (newOpacity !== shapeEl.opacity) {
-              console.log('🧽 Partially erasing shape:', shapeEl.type, 'opacity:', shapeEl.opacity, '->', newOpacity);
-              updateShapeElement(shapeEl.id, { opacity: newOpacity });
-            }
-          }
-        });
+        // Shape erasing removed - will be rebuilt from scratch
         
         // REMOVED: Puff erase event - old puff tool removed
         // NEW PUFF TOOL: Erasing is handled directly on the layer canvas
@@ -4281,66 +4110,7 @@ export function ShirtRefactored({
     return bounds;
   }, []);
 
-  // UNIFIED SHAPE BOUNDS CALCULATION
-  // This function calculates shape bounds once and uses them everywhere
-  // Similar to getImageBounds but for shapes (which use positionX/positionY percentages)
-  // CRITICAL: Shapes render with Y=0 at top, but Three.js UV has Y=0 at bottom
-  // So we need to flip Y coordinates when converting between positionY and UV
-  const getShapeBounds = useCallback((shapeEl: any) => {
-    // CRITICAL FIX: Use the actual composed canvas size
-    const appState = useApp.getState();
-    const composedCanvas = appState.composedCanvas;
-    const canvasSize = composedCanvas ? composedCanvas.width : 1024;
-    const canvasHeight = composedCanvas ? composedCanvas.height : 1024;
-    
-    // Shapes use positionX/positionY as percentages (0-100%)
-    // positionX: 0% = left, 100% = right
-    // positionY: 0% = top, 100% = bottom (canvas coordinates, Y=0 at top)
-    const positionX = shapeEl.positionX || 50; // Percentage
-    const positionY = shapeEl.positionY || 50; // Percentage
-    const size = shapeEl.size || 50; // Pixels
-    
-    // Convert percentage to pixel coordinates (for rendering)
-    const pixelX = (positionX / 100) * canvasSize;
-    const pixelY = (positionY / 100) * canvasHeight; // Y=0 at top
-    
-    // Convert pixel coordinates to UV for hitbox detection
-    // CRITICAL: Three.js UV has Y=0 at bottom, so we flip Y like images do
-    const centerU = pixelX / canvasSize;
-    const centerV = 1 - (pixelY / canvasHeight); // Flip Y to match Three.js UV (Y=0 at bottom)
-    
-    const sizeU = size / canvasSize; // Convert pixels to UV
-    const sizeV = size / canvasHeight; // Convert pixels to UV
-    
-    // Calculate bounds in UV coordinates (Three.js UV space: Y=0 at bottom)
-    const halfSizeU = sizeU / 2;
-    const halfSizeV = sizeV / 2;
-    
-    const uvLeft = centerU - halfSizeU;
-    const uvRight = centerU + halfSizeU;
-    // CRITICAL: In Three.js UV, Y=0 is at bottom, so:
-    // - Top of shape (lower pixelY) has HIGHER V value
-    // - Bottom of shape (higher pixelY) has LOWER V value
-    // Since centerV = 1 - (pixelY / canvasHeight), shape top has higher V
-    const uvTop = centerV + halfSizeV; // Top of shape (higher V in Three.js UV)
-    const uvBottom = centerV - halfSizeV; // Bottom of shape (lower V in Three.js UV)
-    
-    return {
-      centerU,
-      centerV,
-      sizeU,
-      sizeV,
-      pixelX,
-      pixelY,
-      pixelWidth: size,
-      pixelHeight: size,
-      // UV bounds for hitbox detection (Three.js UV space: Y=0 at bottom)
-      uvLeft,
-      uvRight,
-      uvTop,
-      uvBottom
-    };
-  }, []);
+  // Shape tool removed - will be rebuilt from scratch
 
   // Brush tool event handlers with smart behavior
   const onPointerDown = useCallback((e: any) => {
@@ -5543,7 +5313,7 @@ const canvasDimensions = {
                       anchor: clickedAnchor
                     };
                   }
-      } else {
+                } else {
                   // Start dragging the image
                   console.log('🎨 Image tool: Started dragging image');
                   (window as any).__imageDragging = true;
@@ -5570,227 +5340,74 @@ const canvasDimensions = {
               console.log('🎨 Image tool: Global deselection already handled');
             }
           }
-        } else if (activeTool === 'shapes') {
-          // Get UV coordinates from the event
+        } else if ((activeTool as string) === 'shapes') {
+          // Shape tool - place or select shapes
           const uv = e.uv as THREE.Vector2 | undefined;
           if (uv) {
-            // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
-            // Shapes use positionY where 0% = top, 100% = bottom (canvas coordinates)
-            // When converting UV to positionY: uv.y=0 (bottom) -> positionY=100% (bottom)
-            //                                  uv.y=1 (top) -> positionY=0% (top)
-            // So: positionY = (1 - uv.y) * 100 (FLIP needed)
-            const clickU = uv.x;
-            const clickV = 1 - uv.y; // Flip Y: uv.y=0 (bottom) -> clickV=1 (top), uv.y=1 (top) -> clickV=0 (top)
-            
-            // Check if clicking on an existing shape (similar to image tool)
             const appState = useApp.getState();
-            const shapeElements = appState.shapeElements || [];
-            let clickedShape: any = null;
+            const composedCanvas = appState.composedCanvas;
+            if (!composedCanvas) return;
             
-            // Find clicked shape (reverse order to check top-most first)
-            for (let i = shapeElements.length - 1; i >= 0; i--) {
-              const shapeEl = shapeElements[i];
-              if (!shapeEl || shapeEl.visible === false) continue;
+            // CRITICAL FIX: Use the EXACT same coordinate conversion as text tool
+            // Text tool uses convertUVToPixel which does: y = (1 - uv.v) * height
+            // So we need to match that exactly
+            const canvasWidth = composedCanvas.width;
+            const canvasHeight = composedCanvas.height;
+            
+            // Convert UV to pixel coordinates (matching text tool exactly)
+            // uv is THREE.Vector2, so use .x and .y properties
+            const pixelX = Math.floor(uv.x * canvasWidth);
+            const pixelY = Math.floor((1 - uv.y) * canvasHeight); // Flip V for canvas space
+            
+            // Convert pixel coordinates to percentage (0-100%)
+            // This matches how shapes are stored and rendered
+            const positionX = (pixelX / canvasWidth) * 100;
+            const positionY = (pixelY / canvasHeight) * 100;
+            
+            console.log('🔷 Shape tool click:', {
+              uv: { u: uv.x, v: uv.y },
+              pixel: { x: pixelX, y: pixelY },
+              position: { x: positionX, y: positionY },
+              canvas: { width: canvasWidth, height: canvasHeight }
+            });
+            
+            // Check if clicking on existing shape
+            let clickedShape = null;
+            for (const shape of appState.shapeElements || []) {
+              if (shape.visible === false) continue;
               
-              const bounds = getShapeBounds(shapeEl);
+              // Convert shape position to pixel coordinates for hit testing
+              const shapeX = (shape.positionX / 100) * canvasWidth;
+              const shapeY = (shape.positionY / 100) * canvasHeight;
+              const shapeRadius = shape.size / 2;
               
               // Check if click is within shape bounds
-              const isWithinBounds = (
-                clickU >= bounds.uvLeft &&
-                clickU <= bounds.uvRight &&
-                clickV >= bounds.uvTop &&
-                clickV <= bounds.uvBottom
+              const distance = Math.sqrt(
+                Math.pow(pixelX - shapeX, 2) + 
+                Math.pow(pixelY - shapeY, 2)
               );
               
-              if (isWithinBounds) {
-                clickedShape = shapeEl;
-                console.log('🔷 Shape tool: Clicked on shape:', shapeEl.id, 'type:', shapeEl.type);
-                appState.setActiveShapeId(shapeEl.id);
+              if (distance <= shapeRadius) {
+                clickedShape = shape;
                 break;
               }
             }
             
             if (clickedShape) {
-              // CRITICAL FIX: Use unified bounds calculation for resize anchor detection (same as image tool)
-              const bounds = getShapeBounds(clickedShape);
-              const anchorSize = 0.04; // Anchor hitbox size in UV space (4% of canvas)
-              
-              // Calculate anchor positions using shape bounds (same pattern as image tool)
-              const anchors = {
-                // Corner anchors
-                topLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
-                topRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
-                bottomLeft: { u: bounds.uvLeft - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
-                bottomRight: { u: bounds.uvRight - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
-                // Edge anchors
-                top: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvTop - anchorSize/2 },
-                bottom: { u: (bounds.uvLeft + bounds.uvRight)/2 - anchorSize/2, v: bounds.uvBottom - anchorSize/2 },
-                left: { u: bounds.uvLeft - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 },
-                right: { u: bounds.uvRight - anchorSize/2, v: (bounds.uvTop + bounds.uvBottom)/2 - anchorSize/2 }
-              };
-              
-              // Check which anchor was clicked (corners first, then edges) - same pattern as image tool
-              let clickedAnchor: string | null = null;
-              for (const [anchorName, anchorPos] of Object.entries(anchors)) {
-                if (
-                  clickU >= anchorPos.u &&
-                  clickU <= anchorPos.u + anchorSize &&
-                  clickV >= anchorPos.v &&
-                  clickV <= anchorPos.v + anchorSize
-                ) {
-                  clickedAnchor = anchorName;
-                  break;
-                }
-              }
-              
-              if (clickedAnchor) {
-                console.log('🔷 Shape tool: Clicked on resize anchor:', clickedAnchor);
-                // Start resizing the shape (same pattern as image tool)
-                (window as any).__shapeResizing = true;
-                (window as any).__shapeResizeStart = {
-                  u: clickU,
-                  v: clickV,
-                  positionX: clickedShape.positionX || 50,
-                  positionY: clickedShape.positionY || 50,
-                  size: clickedShape.size || 50,
-                  shapeId: clickedShape.id,
-                  anchor: clickedAnchor
-                };
-                
-                // Disable controls during resize
-                setControlsEnabled(false);
-              } else {
-                // Start dragging the shape (same pattern as image tool)
-                console.log('🔷 Shape tool: Started dragging shape');
-                (window as any).__shapeDragging = true;
-                (window as any).__shapeDragStart = {
-                  u: clickU,
-                  v: clickV,
-                  positionX: clickedShape.positionX || 50,
-                  positionY: clickedShape.positionY || 50,
-                  shapeId: clickedShape.id
-                };
-                
-                // Disable controls during drag
-                setControlsEnabled(false);
-              }
+              // Select existing shape
+              appState.setActiveShapeId(clickedShape.id);
             } else {
-              // No shape clicked - create new shape
-              // CRITICAL: Prevent double shape creation with timestamp check
-              const now = Date.now();
-              if (now - lastTextPromptTimeRef.current < 500) {
-                console.log('🎨 Shapes tool: Skipping - shape creation triggered too soon (within 500ms)');
-                return;
-              }
-              
-              // CRITICAL: Stop all event propagation to prevent double triggers
-              if (e.stopPropagation) e.stopPropagation();
-              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-              if (e.nativeEvent?.stopPropagation) e.nativeEvent.stopPropagation();
-              if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
-              
-              // Prevent double shape creation with flag
-              if (textPromptActiveRef.current) {
-                console.log('🎨 Shapes tool: Skipping - shape creation already active');
-                return;
-              }
-              
-              // Handle shapes tool - draw shape at click position
-              console.log('🎨 Shapes tool: Handling shape placement');
-              textPromptActiveRef.current = true;
-              lastTextPromptTimeRef.current = now;
-              
-              try {
-                console.log('🎨 Adding shape element at UV:', clickU, clickV);
-                
-                // Get shape settings from store
-                const appState = useApp.getState();
-                const shapeSettings = {
-                  type: appState.shapeType || 'rectangle',
-                  size: appState.shapeSize || 50,
-                  opacity: appState.shapeOpacity || 1,
-                  color: appState.shapeColor || '#ff69b4',
-                  rotation: appState.shapeRotation || 0,
-                  positionX: clickU * 100, // Convert UV to percentage (0-100%)
-                  positionY: clickV * 100, // Convert UV to percentage (0-100%, Y=0 at top)
-                  gradient: null // Will be set based on color mode
-                };
-                
-                // Check if gradient mode is active for shapes
-                const gradientSettings = (window as any).getGradientSettings ? (window as any).getGradientSettings() : null;
-                const isShapesGradientMode = gradientSettings && gradientSettings.shapes && gradientSettings.shapes.mode === 'gradient';
-                
-                if (isShapesGradientMode && gradientSettings) {
-                  shapeSettings.gradient = gradientSettings.shapes;
-                }
-                
-                // Add shape element using the existing addShapeElement function
-                if (appState.addShapeElement) {
-                  appState.addShapeElement(shapeSettings);
-                  console.log('🎨 Shape element added successfully');
-                  
-                  // Trigger texture update
-                  setTimeout(() => {
-                    if ((window as any).updateModelTexture) {
-                      (window as any).updateModelTexture(true, true);
-                    }
-                  }, 10);
-                } else {
-                  console.error('🎨 addShapeElement function not found');
-                }
-              } catch (error) {
-                console.error('🎨 Error adding shape element:', error);
-              }
-              
-              // Reset flag after shape creation with a small delay to prevent rapid re-triggers
-              setTimeout(() => {
-                textPromptActiveRef.current = false;
-              }, 100);
+              // Place new shape at click position
+              appState.addShapeElement({
+                type: appState.shapeType,
+                positionX,
+                positionY,
+                size: appState.shapeSize,
+                color: appState.shapeColor,
+                opacity: appState.shapeOpacity,
+                rotation: appState.shapeRotation
+              });
             }
-          } else {
-            console.log('🎨 Shapes tool: No UV coordinates available');
-          }
-        } else if (activeTool === 'move') {
-          // Handle move tool - move selected shape to click position
-          console.log('🎨 Move tool: Handling shape movement');
-          
-          const appState = useApp.getState();
-          const activeShapeId = appState.activeShapeId;
-          
-          if (!activeShapeId) {
-            console.log('🎨 Move tool: No active shape selected');
-            return;
-          }
-          
-          // Get UV coordinates from the event
-          const uv = e.uv as THREE.Vector2 | undefined;
-          if (uv) {
-            try {
-              console.log('🎨 Moving shape to UV:', uv.x, uv.y);
-              
-              // Update shape position
-              if (appState.updateShapeElement) {
-                appState.updateShapeElement(activeShapeId, {
-                  positionX: uv.x * 100, // Convert UV to percentage
-                  positionY: uv.y * 100   // Convert UV to percentage
-                });
-                
-                console.log('🎨 Shape moved successfully');
-                
-                // Trigger texture update
-                setTimeout(() => {
-                  if ((window as any).updateModelTexture) {
-                    (window as any).updateModelTexture(true, true);
-                  }
-                }, 10);
-              } else {
-                console.error('🎨 updateShapeElement function not found');
-              }
-            } catch (error) {
-              console.error('🎨 Error moving shape:', error);
-            }
-          } else {
-            console.log('🎨 Move tool: No UV coordinates available');
           }
         }
       } else {
@@ -5825,6 +5442,8 @@ const canvasDimensions = {
           return; // Don't process other actions during transform
         }
       }
+      
+      // Shape tool cursor updates removed - will be rebuilt from scratch
       
       // Update cursor for image tool when hovering over anchors
       if ((activeTool as string) === 'image' && !(window as any).__imageDragging && !(window as any).__imageResizing && !(window as any).__imageRotating) {
@@ -6775,46 +6394,7 @@ const canvasDimensions = {
         return;
       }
       
-      // Handle shape dragging (similar to image dragging)
-      if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging && (window as any).__shapeDragStart) {
-        const uv = e.uv as THREE.Vector2 | undefined;
-        if (uv) {
-          // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
-          // Shapes use positionY where 0% = top, 100% = bottom
-          // When converting UV to positionY: uv.y=0 (bottom) -> positionY=100% (bottom)
-          //                                  uv.y=1 (top) -> positionY=0% (top)
-          // So: currentV = 1 - uv.y (FLIP needed to match shape coordinate system)
-          const currentU = uv.x;
-          const currentV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
-          
-          const dragStart = (window as any).__shapeDragStart;
-          const deltaU = currentU - dragStart.u;
-          const deltaV = currentV - dragStart.v;
-          
-          // Calculate new position in percentage (0-100%)
-          const newPositionX = dragStart.positionX + (deltaU * 100);
-          const newPositionY = dragStart.positionY + (deltaV * 100);
-          
-          // Clamp position to valid range (0-100%)
-          const clampedX = Math.max(0, Math.min(100, newPositionX));
-          const clampedY = Math.max(0, Math.min(100, newPositionY));
-          
-          // Update shape element
-          const { composeLayers } = useApp.getState();
-          if (dragStart.shapeId) {
-            useApp.getState().updateShapeElement(dragStart.shapeId, {
-              positionX: clampedX,
-              positionY: clampedY
-            });
-            
-            // Force layer composition and texture update for real-time feedback
-            console.log('🔷 Shape dragging - Forcing immediate layer composition');
-            composeLayers(true);
-            updateModelTexture(true, false);
-          }
-        }
-        return;
-      }
+      // Shape dragging removed - will be rebuilt from scratch
       
       // Handle vector anchor dragging
       // PERFORMANCE: Throttle anchor dragging updates using requestAnimationFrame
@@ -6847,114 +6427,7 @@ const canvasDimensions = {
         return;
       }
       
-      // Handle shape resizing (similar to image resizing)
-      if ((activeTool as string) === 'shapes' && (window as any).__shapeResizing && (window as any).__shapeResizeStart) {
-        const uv = e.uv as THREE.Vector2 | undefined;
-        if (uv) {
-          // CRITICAL FIX: Three.js UV has Y=0 at bottom, Y=1 at top
-          // Shapes use positionY where 0% = top, 100% = bottom
-          // When converting UV to positionY: uv.y=0 (bottom) -> positionY=100% (bottom)
-          //                                  uv.y=1 (top) -> positionY=0% (top)
-          // So: currentV = 1 - uv.y (FLIP needed to match shape coordinate system)
-          const currentU = uv.x;
-          const currentV = 1 - uv.y; // Flip Y to match shape rendering (Y=0 at top in canvas)
-          
-          const resizeStart = (window as any).__shapeResizeStart;
-          const deltaU = currentU - resizeStart.u;
-          const deltaV = currentV - resizeStart.v;
-          
-          // Convert original size from pixels to UV
-          const appState = useApp.getState();
-          const composedCanvas = appState.composedCanvas;
-          const canvasSize = composedCanvas ? composedCanvas.width : 1024;
-          
-          // Calculate new size and position based on anchor (Photoshop-style scaling)
-          let newSize = resizeStart.size;
-          let newPositionX = resizeStart.positionX;
-          let newPositionY = resizeStart.positionY;
-          
-          // CRITICAL FIX: Use same resize calculation pattern as image tool
-          // Calculate half size in UV for center calculation
-          const originalSizeU = resizeStart.size / canvasSize;
-          const halfSizeU = originalSizeU / 2;
-          const originalCenterU = resizeStart.positionX / 100;
-          const originalCenterV = resizeStart.positionY / 100;
-          
-          switch (resizeStart.anchor) {
-            // Corner anchors - resize size (maintains aspect ratio for square shapes)
-            case 'topLeft':
-              // Scale from bottom-right corner (opposite anchor stays fixed)
-              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaU * canvasSize * 2)));
-              // Keep bottom-right corner fixed, so center moves
-              newPositionX = resizeStart.positionX + (deltaU * 100);
-              newPositionY = resizeStart.positionY + (deltaV * 100);
-              break;
-            case 'topRight':
-              // Scale from bottom-left corner
-              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaU * canvasSize * 2)));
-              // Keep bottom-left corner fixed
-              newPositionX = resizeStart.positionX + (deltaU * 100);
-              newPositionY = resizeStart.positionY + (deltaV * 100);
-              break;
-            case 'bottomLeft':
-              // Scale from top-right corner
-              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaU * canvasSize * 2)));
-              // Keep top-right corner fixed
-              newPositionX = resizeStart.positionX + (deltaU * 100);
-              newPositionY = resizeStart.positionY + (deltaV * 100);
-              break;
-            case 'bottomRight':
-              // Scale from top-left corner
-              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaU * canvasSize * 2)));
-              // Keep top-left corner fixed
-              newPositionX = resizeStart.positionX + (deltaU * 100);
-              newPositionY = resizeStart.positionY + (deltaV * 100);
-              break;
-              
-            // Edge anchors - resize in one direction
-            case 'top':
-              // Scale size from bottom edge (top edge moves)
-              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaV * canvasSize * 2)));
-              newPositionY = resizeStart.positionY + (deltaV * 100);
-              break;
-            case 'bottom':
-              // Scale size from top edge (bottom edge moves)
-              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaV * canvasSize * 2)));
-              newPositionY = resizeStart.positionY + (deltaV * 100);
-              break;
-            case 'left':
-              // Scale size from right edge (left edge moves)
-              newSize = Math.max(10, Math.min(500, resizeStart.size - (deltaU * canvasSize * 2)));
-              newPositionX = resizeStart.positionX + (deltaU * 100);
-              break;
-            case 'right':
-              // Scale size from left edge (right edge moves)
-              newSize = Math.max(10, Math.min(500, resizeStart.size + (deltaU * canvasSize * 2)));
-              newPositionX = resizeStart.positionX + (deltaU * 100);
-              break;
-          }
-          
-          // Clamp position to valid range (0-100%)
-          newPositionX = Math.max(0, Math.min(100, newPositionX));
-          newPositionY = Math.max(0, Math.min(100, newPositionY));
-          
-          // Update shape element
-          const { composeLayers } = useApp.getState();
-          if (resizeStart.shapeId) {
-            appState.updateShapeElement(resizeStart.shapeId, {
-              size: newSize,
-              positionX: newPositionX,
-              positionY: newPositionY
-            });
-            
-            // Force layer composition and texture update for real-time feedback
-            console.log('🔷 Shape resizing - Forcing immediate layer composition');
-            composeLayers(true);
-            updateModelTexture(true, false);
-          }
-        }
-        return;
-      }
+      // Shape resizing removed - will be rebuilt from scratch
       
       // Handle image dragging (separate from resizing)
       if ((activeTool as string) === 'image' && (window as any).__imageDragging && (window as any).__imageDragStart) {
@@ -7306,13 +6779,7 @@ const canvasDimensions = {
       setControlsEnabled(true);
     }
     
-    // Handle shape tool resize end (same pattern as image tool)
-    if ((activeTool as string) === 'shapes' && (window as any).__shapeResizing) {
-      console.log('🔷 Shape tool: Ended resizing');
-      (window as any).__shapeResizing = false;
-      delete (window as any).__shapeResizeStart;
-      setControlsEnabled(true);
-    }
+    // Shape tool resize end removed - will be rebuilt from scratch
     
     // Handle shape tool drag end (same pattern as image tool)
     if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging) {
@@ -7320,6 +6787,8 @@ const canvasDimensions = {
       (window as any).__shapeDragging = false;
       delete (window as any).__shapeDragStart;
       setControlsEnabled(true);
+      // Reset cursor
+      document.body.style.cursor = 'default';
     }
     
     // PHASE 3: Handle stroke transform end
@@ -8148,15 +7617,7 @@ const canvasDimensions = {
                 break;
               }
               case 'shape':
-                // CRITICAL FIX: Shapes use positionX/positionY (0-100%)
-                // Convert pixel coordinates to percentage
-                const newShapePositionX = newPosition.x / canvasWidth * 100;
-                const newShapePositionY = newPosition.y / canvasHeight * 100;
-                
-                useApp.getState().updateShapeElement(elementId, {
-                  positionX: Math.max(0, Math.min(100, newShapePositionX)),
-                  positionY: Math.max(0, Math.min(100, newShapePositionY))
-                });
+                // Shape element move removed - will be rebuilt from scratch
                 break;
             }
             
@@ -8204,16 +7665,7 @@ const canvasDimensions = {
               case 'shape':
                 // CRITICAL FIX: Shapes use positionX/positionY (0-100%) and size (pixels)
                 // Convert pixel coordinates back to percentage and size
-                const newPositionX = (newBounds.minX + newBounds.width / 2) / canvasWidth * 100;
-                const newPositionY = (newBounds.minY + newBounds.height / 2) / canvasHeight * 100;
-                // Size is the larger of width or height (shapes are square-based)
-                const newSize = Math.max(newBounds.width, newBounds.height);
-                
-                useApp.getState().updateShapeElement(elementId, {
-                  positionX: Math.max(0, Math.min(100, newPositionX)),
-                  positionY: Math.max(0, Math.min(100, newPositionY)),
-                  size: Math.max(10, Math.min(500, newSize)) // Min 10px, max 500px
-                });
+                // Shape element resize removed - will be rebuilt from scratch
                 break;
             }
             
@@ -8230,5 +7682,6 @@ const canvasDimensions = {
 }
 
 export default ShirtRefactored;
+
 
 

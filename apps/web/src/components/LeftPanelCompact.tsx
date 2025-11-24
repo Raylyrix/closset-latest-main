@@ -13,7 +13,7 @@ export function LeftPanelCompact() {
   const activeTool = useApp(s => s.activeTool);
   const setActiveTool = useApp(s => s.setActiveTool);
   // REMOVED: importedImages and addImportedImage - no longer used in left panel
-  const addShapeElement = useApp(s => s.addShapeElement);
+  // REMOVED: addShapeElement - shapes quick access panel removed
   const [downloading, setDownloading] = useState(false);
 
   // REMOVED: Left panel image import functionality - conflicts with right panel
@@ -166,92 +166,7 @@ export function LeftPanelCompact() {
       </div>
 
       {/* REMOVED: Image Import Section - conflicts with right panel image tool */}
-
-      {/* Shapes Section */}
-      <div style={{
-        padding: '12px',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
-        background: 'rgba(255, 255, 255, 0.05)',
-        backdropFilter: 'blur(10px)'
-      }}>
-        <div style={{
-          fontSize: '11px',
-          color: '#a0aec0',
-          fontWeight: '700',
-          marginBottom: '8px',
-          textTransform: 'uppercase',
-          letterSpacing: '1px',
-          textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
-        }}>
-          🔷 Shapes
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '4px'
-        }}>
-          {[
-            { shape: 'rectangle', icon: '▭', name: 'Rect' },
-            { shape: 'circle', icon: '●', name: 'Circle' },
-            { shape: 'triangle', icon: '▲', name: 'Triangle' },
-            { shape: 'star', icon: '★', name: 'Star' },
-            { shape: 'polygon', icon: '⬡', name: 'Polygon' },
-            { shape: 'heart', icon: '♥', name: 'Heart' }
-          ].map(s => (
-            <button
-              key={s.shape}
-              onClick={() => {
-                // Add shape at center of model (50% position)
-                // Use positionX and positionY (0-100 percentage) for proper UV mapping
-                const appState = useApp.getState();
-                addShapeElement({
-                  type: s.shape,
-                  positionX: 50, // Center X position (0-100%)
-                  positionY: 50, // Center Y position (0-100%)
-                  size: appState.shapeSize || 50, // Use current shape size setting
-                  color: appState.shapeColor || '#ff69b4', // Use current shape color
-                  opacity: appState.shapeOpacity || 1, // Use current shape opacity
-                  rotation: appState.shapeRotation || 0, // Use current rotation
-                  // Also set UV coordinates for compatibility
-                  u: 0.5,
-                  v: 0.5
-                });
-                setActiveTool('shapes');
-                console.log('🔷 Added shape at center:', s.shape);
-              }}
-              style={{
-                padding: '8px',
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: 'none',
-                borderRadius: '6px',
-                color: '#a0aec0',
-                fontSize: '11px',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '2px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-                backdropFilter: 'blur(10px)',
-                fontWeight: '600'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-              title={`Add ${s.name}`}
-            >
-              <span style={{ fontSize: '14px' }}>{s.icon}</span>
-              <span style={{ fontSize: '7px', fontWeight: '500' }}>{s.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* REMOVED: Shapes quick access panel - keeping only the shapes button in tools grid */}
 
       {/* Compact Model Controls */}
       <div style={{

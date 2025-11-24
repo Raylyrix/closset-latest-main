@@ -51,9 +51,9 @@ type Tool =
   | 'decals' | 'layers' | 'puffPrint' | 'patternMaker' | 'advancedSelection' | 'vectorTools' | 'aiAssistant'
   | 'printExport' | 'cloudSync' | 'layerEffects' | 'colorGrading' | 'animation' | 'templates' | 'batch'
   | 'advancedBrush' | 'meshDeformation' | 'proceduralGenerator' | '3dPainting' | 'smartFill'
-  | 'line' | 'rect' | 'ellipse' | 'gradient' | 'moveText' | 'selectText' | 'undo' | 'redo' | 'embroidery' | 'vector' | 'shapes'
+  | 'line' | 'rect' | 'ellipse' | 'gradient' | 'moveText' | 'selectText' | 'undo' | 'redo' | 'embroidery' | 'vector'
   | 'image' | 'importImage' | 'symmetry' | 'symmetryX' | 'symmetryY' | 'symmetryZ'
-  | 'universalSelect';
+  | 'universalSelect' | 'shapes';
 
 type Layer = { id: string; name: string; visible: boolean; canvas: HTMLCanvasElement; history: ImageData[]; future: ImageData[]; lockTransparent?: boolean; mask?: HTMLCanvasElement | null; order: number; displacementCanvas?: HTMLCanvasElement };
 
@@ -207,45 +207,35 @@ interface AppState {
   selectedImageId: string | null;
   setSelectedImageId: (id: string | null) => void;
   
-  // Shape settings
-  shapeMode: 'fill' | 'stroke' | 'both';
-  shapeStrokeWidth: number;
-  shapeType: string;
-  shapeSize: number;
-  shapeOpacity: number;
-  shapeColor: string;
-  shapeRotation: number;
-  shapePositionX: number;
-  shapePositionY: number;
+  // Shape tool state
   shapeElements: Array<{
     id: string;
-    name: string;
-    type: string;
-    size: number;
-    opacity: number;
+    type: 'rectangle' | 'circle' | 'triangle' | 'star' | 'polygon' | 'heart' | 'diamond';
+    positionX: number; // Center X as percentage (0-100%)
+    positionY: number; // Center Y as percentage (0-100%, canvas space: 0% = top)
+    size: number; // Size in pixels
     color: string;
-    rotation: number;
-    positionX: number;
-    positionY: number;
-    gradient: any;
-    // UV coordinates for 3D mapping
-    u?: number;
-    v?: number;
-    uWidth?: number;
-    uHeight?: number;
-    // Stroke properties
+    opacity: number;
+    rotation: number; // Rotation in degrees
     stroke?: string;
-    fill?: string;
     strokeWidth?: number;
-    // Additional properties for compatibility
-    visible?: boolean;
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-    points?: Array<{ x: number; y: number }>;
+    visible: boolean;
   }>;
-  clearShapes: () => void;
+  activeShapeId: string | null;
+  shapeType: 'rectangle' | 'circle' | 'triangle' | 'star' | 'polygon' | 'heart' | 'diamond';
+  shapeSize: number;
+  shapeColor: string;
+  shapeOpacity: number;
+  shapeRotation: number;
+  addShapeElement: (shape: Omit<AppState['shapeElements'][0], 'id' | 'visible'>) => string;
+  updateShapeElement: (id: string, patch: Partial<AppState['shapeElements'][0]>) => void;
+  deleteShapeElement: (id: string) => void;
+  setActiveShapeId: (id: string | null) => void;
+  setShapeType: (type: AppState['shapeType']) => void;
+  setShapeSize: (size: number) => void;
+  setShapeColor: (color: string) => void;
+  setShapeOpacity: (opacity: number) => void;
+  setShapeRotation: (rotation: number) => void;
   
   
   // Embroidery settings
@@ -352,10 +342,6 @@ interface AppState {
   
   activeTextId: string | null;
   hoveredTextId: string | null;
-  
-  // Shape elements
-  activeShapeId: string | null;
-  hoveredShapeId: string | null;
   
   // Panel states
   leftPanelOpen: boolean;
@@ -498,7 +484,6 @@ interface AppState {
   setBackgroundIntensity: (intensity: number) => void;
   setBackgroundRotation: (rotation: number) => void;
   setActiveTextId: (id: string | null) => void;
-  setActiveShapeId: (id: string | null) => void;
   setLeftPanelOpen: (open: boolean) => void;
   setRightPanelOpen: (open: boolean) => void;
   setModelManagerOpen: (open: boolean) => void;
@@ -595,10 +580,7 @@ interface AppState {
   addTextElement: (text: string, uv: { u: number; v: number }, layerId?: string) => string;
   updateTextElement: (id: string, patch: Partial<TextElement>) => void;
   deleteTextElement: (id: string) => void;
-  addShapeElement: (shape: any) => string;
-  updateShapeElement: (id: string, patch: any) => void;
-  deleteShapeElement: (id: string) => void;
-  duplicateShapeElement: (id: string) => string | null;
+  // Shape tool functions removed - will be rebuilt from scratch
   addLayer?: (name?: string) => string;
   deleteLayer?: (id: string) => void;
   reorderLayers?: (from: number, to: number) => void;
@@ -837,7 +819,7 @@ export const useApp = create<AppState>((set, get) => ({
         'select': 'select',
         'text': 'text',
         'shape': 'rectangle',
-        'shapes': 'rectangle',
+        // 'shapes' removed - will be rebuilt
         // Puff tool removed - will be rebuilt
         'embroidery': 'brush' // Use brush for embroidery
       };
@@ -905,15 +887,6 @@ export const useApp = create<AppState>((set, get) => ({
   // Imported images initial state
   importedImages: [],
   selectedImageId: null,
-  shapeMode: 'fill',
-  shapeStrokeWidth: 2,
-  shapeType: 'rectangle',
-  shapeSize: 50,
-  shapeOpacity: 1,
-  shapeColor: '#ff69b4',
-  shapeRotation: 0,
-  shapePositionX: 50,
-  shapePositionY: 50,
   
   
   // Embroidery defaults
@@ -1025,9 +998,6 @@ export const useApp = create<AppState>((set, get) => ({
   activeTextId: null,
   hoveredTextId: null,
   textElements: [], // CRITICAL FIX: Make textElements a reactive state property
-  shapeElements: [],
-  activeShapeId: null,
-  hoveredShapeId: null,
   leftPanelOpen: true,
   rightPanelOpen: true,
   modelManagerOpen: false,
@@ -1054,6 +1024,15 @@ export const useApp = create<AppState>((set, get) => ({
   clickingOnModel: false,
 
   // Legacy project state - REMOVED (using simplified AdvancedLayerSystemV2)
+
+  // Shape tool initial state
+  shapeElements: [],
+  activeShapeId: null,
+  shapeType: 'rectangle',
+  shapeSize: 50,
+  shapeColor: '#ff69b4',
+  shapeOpacity: 1,
+  shapeRotation: 0,
 
   // Vector paths state
   vectorPaths: [],
@@ -1165,6 +1144,12 @@ export const useApp = create<AppState>((set, get) => ({
   setBackgroundRotation: (rotation) => set({ backgroundRotation: rotation }),
   setActiveTextId: (id) => set({ activeTextId: id }),
   setActiveShapeId: (id) => set({ activeShapeId: id }),
+  setShapeType: (type) => set({ shapeType: type }),
+  setShapeSize: (size) => set({ shapeSize: size }),
+  setShapeColor: (color) => set({ shapeColor: color }),
+  setShapeOpacity: (opacity) => set({ shapeOpacity: opacity }),
+  setShapeRotation: (rotation) => set({ shapeRotation: rotation }),
+  // setActiveShapeId removed - shape tool will be rebuilt
   setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   setModelManagerOpen: (open) => set({ modelManagerOpen: open }),
@@ -2243,42 +2228,11 @@ try {
   },
 
   // Shape management functions
-  updateShapeElement: (id: string, patch: any) => {
-    console.log('🔷 updateShapeElement called with:', { id, patch });
-    set(state => ({ shapeElements: state.shapeElements.map(s => s.id === id ? { ...s, ...patch } : s) }));
-    console.log('🔷 Shape element updated in store');
-    get().composeLayers();
-  },
-
-  deleteShapeElement: (id: string) => {
-    set(state => ({ shapeElements: state.shapeElements.filter(s => s.id !== id) }));
-    get().composeLayers();
-  },
-
-  duplicateShapeElement: (id: string) => {
-    const shape = get().shapeElements.find(s => s.id === id);
-    if (shape) {
-      const newId = Math.random().toString(36).slice(2);
-      const duplicatedShape = {
-        ...shape,
-        id: newId,
-        name: `${shape.name || 'Shape'} Copy`,
-        positionX: shape.positionX + 5, // Offset slightly
-        positionY: shape.positionY + 5
-      };
-      set(state => ({ shapeElements: [...state.shapeElements, duplicatedShape] }));
-      get().composeLayers();
-      return newId;
-    }
-    return null;
-  },
-
-  // Shape management
-  addShapeElement: (shape: any) => {
+  addShapeElement: (shape) => {
     const id = Math.random().toString(36).slice(2);
     const newShape = {
       id,
-      name: `Shape ${get().shapeElements.length + 1}`,
+      visible: true,
       ...shape
     };
     set(state => ({ 
@@ -2289,8 +2243,18 @@ try {
     return id;
   },
 
-  clearShapes: () => {
-    set(state => ({ shapeElements: [] }));
+  updateShapeElement: (id, patch) => {
+    set(state => ({ 
+      shapeElements: state.shapeElements.map(s => s.id === id ? { ...s, ...patch } : s) 
+    }));
+    get().composeLayers();
+  },
+
+  deleteShapeElement: (id) => {
+    set(state => ({ 
+      shapeElements: state.shapeElements.filter(s => s.id !== id),
+      activeShapeId: state.activeShapeId === id ? null : state.activeShapeId
+    }));
     get().composeLayers();
   },
 

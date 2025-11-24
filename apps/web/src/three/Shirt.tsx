@@ -1214,37 +1214,8 @@ export function Shirt() {
     }
     
 
-    
-    // Vector/shape tools: line/rect/ellipse/gradient/text
-    if (['line','rect','ellipse','gradient','text'].includes(activeTool as any)) {
-      console.log('Shape tool activated:', activeTool);
-      const uv = e.uv as THREE.Vector2 | undefined; 
-      const layer = getActiveLayer();
-      if (!uv || !layer) {
-        console.log('Missing UV or layer for shape tool');
-        return;
-      }
-      const canvas = layer.canvas; 
-      const ctx = canvas.getContext('2d')!;
-      const x = Math.floor(uv.x * canvas.width); 
-      const y = Math.floor(uv.y * canvas.height);
-      
-      console.log('Shape tool coordinates:', { x, y, uv: uv.toArray() });
-      
-      snapshot();
-              // Text tool handled by ShirtRefactored.tsx - removed duplicate implementation
-      // shapes with drag preview
-      console.log('Starting shape drag for:', activeTool);
-      shapeStartRef.current = { x, y };
-      shapeBeforeRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      try { 
-        (e.target as any)?.setPointerCapture?.(e.pointerId); 
-      } catch (err) {
-        console.log('Pointer capture failed:', err);
-      }
-      paintingActiveRef.current = true;
-      return;
-    }
+    // Text tool handled by ShirtRefactored.tsx
+    // Shape tools removed - will be rebuilt from scratch
     // Brush tool handling moved to early return above
   };
   const onDoubleClick = (e:any) => {

@@ -281,3 +281,4 @@ export function getColorPalette(): ColorPalette {
   return colorPaletteInstance;
 }
 
+

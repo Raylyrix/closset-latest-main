@@ -2473,7 +2473,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     // But preserve base texture from existing canvas if baseTexture is missing/invalid
     const existingComposedCanvas = state.composedCanvas;
     const composedCanvas = createComposedCanvas();
-    const ctx = composedCanvas.getContext('2d');
+    const ctx = composedCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     
     // Always clear the new canvas
@@ -3239,55 +3239,33 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }
         }
         
-        // Draw shape elements (rectangles, circles, triangles, stars, etc.)
+        // Draw shape elements
         const appStateForShapes = useApp.getState();
         const shapeElements = appStateForShapes.shapeElements || [];
-        console.log(`🔷 Rendering ${shapeElements.length} shape elements for layer ${layer.id}`);
         
         for (const shapeEl of shapeElements) {
           if (shapeEl.visible === false) continue;
           
-          // DEBUG: Log shape type to verify it's preserved
-          if (Math.random() < 0.1) { // Log 10% of shapes to avoid spam
-            console.log(`🔷 Rendering shape:`, {
-              id: shapeEl.id,
-              type: shapeEl.type,
-              positionX: shapeEl.positionX,
-              positionY: shapeEl.positionY,
-              size: shapeEl.size
-            });
-          }
-          
           ctx.save();
           
-          // Convert position percentages (0-100) to canvas coordinates
-          const shapeX = Math.round((shapeEl.positionX / 100) * composedCanvas.width);
-          const shapeY = Math.round((shapeEl.positionY / 100) * composedCanvas.height);
+          // Convert position percentages to pixel coordinates
+          // positionX/positionY are center coordinates in percentage (0-100%)
+          // positionY is stored in canvas space (0% = top, 100% = bottom)
+          // CRITICAL FIX: Use actual canvas width and height, not just width
+          const canvasWidth = composedCanvas.width;
+          const canvasHeight = composedCanvas.height;
+          const centerX = (shapeEl.positionX / 100) * canvasWidth;
+          const centerY = (shapeEl.positionY / 100) * canvasHeight; // NO FLIP - matches text tool exactly
           const shapeSize = shapeEl.size || 50;
           const shapeRadius = shapeSize / 2;
+          const shapeX = Math.round(centerX);
+          const shapeY = Math.round(centerY);
           
           // Apply opacity
           ctx.globalAlpha = (shapeEl.opacity || 1) * (layer.opacity || 1);
           
-          // Set fill color (support gradient if present)
-          let fillStyle: string | CanvasGradient = shapeEl.color || shapeEl.fill || '#ff69b4';
-          
-          if (shapeEl.gradient) {
-            const grad = ctx.createLinearGradient(
-              shapeX - shapeRadius,
-              shapeY - shapeRadius,
-              shapeX + shapeRadius,
-              shapeY + shapeRadius
-            );
-            if (shapeEl.gradient.stops && Array.isArray(shapeEl.gradient.stops)) {
-              shapeEl.gradient.stops.forEach((stop: any) => {
-                grad.addColorStop(stop.position || 0, stop.color || '#ff69b4');
-              });
-            }
-            fillStyle = grad;
-          }
-          
-          ctx.fillStyle = fillStyle;
+          // Set fill color
+          ctx.fillStyle = shapeEl.color || '#ff69b4';
           ctx.strokeStyle = shapeEl.stroke || shapeEl.color || '#000000';
           ctx.lineWidth = shapeEl.strokeWidth || 0;
           
@@ -3300,8 +3278,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           
           // Draw shape based on type
           ctx.beginPath();
-          
-          // CRITICAL: Ensure type is a string and handle case variations
           const shapeType = String(shapeEl.type || 'circle').toLowerCase();
           
           switch (shapeType) {
@@ -3309,20 +3285,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             case 'rect':
               ctx.rect(shapeX - shapeRadius, shapeY - shapeRadius, shapeSize, shapeSize);
               break;
-              
             case 'circle':
               ctx.arc(shapeX, shapeY, shapeRadius, 0, Math.PI * 2);
               break;
-              
             case 'triangle':
               ctx.moveTo(shapeX, shapeY - shapeRadius);
               ctx.lineTo(shapeX - shapeRadius, shapeY + shapeRadius);
               ctx.lineTo(shapeX + shapeRadius, shapeY + shapeRadius);
               ctx.closePath();
               break;
-              
             case 'star':
-              // Draw 5-pointed star
               const spikes = 5;
               const outerRadius = shapeRadius;
               const innerRadius = shapeRadius * 0.4;
@@ -3331,57 +3303,30 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
                 const angle = (i * Math.PI) / spikes - Math.PI / 2;
                 const x = shapeX + radius * Math.cos(angle);
                 const y = shapeY + radius * Math.sin(angle);
-                if (i === 0) {
-                  ctx.moveTo(x, y);
-                } else {
-                  ctx.lineTo(x, y);
-                }
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
               }
               ctx.closePath();
               break;
-              
             case 'polygon':
-              // Draw hexagon
               const sides = 6;
               for (let i = 0; i < sides; i++) {
                 const angle = (i * 2 * Math.PI) / sides - Math.PI / 2;
                 const x = shapeX + shapeRadius * Math.cos(angle);
                 const y = shapeY + shapeRadius * Math.sin(angle);
-                if (i === 0) {
-                  ctx.moveTo(x, y);
-                } else {
-                  ctx.lineTo(x, y);
-                }
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
               }
               ctx.closePath();
               break;
-              
             case 'heart':
-              // Draw heart shape
               const heartSize = shapeRadius;
               ctx.moveTo(shapeX, shapeY + heartSize * 0.3);
-              ctx.bezierCurveTo(
-                shapeX, shapeY,
-                shapeX - heartSize * 0.5, shapeY - heartSize * 0.5,
-                shapeX - heartSize * 0.5, shapeY - heartSize * 0.2
-              );
-              ctx.bezierCurveTo(
-                shapeX - heartSize * 0.5, shapeY + heartSize * 0.1,
-                shapeX, shapeY + heartSize * 0.6,
-                shapeX, shapeY + heartSize * 0.9
-              );
-              ctx.bezierCurveTo(
-                shapeX, shapeY + heartSize * 0.6,
-                shapeX + heartSize * 0.5, shapeY + heartSize * 0.1,
-                shapeX + heartSize * 0.5, shapeY - heartSize * 0.2
-              );
-              ctx.bezierCurveTo(
-                shapeX + heartSize * 0.5, shapeY - heartSize * 0.5,
-                shapeX, shapeY,
-                shapeX, shapeY + heartSize * 0.3
-              );
+              ctx.bezierCurveTo(shapeX, shapeY, shapeX - heartSize * 0.5, shapeY - heartSize * 0.5, shapeX - heartSize * 0.5, shapeY - heartSize * 0.2);
+              ctx.bezierCurveTo(shapeX - heartSize * 0.5, shapeY + heartSize * 0.1, shapeX, shapeY + heartSize * 0.6, shapeX, shapeY + heartSize * 0.9);
+              ctx.bezierCurveTo(shapeX, shapeY + heartSize * 0.6, shapeX + heartSize * 0.5, shapeY + heartSize * 0.1, shapeX + heartSize * 0.5, shapeY - heartSize * 0.2);
+              ctx.bezierCurveTo(shapeX + heartSize * 0.5, shapeY - heartSize * 0.5, shapeX, shapeY, shapeX, shapeY + heartSize * 0.3);
               break;
-              
             case 'diamond':
               ctx.moveTo(shapeX, shapeY - shapeRadius);
               ctx.lineTo(shapeX + shapeRadius, shapeY);
@@ -3389,44 +3334,35 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
               ctx.lineTo(shapeX - shapeRadius, shapeY);
               ctx.closePath();
               break;
-              
             default:
-              // Default to circle
               ctx.arc(shapeX, shapeY, shapeRadius, 0, Math.PI * 2);
           }
           
-          // Fill and stroke
           ctx.fill();
-          if (ctx.lineWidth > 0) {
-            ctx.stroke();
-          }
+          if (ctx.lineWidth > 0) ctx.stroke();
           
           ctx.restore();
         }
         
-        // Draw selection border for selected shape elements
-        const appStateForShapeSelection = useApp.getState();
-        if (appStateForShapeSelection.activeShapeId && shapeElements.length > 0) {
-          const selectedShapeEl = shapeElements.find(shapeEl => shapeEl.id === appStateForShapeSelection.activeShapeId);
-          
-          if (selectedShapeEl) {
-            console.log(`🔷 Drawing selection border for shape element:`, selectedShapeEl.id);
-            
+        // Draw selection border for selected shape
+        if (appStateForShapes.activeShapeId && shapeElements.length > 0) {
+          const selectedShape = shapeElements.find(s => s.id === appStateForShapes.activeShapeId);
+          if (selectedShape && selectedShape.visible) {
             ctx.save();
             
-            const shapeX = Math.round((selectedShapeEl.positionX / 100) * composedCanvas.width);
-            const shapeY = Math.round((selectedShapeEl.positionY / 100) * composedCanvas.height);
-            const shapeSize = selectedShapeEl.size || 50;
+            const canvasWidth = composedCanvas.width;
+            const canvasHeight = composedCanvas.height;
+            const shapeX = Math.round((selectedShape.positionX / 100) * canvasWidth);
+            const shapeY = Math.round((selectedShape.positionY / 100) * canvasHeight);
+            const shapeSize = selectedShape.size || 50;
             const shapeRadius = shapeSize / 2;
             
-            // Apply rotation if needed
-            if (selectedShapeEl.rotation && selectedShapeEl.rotation !== 0) {
+            if (selectedShape.rotation && selectedShape.rotation !== 0) {
               ctx.translate(shapeX, shapeY);
-              ctx.rotate((selectedShapeEl.rotation * Math.PI) / 180);
+              ctx.rotate((selectedShape.rotation * Math.PI) / 180);
               ctx.translate(-shapeX, -shapeY);
             }
             
-            // Draw selection border
             ctx.strokeStyle = '#007acc';
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
@@ -3435,13 +3371,13 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ctx.rect(shapeX - shapeRadius - 5, shapeY - shapeRadius - 5, shapeSize + 10, shapeSize + 10);
             ctx.stroke();
             
-            // Draw resize handles
+            // Draw resize handles (4 corner handles)
             const handleSize = 8;
             const handles = [
-              { x: shapeX - shapeRadius - 5, y: shapeY - shapeRadius - 5 }, // Top-left
-              { x: shapeX + shapeRadius + 5, y: shapeY - shapeRadius - 5 }, // Top-right
-              { x: shapeX - shapeRadius - 5, y: shapeY + shapeRadius + 5 }, // Bottom-left
-              { x: shapeX + shapeRadius + 5, y: shapeY + shapeRadius + 5 }  // Bottom-right
+              { x: shapeX - shapeRadius - 5, y: shapeY - shapeRadius - 5 },
+              { x: shapeX + shapeRadius + 5, y: shapeY - shapeRadius - 5 },
+              { x: shapeX - shapeRadius - 5, y: shapeY + shapeRadius + 5 },
+              { x: shapeX + shapeRadius + 5, y: shapeY + shapeRadius + 5 }
             ];
             
             ctx.fillStyle = '#007acc';
