@@ -3248,18 +3248,13 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           
           ctx.save();
           
-          // Convert position percentages to pixel coordinates
-          // positionX/positionY are center coordinates in percentage (0-100%)
-          // positionY is stored in canvas space (0% = top, 100% = bottom)
-          // CRITICAL FIX: Use actual canvas width and height, not just width
-          const canvasWidth = composedCanvas.width;
-          const canvasHeight = composedCanvas.height;
-          const centerX = (shapeEl.positionX / 100) * canvasWidth;
-          const centerY = (shapeEl.positionY / 100) * canvasHeight; // NO FLIP - matches text tool exactly
+          // CRITICAL FIX: Shapes use stored pixel coordinates directly (no flip)
+          // Positions are stored as: positionX = uv.x * width, positionY = uv.y * height
+          // Render directly at stored coordinates (standard canvas: y=0 at top)
+          const shapeX = Math.round(shapeEl.positionX);
+          const shapeY = Math.round(shapeEl.positionY);
           const shapeSize = shapeEl.size || 50;
           const shapeRadius = shapeSize / 2;
-          const shapeX = Math.round(centerX);
-          const shapeY = Math.round(centerY);
           
           // Apply opacity
           ctx.globalAlpha = (shapeEl.opacity || 1) * (layer.opacity || 1);
@@ -3350,10 +3345,9 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           if (selectedShape && selectedShape.visible) {
             ctx.save();
             
-            const canvasWidth = composedCanvas.width;
-            const canvasHeight = composedCanvas.height;
-            const shapeX = Math.round((selectedShape.positionX / 100) * canvasWidth);
-            const shapeY = Math.round((selectedShape.positionY / 100) * canvasHeight);
+            // CRITICAL FIX: Use stored pixel coordinates directly (like shape rendering, no canvas flip)
+            const shapeX = Math.round(selectedShape.positionX);
+            const shapeY = Math.round(selectedShape.positionY);
             const shapeSize = selectedShape.size || 50;
             const shapeRadius = shapeSize / 2;
             

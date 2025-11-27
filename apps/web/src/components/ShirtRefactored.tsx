@@ -2504,21 +2504,32 @@ export function ShirtRefactored({
       }
     };
 
-    // Convert UV coordinates to canvas coordinates
-    const x = Math.floor(uv.x * canvas.width);
-    const y = Math.floor(uv.y * canvas.height);
+    // CRITICAL FIX: Read all settings directly from app state to ensure they're up-to-date
+    // This ensures the right sidebar settings are always used
+    const appState = useApp.getState();
+    
+    // CRITICAL FIX: Use composed canvas dimensions for coordinate conversion
+    // UV coordinates from the model are based on composed canvas, not layer canvas
+    const composedCanvas = appState.composedCanvas;
+    const coordinateCanvasWidth = composedCanvas?.width || canvas.width;
+    const coordinateCanvasHeight = composedCanvas?.height || canvas.height;
+    
+    // CRITICAL FIX: Convert UV coordinates to canvas coordinates with Y-axis flip
+    // Three.js UV: v=0 at bottom, v=1 at top
+    // Canvas: y=0 at top, y=height at bottom
+    // So we need: y = (1 - uv.v) * height
+    const x = Math.round(uv.x * coordinateCanvasWidth);
+    const y = Math.round((1 - uv.v) * coordinateCanvasHeight);
 
     // DEBUG: Log UV to canvas conversion for brush tool
     if (activeTool === 'brush') {
       console.log('🖌️ UV TO CANVAS CONVERSION:', { 
         originalUV: { x: uv.x, y: uv.y },
         canvasCoords: { x, y },
-        canvasSize: { width: canvas.width, height: canvas.height }
+        layerCanvas: { width: canvas.width, height: canvas.height },
+        composedCanvas: { width: coordinateCanvasWidth, height: coordinateCanvasHeight }
       });
     }
-    // CRITICAL FIX: Read all settings directly from app state to ensure they're up-to-date
-    // This ensures the right sidebar settings are always used
-    const appState = useApp.getState();
     const currentBrushColor = appState.brushColor;
     const currentBrushSize = appState.brushSize;
     const currentBrushOpacity = appState.brushOpacity;
@@ -2622,6 +2633,7 @@ export function ShirtRefactored({
         } : undefined,
         blendMode: currentBlendMode,
         shape: currentBrushShape,
+        customBrushImage: appState.customBrushImage || undefined, // Include custom brush image
         dynamics: {
           sizePressure: true,
           opacityPressure: true,
@@ -2683,45 +2695,100 @@ export function ShirtRefactored({
             // New stroke detected - don't interpolate, just draw at current position
             // Reset last position to current to prevent future connections
             lastPaintPositionRef.current = { x: finalX, y: finalY };
-            layerCtx.drawImage(
-              brushStamp,
-              finalX - brushSettings.size / 2,
-              finalY - brushSettings.size / 2
-            );
-          } else {
-            // Same stroke - interpolate to fill gaps
-            const minSpacing = brushSettings.size * brushSettings.spacing;
-            
-            if (distance > minSpacing) {
-              // Draw intermediate stamps to fill gaps
-              const steps = Math.ceil(distance / minSpacing);
-              for (let i = 1; i <= steps; i++) {
-                const t = i / steps;
-                const interpX = lastPos.x + t * dx;
-                const interpY = lastPos.y + t * dy;
-                
-                layerCtx.drawImage(
-                  brushStamp,
-                  interpX - brushSettings.size / 2,
-                  interpY - brushSettings.size / 2
-                );
-              }
-            } else {
-              // Draw single stamp if points are close enough
+            if (brushSettings.customBrushImage) {
+              // High-quality custom brush - scale to brush size
+              const brushSize = brushSettings.size;
+              layerCtx.imageSmoothingEnabled = true;
+              layerCtx.imageSmoothingQuality = 'high';
               layerCtx.drawImage(
                 brushStamp,
-                finalX - brushSettings.size / 2,
-                finalY - brushSettings.size / 2
+                0, 0, brushStamp.width, brushStamp.height, // Source: full high-res stamp
+                finalX - brushSize / 2, finalY - brushSize / 2, // Destination position
+                brushSize, brushSize // Destination size: actual brush size
               );
+            } else {
+              layerCtx.drawImage(
+                brushStamp,
+                finalX - brushStamp.width / 2,
+                finalY - brushStamp.height / 2
+              );
+            }
+          } else {
+            // CRITICAL FIX: For custom brush images (stencil mode), don't repeat the pattern
+            // Custom brush images should only paint once per stroke, not repeat with spacing
+            if (brushSettings.customBrushImage) {
+              // Custom brush image mode - only paint at the current position, no repetition
+              // Stamp is 2x brush size for quality, scale down to brush size when drawing
+              const brushSize = brushSettings.size;
+              layerCtx.imageSmoothingEnabled = true;
+              layerCtx.imageSmoothingQuality = 'high';
+              layerCtx.drawImage(
+                brushStamp,
+                0, 0, brushStamp.width, brushStamp.height,
+                finalX - brushSize / 2, finalY - brushSize / 2,
+                brushSize, brushSize
+              );
+            } else {
+              // Default brush mode - interpolate to fill gaps with spacing
+              const minSpacing = brushSettings.size * brushSettings.spacing;
+              
+              if (distance > minSpacing) {
+                // Draw intermediate stamps to fill gaps
+                const steps = Math.ceil(distance / minSpacing);
+                for (let i = 1; i <= steps; i++) {
+                  const t = i / steps;
+                  const interpX = lastPos.x + t * dx;
+                  const interpY = lastPos.y + t * dy;
+                  
+                  layerCtx.drawImage(
+                    brushStamp,
+                    interpX - brushSettings.size / 2,
+                    interpY - brushSettings.size / 2
+                  );
+                }
+              } else {
+                // Draw single stamp if points are close enough
+                if (brushSettings.customBrushImage) {
+                  // High-quality custom brush - scale to brush size
+                  const brushSize = brushSettings.size;
+                  layerCtx.imageSmoothingEnabled = true;
+                  layerCtx.imageSmoothingQuality = 'high';
+                  layerCtx.drawImage(
+                    brushStamp,
+                    0, 0, brushStamp.width, brushStamp.height,
+                    finalX - brushSize / 2, finalY - brushSize / 2,
+                    brushSize, brushSize
+                  );
+                } else {
+                  layerCtx.drawImage(
+                    brushStamp,
+                    finalX - brushStamp.width / 2,
+                    finalY - brushStamp.height / 2
+                  );
+                }
+              }
             }
           }
         } else {
           // First point - just draw the stamp
-          layerCtx.drawImage(
-            brushStamp,
-            finalX - brushSettings.size / 2,
-            finalY - brushSettings.size / 2
-          );
+          if (brushSettings.customBrushImage) {
+            // High-quality custom brush - scale to brush size
+            const brushSize = brushSettings.size;
+            layerCtx.imageSmoothingEnabled = true;
+            layerCtx.imageSmoothingQuality = 'high';
+            layerCtx.drawImage(
+              brushStamp,
+              0, 0, brushStamp.width, brushStamp.height,
+              finalX - brushSize / 2, finalY - brushSize / 2,
+              brushSize, brushSize
+            );
+          } else {
+            layerCtx.drawImage(
+              brushStamp,
+              finalX - brushStamp.width / 2,
+              finalY - brushStamp.height / 2
+            );
+          }
         }
         
         layerCtx.restore();
@@ -2787,13 +2854,81 @@ export function ShirtRefactored({
       
       debugLog('🪣 Fill settings:', { fillColor, fillTolerance, fillGrow, fillAntiAlias, fillContiguous });
       
-      // Get the current pixel color at the click position
+      // CRITICAL FIX: Work with layer canvas but use composed canvas for coordinate reference
+      // Fill should happen on the layer canvas so it persists through recomposition
+      const composedCanvas = appState.composedCanvas;
+      
+      // Get the composed canvas dimensions for coordinate conversion
+      const composedWidth = composedCanvas?.width || canvas.width;
+      const composedHeight = composedCanvas?.height || canvas.height;
+      
+      // Use the already-calculated x and y coordinates (with correct Y-flip from composed canvas)
+      // Scale coordinates to layer canvas if dimensions differ
+      let fillX = x;
+      let fillY = y;
+      
+      if (canvas.width !== composedWidth || canvas.height !== composedHeight) {
+        const scaleX = canvas.width / composedWidth;
+        const scaleY = canvas.height / composedHeight;
+        fillX = Math.round(x * scaleX);
+        fillY = Math.round(y * scaleY);
+        console.log('🪣 Scaled fill coordinates to layer canvas:', {
+          composed: { x, y, width: composedWidth, height: composedHeight },
+          layer: { x: fillX, y: fillY, width: canvas.width, height: canvas.height }
+        });
+      }
+      
+      // Ensure coordinates are within layer canvas bounds
+      fillX = Math.max(0, Math.min(canvas.width - 1, fillX));
+      fillY = Math.max(0, Math.min(canvas.height - 1, fillY));
+      
+      debugLog('🪣 Fill coordinates:', { 
+        uv: { u: uv.x, v: uv.y },
+        composedCanvas: { width: composedWidth, height: composedHeight },
+        layerCanvas: { width: canvas.width, height: canvas.height },
+        pixelCoords: { x: fillX, y: fillY }
+      });
+      
+      // CRITICAL: Get imageData from COMPOSED canvas to read the actual visible content
+      // But we'll fill the layer canvas so the change persists
+      const composedCtx = composedCanvas?.getContext('2d');
+      let sourceImageData: ImageData;
+      
+      if (composedCanvas && composedCtx && composedWidth === canvas.width && composedHeight === canvas.height) {
+        // Same dimensions - use composed canvas as source (has all layers)
+        sourceImageData = composedCtx.getImageData(0, 0, composedWidth, composedHeight);
+        console.log('🪣 Using composed canvas as source (has all visible layers)');
+      } else {
+        // Different dimensions or no composed canvas - use layer canvas
+        sourceImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        console.log('🪣 Using layer canvas as source');
+      }
+      
+      // Get target pixel color from source (handle dimension mismatches)
+      let targetR = 0, targetG = 0, targetB = 0, targetA = 255;
+      
+      if (sourceImageData.width === canvas.width && sourceImageData.height === canvas.height) {
+        // Same dimensions - use fillX and fillY directly
+        const sourcePixelIndex = (fillY * sourceImageData.width + fillX) * 4;
+        const safeIndex = Math.min(sourcePixelIndex, sourceImageData.data.length - 4);
+        targetR = sourceImageData.data[safeIndex] || 0;
+        targetG = sourceImageData.data[safeIndex + 1] || 0;
+        targetB = sourceImageData.data[safeIndex + 2] || 0;
+        targetA = sourceImageData.data[safeIndex + 3] || 255;
+      } else {
+        // Different dimensions - convert coordinates
+        const sourceX = Math.floor(fillX * sourceImageData.width / canvas.width);
+        const sourceY = Math.floor(fillY * sourceImageData.height / canvas.height);
+        const sourcePixelIndex = (sourceY * sourceImageData.width + sourceX) * 4;
+        const safeIndex = Math.min(sourcePixelIndex, sourceImageData.data.length - 4);
+        targetR = sourceImageData.data[safeIndex] || 0;
+        targetG = sourceImageData.data[safeIndex + 1] || 0;
+        targetB = sourceImageData.data[safeIndex + 2] || 0;
+        targetA = sourceImageData.data[safeIndex + 3] || 255;
+      }
+      
+      // Get imageData from layer canvas for filling
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const pixelIndex = (y * canvas.width + x) * 4;
-      const targetR = imageData.data[pixelIndex];
-      const targetG = imageData.data[pixelIndex + 1];
-      const targetB = imageData.data[pixelIndex + 2];
-      const targetA = imageData.data[pixelIndex + 3];
       
       debugLog('🪣 Target pixel color:', { r: targetR, g: targetG, b: targetB, a: targetA });
       
@@ -2812,80 +2947,202 @@ export function ShirtRefactored({
         r: fillRgb.r,
         g: fillRgb.g,
         b: fillRgb.b,
-        a: Math.floor(brushOpacity * 255)
+        a: Math.floor(currentBrushOpacity * 255)
       };
       
-      const visited = new Set<string>();
-      const stack: Array<{x: number, y: number}> = [{x, y}];
-      const PIXELS_PER_CHUNK = 1000; // Process 1000 pixels per frame
-      let isProcessing = true;
-      let totalPixelsFilled = 0;
-      
-      const processChunk = () => {
-        if (!isProcessing) return;
+      // CRITICAL FIX: Handle non-contiguous fills differently - scan entire canvas
+      if (!fillContiguous) {
+        // Non-contiguous: Fill ALL matching pixels across entire canvas
+        debugLog('🪣 Non-contiguous fill: Scanning entire canvas for matching pixels');
         
-        let processed = 0;
-        while (stack.length > 0 && processed < PIXELS_PER_CHUNK) {
-          const {x: currentX, y: currentY} = stack.pop()!;
-          const key = `${currentX},${currentY}`;
+        let totalPixelsFilled = 0;
+        const PIXELS_PER_CHUNK = 10000; // Process 10k pixels per frame for non-contiguous
+        let currentY = 0;
+        let currentX = 0;
+        let isProcessing = true;
+        
+        const processNonContiguousChunk = () => {
+          if (!isProcessing) return;
           
-          if (visited.has(key) || currentX < 0 || currentX >= canvas.width || currentY < 0 || currentY >= canvas.height) {
-            continue;
+          let processed = 0;
+          while (currentY < canvas.height && processed < PIXELS_PER_CHUNK) {
+            while (currentX < canvas.width && processed < PIXELS_PER_CHUNK) {
+              const pixelIndex = (currentY * canvas.width + currentX) * 4;
+              
+              // Get pixel color from source (composed canvas if available, otherwise layer)
+              let currentR, currentG, currentB, currentA;
+              
+              if (sourceImageData && sourceImageData.width === canvas.width && sourceImageData.height === canvas.height) {
+                // Same dimensions - use source directly
+                const sourceIndex = pixelIndex;
+                currentR = sourceImageData.data[sourceIndex] || 0;
+                currentG = sourceImageData.data[sourceIndex + 1] || 0;
+                currentB = sourceImageData.data[sourceIndex + 2] || 0;
+                currentA = sourceImageData.data[sourceIndex + 3] || 255;
+              } else {
+                // Use layer canvas pixel
+                currentR = imageData.data[pixelIndex] || 0;
+                currentG = imageData.data[pixelIndex + 1] || 0;
+                currentB = imageData.data[pixelIndex + 2] || 0;
+                currentA = imageData.data[pixelIndex + 3] || 255;
+              }
+              
+              // Check if pixel matches target color within tolerance
+              const colorDistance = Math.sqrt(
+                Math.pow(currentR - targetR, 2) +
+                Math.pow(currentG - targetG, 2) +
+                Math.pow(currentB - targetB, 2) +
+                Math.pow(currentA - targetA, 2)
+              );
+              
+              if (colorDistance <= fillTolerance) {
+                // Fill this pixel in layer canvas
+                imageData.data[pixelIndex] = fillColorRgba.r;
+                imageData.data[pixelIndex + 1] = fillColorRgba.g;
+                imageData.data[pixelIndex + 2] = fillColorRgba.b;
+                imageData.data[pixelIndex + 3] = fillColorRgba.a;
+                totalPixelsFilled++;
+              }
+              
+              currentX++;
+              processed++;
+            }
+            
+            if (currentX >= canvas.width) {
+              currentX = 0;
+              currentY++;
+            }
           }
           
-          visited.add(key);
-          processed++;
+          // Update layer canvas periodically for visual feedback
+          if (totalPixelsFilled > 0 && totalPixelsFilled % 5000 === 0) {
+            ctx.putImageData(imageData, 0, 0);
+          }
           
-          const currentPixelIndex = (currentY * canvas.width + currentX) * 4;
-          const currentR = imageData.data[currentPixelIndex];
-          const currentG = imageData.data[currentPixelIndex + 1];
-          const currentB = imageData.data[currentPixelIndex + 2];
-          const currentA = imageData.data[currentPixelIndex + 3];
-          
-          // Check if pixel matches target color within tolerance
-          const colorDistance = Math.sqrt(
-            Math.pow(currentR - targetR, 2) +
-            Math.pow(currentG - targetG, 2) +
-            Math.pow(currentB - targetB, 2) +
-            Math.pow(currentA - targetA, 2)
-          );
-          
-          if (colorDistance <= fillTolerance) {
-            // Update pixel immediately for visual feedback
-            imageData.data[currentPixelIndex] = fillColorRgba.r;
-            imageData.data[currentPixelIndex + 1] = fillColorRgba.g;
-            imageData.data[currentPixelIndex + 2] = fillColorRgba.b;
-            imageData.data[currentPixelIndex + 3] = fillColorRgba.a;
-            totalPixelsFilled++;
+          // Continue if not done
+          if (currentY < canvas.height) {
+            requestAnimationFrame(processNonContiguousChunk);
+          } else {
+            // Final update
+            ctx.putImageData(imageData, 0, 0);
+            isProcessing = false;
+            debugLog('🪣 Non-contiguous fill completed with', totalPixelsFilled, 'pixels filled');
+            ctx.restore();
             
-            // Add neighboring pixels to stack
-            if (fillContiguous) {
+            // Commit changes to history
+            if (appState.commit) {
+              appState.commit();
+            }
+            
+            // Recompose layers and update texture
+            if (appState.composeLayers) {
+              appState.composeLayers();
+            }
+            if ((window as any).updateModelTexture) {
+              (window as any).updateModelTexture();
+            }
+          }
+        };
+        
+        // Start non-contiguous fill
+        processNonContiguousChunk();
+      } else {
+        // Contiguous fill: Use flood fill algorithm
+        const visited = new Set<string>();
+        const stack: Array<{x: number, y: number}> = [{x: fillX, y: fillY}]; // Use fillX and fillY
+        const PIXELS_PER_CHUNK = 1000; // Process 1000 pixels per frame
+        let isProcessing = true;
+        let totalPixelsFilled = 0;
+        
+        const processChunk = () => {
+          if (!isProcessing) return;
+          
+          let processed = 0;
+          while (stack.length > 0 && processed < PIXELS_PER_CHUNK) {
+            const {x: currentX, y: currentY} = stack.pop()!;
+            const key = `${currentX},${currentY}`;
+            
+            if (visited.has(key) || currentX < 0 || currentX >= canvas.width || currentY < 0 || currentY >= canvas.height) {
+              continue;
+            }
+            
+            visited.add(key);
+            processed++;
+            
+            const currentPixelIndex = (currentY * canvas.width + currentX) * 4;
+            
+            // Get pixel color from source (composed canvas if available)
+            let currentR, currentG, currentB, currentA;
+            if (sourceImageData && sourceImageData.width === canvas.width && sourceImageData.height === canvas.height) {
+              const sourceIndex = currentPixelIndex;
+              currentR = sourceImageData.data[sourceIndex] || 0;
+              currentG = sourceImageData.data[sourceIndex + 1] || 0;
+              currentB = sourceImageData.data[sourceIndex + 2] || 0;
+              currentA = sourceImageData.data[sourceIndex + 3] || 255;
+            } else {
+              currentR = imageData.data[currentPixelIndex] || 0;
+              currentG = imageData.data[currentPixelIndex + 1] || 0;
+              currentB = imageData.data[currentPixelIndex + 2] || 0;
+              currentA = imageData.data[currentPixelIndex + 3] || 255;
+            }
+            
+            // Check if pixel matches target color within tolerance
+            const colorDistance = Math.sqrt(
+              Math.pow(currentR - targetR, 2) +
+              Math.pow(currentG - targetG, 2) +
+              Math.pow(currentB - targetB, 2) +
+              Math.pow(currentA - targetA, 2)
+            );
+            
+            if (colorDistance <= fillTolerance) {
+              // Update pixel immediately for visual feedback
+              imageData.data[currentPixelIndex] = fillColorRgba.r;
+              imageData.data[currentPixelIndex + 1] = fillColorRgba.g;
+              imageData.data[currentPixelIndex + 2] = fillColorRgba.b;
+              imageData.data[currentPixelIndex + 3] = fillColorRgba.a;
+              totalPixelsFilled++;
+              
+              // Add neighboring pixels to stack
               stack.push({x: currentX + 1, y: currentY});
               stack.push({x: currentX - 1, y: currentY});
               stack.push({x: currentX, y: currentY + 1});
               stack.push({x: currentX, y: currentY - 1});
             }
           }
-        }
+          
+          // Update layer canvas periodically for visual feedback (every 5000 pixels)
+          if (totalPixelsFilled > 0 && totalPixelsFilled % 5000 === 0) {
+            ctx.putImageData(imageData, 0, 0);
+          }
+          
+          // Continue processing if stack is not empty
+          if (stack.length > 0) {
+            requestAnimationFrame(processChunk);
+          } else {
+            // Final update
+            ctx.putImageData(imageData, 0, 0);
+            isProcessing = false;
+            debugLog('🪣 Fill completed with', totalPixelsFilled, 'pixels filled');
+            ctx.restore();
+            
+            // Commit changes to history
+            if (appState.commit) {
+              appState.commit();
+            }
+            
+            // Recompose layers and update texture
+            if (appState.composeLayers) {
+              appState.composeLayers();
+            }
+            if ((window as any).updateModelTexture) {
+              (window as any).updateModelTexture();
+            }
+          }
+        };
         
-        // Update canvas periodically for visual feedback (every 5000 pixels)
-        if (totalPixelsFilled > 0 && totalPixelsFilled % 5000 === 0) {
-          ctx.putImageData(imageData, 0, 0);
-        }
-        
-        // Continue processing if stack is not empty
-        if (stack.length > 0) {
-          requestAnimationFrame(processChunk);
-        } else {
-          // Final update
-          ctx.putImageData(imageData, 0, 0);
-          isProcessing = false;
-          debugLog('🪣 Fill completed with', totalPixelsFilled, 'pixels filled');
-        }
-      };
-      
-      // Start chunked processing
-      processChunk();
+        // Start chunked processing
+        processChunk();
+      }
       
     } else if (currentActiveTool === 'eraser') {
       // Eraser tool - erase from ALL texture layers and displacement layers
@@ -5348,56 +5605,193 @@ const canvasDimensions = {
             const composedCanvas = appState.composedCanvas;
             if (!composedCanvas) return;
             
-            // CRITICAL FIX: Use the EXACT same coordinate conversion as text tool
-            // Text tool uses convertUVToPixel which does: y = (1 - uv.v) * height
-            // So we need to match that exactly
+            // CRITICAL FIX: Use UV coordinates DIRECTLY - no flipping at all
+            // The model's texture coordinates are already in the correct orientation for canvas rendering
+            // Use uv.x and uv.y directly, matching how images work
             const canvasWidth = composedCanvas.width;
             const canvasHeight = composedCanvas.height;
             
-            // Convert UV to pixel coordinates (matching text tool exactly)
-            // uv is THREE.Vector2, so use .x and .y properties
-            const pixelX = Math.floor(uv.x * canvasWidth);
-            const pixelY = Math.floor((1 - uv.y) * canvasHeight); // Flip V for canvas space
+            // Store pixel coordinates directly from UV (no flip)
+            const positionX = Math.round(uv.x * canvasWidth);
+            const positionY = Math.round(uv.y * canvasHeight);
             
-            // Convert pixel coordinates to percentage (0-100%)
-            // This matches how shapes are stored and rendered
-            const positionX = (pixelX / canvasWidth) * 100;
-            const positionY = (pixelY / canvasHeight) * 100;
+            // CRITICAL: Check for anchor clicks FIRST before anything else
+            // This prevents creating new shapes when clicking anchors
+            const handleSize = 8;
+            const anchorHitbox = handleSize / 2 + 10; // Larger hitbox for easier clicking (10px radius)
+            let clickedAnchorShape = null;
+            let clickedAnchor = null;
             
-            console.log('🔷 Shape tool click:', {
-              uv: { u: uv.x, v: uv.y },
-              pixel: { x: pixelX, y: pixelY },
-              position: { x: positionX, y: positionY },
-              canvas: { width: canvasWidth, height: canvasHeight }
-            });
+            // Prioritize active shape for anchor detection
+            const shapesToCheck = [];
+            if (appState.activeShapeId) {
+              const activeShape = appState.shapeElements.find(s => s.id === appState.activeShapeId);
+              if (activeShape && activeShape.visible) {
+                shapesToCheck.push(activeShape);
+              }
+            }
+            // Then check all other shapes
+            for (const shape of appState.shapeElements || []) {
+              if (shape.visible && shape.id !== appState.activeShapeId) {
+                shapesToCheck.push(shape);
+              }
+            }
             
-            // Check if clicking on existing shape
+            // Check ALL shapes for anchor hits first
+            for (const shape of shapesToCheck) {
+              const shapeX = shape.positionX;
+              const shapeY = shape.positionY;
+              const shapeSize = shape.size || 50;
+              const shapeRadius = shapeSize / 2;
+              
+              // Calculate anchor positions (same as rendering code - matches handles array order)
+              // Handles[0] = top-left, Handles[1] = top-right, Handles[2] = bottom-left, Handles[3] = bottom-right
+              // Anchor name indicates which corner this is (for resize logic to know which opposite corner to fix)
+              const anchors = [
+                { x: shapeX - shapeRadius - 5, y: shapeY - shapeRadius - 5, name: 'topLeft' },   // top-left corner
+                { x: shapeX + shapeRadius + 5, y: shapeY - shapeRadius - 5, name: 'topRight' },  // top-right corner
+                { x: shapeX - shapeRadius - 5, y: shapeY + shapeRadius + 5, name: 'bottomLeft' },// bottom-left corner
+                { x: shapeX + shapeRadius + 5, y: shapeY + shapeRadius + 5, name: 'bottomRight' } // bottom-right corner
+              ];
+              
+              for (const anchor of anchors) {
+                const distance = Math.sqrt(
+                  Math.pow(positionX - anchor.x, 2) + 
+                  Math.pow(positionY - anchor.y, 2)
+                );
+                if (distance <= anchorHitbox) {
+                  clickedAnchorShape = shape;
+                  clickedAnchor = anchor.name;
+                  break;
+                }
+              }
+              if (clickedAnchor) break;
+            }
+            
+            // If anchor clicked, start resizing and return IMMEDIATELY
+            if (clickedAnchor && clickedAnchorShape) {
+              console.log('🔷 Shape tool: Clicked anchor', clickedAnchor, 'on shape', clickedAnchorShape.id);
+              appState.setActiveShapeId(clickedAnchorShape.id);
+              (window as any).__shapeResizing = true;
+              const shapeSize = clickedAnchorShape.size || 50;
+              const shapeRadius = shapeSize / 2;
+              
+              // Store the initial anchor position in pixel coordinates
+              let anchorStartX: number, anchorStartY: number;
+              switch (clickedAnchor) {
+                case 'topLeft':
+                  anchorStartX = clickedAnchorShape.positionX - shapeRadius - 5;
+                  anchorStartY = clickedAnchorShape.positionY - shapeRadius - 5;
+                  break;
+                case 'topRight':
+                  anchorStartX = clickedAnchorShape.positionX + shapeRadius + 5;
+                  anchorStartY = clickedAnchorShape.positionY - shapeRadius - 5;
+                  break;
+                case 'bottomLeft':
+                  anchorStartX = clickedAnchorShape.positionX - shapeRadius - 5;
+                  anchorStartY = clickedAnchorShape.positionY + shapeRadius + 5;
+                  break;
+                case 'bottomRight':
+                  anchorStartX = clickedAnchorShape.positionX + shapeRadius + 5;
+                  anchorStartY = clickedAnchorShape.positionY + shapeRadius + 5;
+                  break;
+                default:
+                  anchorStartX = positionX;
+                  anchorStartY = positionY;
+              }
+              
+              (window as any).__shapeResizeStart = {
+                shapeId: clickedAnchorShape.id,
+                anchor: clickedAnchor,
+                startX: positionX,
+                startY: positionY,
+                anchorStartX: anchorStartX,
+                anchorStartY: anchorStartY,
+                shapeX: clickedAnchorShape.positionX,
+                shapeY: clickedAnchorShape.positionY,
+                shapeSize: shapeSize
+              };
+              // CRITICAL: Ensure dragging is NOT active when resizing
+              (window as any).__shapeDragging = false;
+              delete (window as any).__shapeDragStart;
+              setControlsEnabled(false);
+              return; // CRITICAL: Return immediately to prevent shape creation
+            }
+            
+            // Now check if clicking on shape body (not anchors)
+            // CRITICAL: Exclude anchor areas from shape body hit test
+            const HIT_TEST_TOLERANCE = 2; // pixels
+            const ANCHOR_EXCLUSION_ZONE = 15; // pixels - exclude this area around anchors
             let clickedShape = null;
             for (const shape of appState.shapeElements || []) {
               if (shape.visible === false) continue;
               
-              // Convert shape position to pixel coordinates for hit testing
-              const shapeX = (shape.positionX / 100) * canvasWidth;
-              const shapeY = (shape.positionY / 100) * canvasHeight;
-              const shapeRadius = shape.size / 2;
+              const shapeX = shape.positionX;
+              const shapeY = shape.positionY;
+              const shapeSize = shape.size || 50;
+              const shapeRadius = shapeSize / 2;
               
-              // Check if click is within shape bounds
+              // Calculate anchor positions to exclude them from body hit test
+              const anchors = [
+                { x: shapeX - shapeRadius - 5, y: shapeY - shapeRadius - 5 },
+                { x: shapeX + shapeRadius + 5, y: shapeY - shapeRadius - 5 },
+                { x: shapeX - shapeRadius - 5, y: shapeY + shapeRadius + 5 },
+                { x: shapeX + shapeRadius + 5, y: shapeY + shapeRadius + 5 }
+              ];
+              
+              // Check if click is within anchor exclusion zone
+              let isInAnchorZone = false;
+              for (const anchor of anchors) {
+                const anchorDistance = Math.sqrt(
+                  Math.pow(positionX - anchor.x, 2) + 
+                  Math.pow(positionY - anchor.y, 2)
+                );
+                if (anchorDistance <= ANCHOR_EXCLUSION_ZONE) {
+                  isInAnchorZone = true;
+                  break;
+                }
+              }
+              
+              // Skip if click is in anchor zone
+              if (isInAnchorZone) continue;
+              
+              // Check if click is within shape bounds (with tolerance)
               const distance = Math.sqrt(
-                Math.pow(pixelX - shapeX, 2) + 
-                Math.pow(pixelY - shapeY, 2)
+                Math.pow(positionX - shapeX, 2) + 
+                Math.pow(positionY - shapeY, 2)
               );
               
-              if (distance <= shapeRadius) {
+              if (distance <= shapeRadius + HIT_TEST_TOLERANCE) {
                 clickedShape = shape;
                 break;
               }
             }
             
             if (clickedShape) {
-              // Select existing shape
+              // Select shape and start dragging
               appState.setActiveShapeId(clickedShape.id);
+              
+              const shapeX = clickedShape.positionX;
+              const shapeY = clickedShape.positionY;
+              const shapeRadius = (clickedShape.size || 50) / 2;
+              
+              // Start dragging
+              console.log('🔷 Shape tool: Started dragging');
+              (window as any).__shapeDragging = true;
+              (window as any).__shapeDragStart = {
+                shapeId: clickedShape.id,
+                startX: positionX,
+                startY: positionY,
+                shapeX: shapeX,
+                shapeY: shapeY
+              };
+              // CRITICAL: Ensure resizing is NOT active when dragging
+              (window as any).__shapeResizing = false;
+              delete (window as any).__shapeResizeStart;
+              setControlsEnabled(false);
+              return; // Return to prevent shape creation
             } else {
-              // Place new shape at click position
+              // No shape clicked - create new shape
               appState.addShapeElement({
                 type: appState.shapeType,
                 positionX,
@@ -5511,6 +5905,95 @@ const canvasDimensions = {
           } else {
             document.body.style.cursor = 'default';
           }
+        }
+      }
+      
+      // Update cursor for shapes tool when hovering over shape/anchors
+      if ((activeTool === 'shapes' || activeTool === 'move') && e.uv) {
+        const { activeShapeId, shapeElements } = useApp.getState();
+        
+        if (activeShapeId) {
+          const selectedShape = shapeElements.find(s => s.id === activeShapeId);
+          if (selectedShape && selectedShape.visible) {
+            const { composedCanvas } = useApp.getState();
+            if (composedCanvas) {
+              // Convert UV to pixel coordinates (same as shape creation - no flip)
+              const hoverPixelX = Math.round(e.uv.x * composedCanvas.width);
+              const hoverPixelY = Math.round(e.uv.y * composedCanvas.height);
+              
+              const shapeX = selectedShape.positionX;
+              const shapeY = selectedShape.positionY;
+              const shapeSize = selectedShape.size || 50;
+              const shapeRadius = shapeSize / 2;
+              const handleSize = 8; // Match handle size from AdvancedLayerSystemV2.ts
+              
+              // Calculate anchor positions (same as rendering code)
+              // CURSOR FIX: Flipped 180° (both X and Y axes flipped)
+              // Flip pattern: ne↔sw, nw↔se
+              const anchors = [
+                { 
+                  x: shapeX - shapeRadius - 5, 
+                  y: shapeY - shapeRadius - 5, 
+                  cursor: 'se-resize', // Top-left: flipped from nw
+                  name: 'topLeft'
+                },
+                { 
+                  x: shapeX + shapeRadius + 5, 
+                  y: shapeY - shapeRadius - 5, 
+                  cursor: 'sw-resize', // Top-right: flipped from ne (should now show correct direction)
+                  name: 'topRight'
+                },
+                { 
+                  x: shapeX - shapeRadius - 5, 
+                  y: shapeY + shapeRadius + 5, 
+                  cursor: 'ne-resize', // Bottom-left: flipped from sw
+                  name: 'bottomLeft'
+                },
+                { 
+                  x: shapeX + shapeRadius + 5, 
+                  y: shapeY + shapeRadius + 5, 
+                  cursor: 'nw-resize', // Bottom-right: flipped from se
+                  name: 'bottomRight'
+                }
+              ];
+              
+              // Check if hovering over any anchor
+              let overAnchor = false;
+              for (const anchor of anchors) {
+                const anchorHalfSize = handleSize / 2;
+                if (
+                  hoverPixelX >= anchor.x - anchorHalfSize &&
+                  hoverPixelX <= anchor.x + anchorHalfSize &&
+                  hoverPixelY >= anchor.y - anchorHalfSize &&
+                  hoverPixelY <= anchor.y + anchorHalfSize
+                ) {
+                  document.body.style.cursor = anchor.cursor;
+                  overAnchor = true;
+                  break;
+                }
+              }
+              
+              // If not over anchor but over shape, show move cursor
+              if (!overAnchor) {
+                const distance = Math.sqrt(
+                  Math.pow(hoverPixelX - shapeX, 2) + 
+                  Math.pow(hoverPixelY - shapeY, 2)
+                );
+                
+                if (distance <= shapeRadius + 5) { // 5px padding for border
+                  document.body.style.cursor = 'move';
+                } else {
+                  document.body.style.cursor = 'default';
+                }
+              }
+            } else {
+              document.body.style.cursor = 'default';
+            }
+          } else {
+            document.body.style.cursor = 'default';
+          }
+        } else {
+          document.body.style.cursor = 'default';
         }
       }
       
@@ -6394,7 +6877,124 @@ const canvasDimensions = {
         return;
       }
       
-      // Shape dragging removed - will be rebuilt from scratch
+      // Handle shape resizing - CHECK FIRST to prevent drag from interfering
+      // CRITICAL: Must check resizing BEFORE dragging to ensure mutual exclusion
+      if ((activeTool === 'shapes' || activeTool === 'move') && (window as any).__shapeResizing && (window as any).__shapeResizeStart) {
+        // CRITICAL: Explicitly disable dragging during resize
+        (window as any).__shapeDragging = false;
+        delete (window as any).__shapeDragStart;
+        
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const { composedCanvas } = useApp.getState();
+          if (composedCanvas) {
+            const currentPixelX = Math.round(uv.x * composedCanvas.width);
+            const currentPixelY = Math.round(uv.y * composedCanvas.height);
+            
+            const resizeStart = (window as any).__shapeResizeStart;
+            const originalX = resizeStart.shapeX;
+            const originalY = resizeStart.shapeY;
+            const originalSize = resizeStart.shapeSize;
+            const originalRadius = originalSize / 2;
+            
+            // Calculate delta from initial anchor position
+            const deltaX = currentPixelX - resizeStart.startX;
+            const deltaY = currentPixelY - resizeStart.startY;
+            
+            // Current dragged corner position (where the anchor is now)
+            const draggedCornerX = resizeStart.anchorStartX + deltaX;
+            const draggedCornerY = resizeStart.anchorStartY + deltaY;
+            
+            // Calculate the OPPOSITE corner position (this stays FIXED during resize)
+            // When dragging one corner, the opposite corner must stay in place
+            let fixedCornerX: number, fixedCornerY: number;
+            switch (resizeStart.anchor) {
+              case 'topLeft': // Dragging top-left, bottom-right stays fixed
+                fixedCornerX = originalX + originalRadius;
+                fixedCornerY = originalY + originalRadius;
+                break;
+              case 'topRight': // Dragging top-right, bottom-left stays fixed
+                fixedCornerX = originalX - originalRadius;
+                fixedCornerY = originalY + originalRadius;
+                break;
+              case 'bottomLeft': // Dragging bottom-left, top-right stays fixed
+                fixedCornerX = originalX + originalRadius;
+                fixedCornerY = originalY - originalRadius;
+                break;
+              case 'bottomRight': // Dragging bottom-right, top-left stays fixed
+                fixedCornerX = originalX - originalRadius;
+                fixedCornerY = originalY - originalRadius;
+                break;
+              default:
+                fixedCornerX = originalX + originalRadius;
+                fixedCornerY = originalY + originalRadius;
+            }
+            
+            // Calculate distance from dragged corner to fixed corner
+            const width = Math.abs(draggedCornerX - fixedCornerX);
+            const height = Math.abs(draggedCornerY - fixedCornerY);
+            
+            // New size is the larger dimension (maintains square shape)
+            const newSize = Math.max(width, height) * 2;
+            const clampedSize = Math.max(20, Math.min(500, newSize));
+            const newRadius = clampedSize / 2;
+            
+            // Calculate new center position as midpoint between dragged corner and fixed corner
+            // This ensures the opposite corner stays fixed while the dragged corner moves
+            const newCenterX = (draggedCornerX + fixedCornerX) / 2;
+            const newCenterY = (draggedCornerY + fixedCornerY) / 2;
+            
+            // Clamp to canvas bounds
+            const clampedX = Math.max(newRadius, Math.min(composedCanvas.width - newRadius, newCenterX));
+            const clampedY = Math.max(newRadius, Math.min(composedCanvas.height - newRadius, newCenterY));
+            
+            // Update shape - size and center (center moves to keep opposite corner fixed)
+            useApp.getState().updateShapeElement(resizeStart.shapeId, {
+              positionX: clampedX,
+              positionY: clampedY,
+              size: clampedSize
+            });
+            
+            // Force texture update
+            useApp.getState().composeLayers();
+            updateModelTexture(true, false);
+          }
+        }
+        return; // CRITICAL: Return immediately to prevent drag logic from running
+      }
+      
+      // Handle shape dragging - ONLY run if NOT resizing
+      // CRITICAL: Explicitly check that resizing is NOT active
+      if ((activeTool === 'shapes' || activeTool === 'move') && (window as any).__shapeDragging && (window as any).__shapeDragStart && !(window as any).__shapeResizing) {
+        // CRITICAL: Explicitly disable resizing during drag
+        (window as any).__shapeResizing = false;
+        delete (window as any).__shapeResizeStart;
+        const uv = e.uv as THREE.Vector2 | undefined;
+        if (uv) {
+          const { composedCanvas } = useApp.getState();
+          if (composedCanvas) {
+            const currentPixelX = Math.round(uv.x * composedCanvas.width);
+            const currentPixelY = Math.round(uv.y * composedCanvas.height);
+            
+            const dragStart = (window as any).__shapeDragStart;
+            const deltaX = currentPixelX - dragStart.startX;
+            const deltaY = currentPixelY - dragStart.startY;
+            
+            const newShapeX = Math.max(0, Math.min(composedCanvas.width, dragStart.shapeX + deltaX));
+            const newShapeY = Math.max(0, Math.min(composedCanvas.height, dragStart.shapeY + deltaY));
+            
+            useApp.getState().updateShapeElement(dragStart.shapeId, {
+              positionX: newShapeX,
+              positionY: newShapeY
+            });
+            
+            // Force texture update
+            useApp.getState().composeLayers();
+            updateModelTexture(true, false);
+          }
+        }
+        return;
+      }
       
       // Handle vector anchor dragging
       // PERFORMANCE: Throttle anchor dragging updates using requestAnimationFrame
@@ -6781,13 +7381,21 @@ const canvasDimensions = {
     
     // Shape tool resize end removed - will be rebuilt from scratch
     
-    // Handle shape tool drag end (same pattern as image tool)
-    if ((activeTool as string) === 'shapes' && (window as any).__shapeDragging) {
+    // Handle shape tool drag end
+    if ((activeTool === 'shapes' || activeTool === 'move') && (window as any).__shapeDragging) {
       console.log('🔷 Shape tool: Ended dragging');
       (window as any).__shapeDragging = false;
       delete (window as any).__shapeDragStart;
       setControlsEnabled(true);
-      // Reset cursor
+      document.body.style.cursor = 'default';
+    }
+    
+    // Handle shape tool resize end
+    if ((activeTool === 'shapes' || activeTool === 'move') && (window as any).__shapeResizing) {
+      console.log('🔷 Shape tool: Ended resizing');
+      (window as any).__shapeResizing = false;
+      delete (window as any).__shapeResizeStart;
+      setControlsEnabled(true);
       document.body.style.cursor = 'default';
     }
     
@@ -7582,10 +8190,20 @@ const canvasDimensions = {
       {/* Selection Visualization - Shows bounding boxes and transform handles */}
       {selectedElements.length > 0 && (
         <Html fullscreen style={{ pointerEvents: 'none' }}>
-          {/* CRITICAL FIX: SelectionVisualization handles pointer events internally on its canvas */}
+          {/* SelectionVisualization is for visual feedback only - actual dragging is handled in pointer events */}
           <SelectionVisualization
             canvasWidth={1024}
             canvasHeight={1024}
+            onDragStart={() => {
+              // Disable camera controls when starting to drag/resize shape
+              console.log('🔷 Shape drag/resize started - disabling camera controls');
+              setControlsEnabled(false);
+            }}
+            onDragEnd={() => {
+              // Re-enable camera controls when done dragging/resizing
+              console.log('🔷 Shape drag/resize ended - re-enabling camera controls');
+              setControlsEnabled(true);
+            }}
             onElementMove={(elementId, newPosition) => {
             console.log('🎯 Element moved:', elementId, newPosition);
             
@@ -7616,9 +8234,21 @@ const canvasDimensions = {
                 });
                 break;
               }
-              case 'shape':
-                // Shape element move removed - will be rebuilt from scratch
+              case 'shape': {
+                // CRITICAL FIX: Shapes use positionX/positionY in pixels directly
+                // No conversion needed - positions are already in pixels
+                const newShapePositionX = Math.round(newPosition.x);
+                const newShapePositionY = Math.round(newPosition.y);
+                
+                // Clamp to canvas bounds
+                const maxX = canvasWidth - 1;
+                const maxY = canvasHeight - 1;
+                useApp.getState().updateShapeElement(elementId, {
+                  positionX: Math.max(0, Math.min(maxX, newShapePositionX)),
+                  positionY: Math.max(0, Math.min(maxY, newShapePositionY))
+                });
                 break;
+              }
             }
             
             // Force layer composition and texture update
@@ -7662,11 +8292,24 @@ const canvasDimensions = {
                 });
                 break;
               }
-              case 'shape':
-                // CRITICAL FIX: Shapes use positionX/positionY (0-100%) and size (pixels)
-                // Convert pixel coordinates back to percentage and size
-                // Shape element resize removed - will be rebuilt from scratch
+              case 'shape': {
+                // CRITICAL FIX: Shapes use positionX/positionY in pixels directly
+                // No conversion needed - calculate center position from bounds
+                const newPositionX = Math.round(newBounds.minX + newBounds.width / 2);
+                const newPositionY = Math.round(newBounds.minY + newBounds.height / 2);
+                // Size is the larger of width or height (shapes are square-based)
+                const newSize = Math.round(Math.max(newBounds.width, newBounds.height));
+                
+                // Clamp to canvas bounds and size limits
+                const maxX = canvasWidth - 1;
+                const maxY = canvasHeight - 1;
+                useApp.getState().updateShapeElement(elementId, {
+                  positionX: Math.max(0, Math.min(maxX, newPositionX)),
+                  positionY: Math.max(0, Math.min(maxY, newPositionY)),
+                  size: Math.max(10, Math.min(500, newSize)) // Min 10px, max 500px
+                });
                 break;
+              }
             }
             
             // Force layer composition and texture update

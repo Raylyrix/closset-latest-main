@@ -11,6 +11,7 @@ interface BrushEngineState {
   ctx: CanvasRenderingContext2D;
   brushCache: Map<string, HTMLCanvasElement>;
   strokeCache: Map<string, BrushPoint[]>;
+  imageCache: Map<string, HTMLImageElement>; // Cache for loaded custom brush images
   performanceMetrics: {
     fps: number;
     frameTime: number;
@@ -168,6 +169,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         ctx,
         brushCache: new Map(),
         strokeCache: new Map(),
+        imageCache: new Map(),
         performanceMetrics: {
           fps: 60,
           frameTime: 16.67,
@@ -198,6 +200,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         canvas: fallbackCanvas,
         ctx: fallbackCtx,
         brushCache: new Map(),
+        imageCache: new Map(),
         strokeCache: new Map(),
         performanceMetrics: {
           fps: 30, // Reduced performance for fallback
@@ -537,7 +540,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
    */
   const getBrushCacheKey = useCallback((settings: BrushSettings): string => {
     const gradientKey = settings.gradient ? JSON.stringify(settings.gradient) : 'none';
-    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}`;
+    const customBrushKey = settings.customBrushImage ? settings.customBrushImage.substring(0, 50) : 'none'; // Use first 50 chars of image data for cache key
+    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}-${customBrushKey}`;
   }, []);
 
   const createBrushStamp = useCallback((settings: BrushSettings): HTMLCanvasElement => {
@@ -579,7 +583,115 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
       // Clear canvas
       stampCtx.clearRect(0, 0, stampSize, stampSize);
 
-      // Create brush-specific stamp based on shape
+      // Check if custom brush image is provided
+      if (settings.customBrushImage) {
+        // Check if image is already cached and loaded
+        let img = state.imageCache.get(settings.customBrushImage);
+        
+        if (!img) {
+          // Image not cached, create and cache it (will load asynchronously)
+          img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = settings.customBrushImage;
+          state.imageCache.set(settings.customBrushImage, img);
+        }
+        
+        // If image is loaded and ready, use it as a stencil
+        if (img.complete && img.width > 0 && img.height > 0) {
+          // FIXED: Use actual brush size for proper scaling
+          // The stamp size should match brush size, but we'll render at higher quality
+          const actualBrushSize = settings.size; // Use actual brush size so it scales correctly
+          const imageMaxDimension = Math.max(img.width, img.height);
+          
+          // Calculate scaling to fit the ACTUAL brush size - this ensures size changes with brush size
+          const scale = actualBrushSize / imageMaxDimension;
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          
+          // Use the existing stamp canvas (which is 2x optimizedSize)
+          // But for custom brushes, use actual brush size to match exactly
+          const customStampSize = Math.ceil(actualBrushSize * 2); // 2x for quality
+          
+          // Create a new canvas matching brush size for proper scaling
+          const customCanvas = document.createElement('canvas');
+          customCanvas.width = customStampSize;
+          customCanvas.height = customStampSize;
+          const customCtx = customCanvas.getContext('2d', { alpha: true });
+          
+          if (!customCtx) {
+            throw new Error('Failed to get 2D context for custom brush stamp');
+          }
+          
+          // Clear the canvas
+          customCtx.clearRect(0, 0, customStampSize, customStampSize);
+          
+          // Get brush color and opacity
+          const brushColor = settings.color || '#000000';
+          const brushOpacity = (settings.opacity || 1.0);
+          
+          // QUALITY: Use high-quality image smoothing for crisp results
+          customCtx.imageSmoothingEnabled = true;
+          customCtx.imageSmoothingQuality = 'high';
+          
+          // Scale the image dimensions to match the high-res canvas
+          const scaledDrawWidth = scaledWidth * 2; // Scale to 2x for quality
+          const scaledDrawHeight = scaledHeight * 2;
+          const drawX = (customStampSize - scaledDrawWidth) / 2;
+          
+          // Draw the image at high resolution (includes alpha channel/mask)
+          customCtx.save();
+          customCtx.globalAlpha = brushOpacity;
+          
+          // FIX Y-AXIS INVERSION: Flip the image vertically
+          // Translate to bottom of canvas, flip Y-axis (scale Y by -1)
+          customCtx.translate(customStampSize / 2, customStampSize / 2);
+          customCtx.scale(1, -1); // Flip vertically
+          customCtx.translate(-customStampSize / 2, -customStampSize / 2);
+          
+          // Draw image centered (drawY calculated for flipped coordinate system)
+          const drawY = (customStampSize - scaledDrawHeight) / 2;
+          customCtx.drawImage(img, drawX, drawY, scaledDrawWidth, scaledDrawHeight);
+          
+          // Reset transform
+          customCtx.restore();
+          
+          // Apply the brush color using source-atop blend mode
+          // This will ONLY color the opaque parts, preserving transparency
+          customCtx.save();
+          customCtx.globalCompositeOperation = 'source-atop';
+          customCtx.fillStyle = brushColor;
+          customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          customCtx.restore();
+          
+          // Use this canvas as the stamp
+          const qualityStampCanvas = customCanvas;
+          
+          // Cache the high-quality result
+          if (state.brushCache.size < 100) {
+            state.brushCache.set(cacheKey, qualityStampCanvas);
+          } else {
+            const entries = Array.from(state.brushCache.entries());
+            const oldestEntries = entries.slice(0, 20);
+            oldestEntries.forEach(([key]) => state.brushCache.delete(key));
+            state.brushCache.set(cacheKey, qualityStampCanvas);
+          }
+          
+          updatePerformanceMetrics();
+          return qualityStampCanvas;
+        } else {
+          // Image not ready yet, fall back to default brush
+          // This can happen on first load - the image will be ready on next call
+          console.warn('Custom brush image not ready yet, using default brush. Will use custom image once loaded.');
+          createBrushSpecificStamp(stampCtx, { ...settings, size: optimizedSize }, stampSize, centerX, centerY, radius);
+          if (state.brushCache.size < 100) {
+            state.brushCache.set(cacheKey, stampCanvas);
+          }
+          updatePerformanceMetrics();
+          return stampCanvas;
+        }
+      }
+
+      // Create brush-specific stamp based on shape (default behavior)
       createBrushSpecificStamp(stampCtx, { ...settings, size: optimizedSize }, stampSize, centerX, centerY, radius);
 
       // Cache the result with size limit

@@ -122,6 +122,9 @@ export interface BrushSettings {
   texture: BrushTexture;
   shape: 'round' | 'square' | 'diamond' | 'triangle' | 'airbrush' | 'calligraphy' | 'spray' | 'texture' | 'watercolor' | 'oil' | 'charcoal' | 'pencil' | 'marker' | 'highlighter' | 'chalk' | 'ink' | 'pastel' | 'acrylic' | 'gouache' | 'stencil' | 'stamp' | 'blur' | 'smudge';
   blendMode: GlobalCompositeOperation;
+  
+  // Custom Brush Image
+  customBrushImage?: string | null; // Data URL or image source for custom brush pattern
 
   // Puff-specific (for 3D)
   height?: number;

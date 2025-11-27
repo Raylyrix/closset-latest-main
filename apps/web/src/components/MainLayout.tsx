@@ -507,6 +507,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const showAnchorPoints = useApp(s => s.showAnchorPoints);
   const setShowAnchorPoints = useApp(s => s.setShowAnchorPoints);
   const vectorPaths = useApp(s => s.vectorPaths || []);
+  const activePathId = useApp(s => s.activePathId);
   
   // Vector toolbar state
   const [showVectorToolbar, setShowVectorToolbar] = useState(false);
@@ -1124,26 +1125,31 @@ export function MainLayout({ children }: MainLayoutProps) {
 
           <button
             data-apply-tool-button
-            disabled={vectorPaths.length === 0}
+            disabled={vectorPaths.length === 0 || !activePathId}
             title={vectorPaths.length === 0 
               ? 'No vector paths to apply. Create paths first.' 
-              : `Apply ${activeTool || 'tool'} to ${vectorPaths.length} path${vectorPaths.length !== 1 ? 's' : ''}`}
+              : !activePathId
+              ? 'No path selected. Click on a vector path to select it first.'
+              : `Apply ${activeTool || 'tool'} to selected path`}
             onClick={() => {
-                    console.log('🎨 Apply Tool button clicked - applying tools to vector paths');
+                    console.log('🎨 Apply Tool button clicked - applying tool to selected vector path');
                     try {
                       const appState = useApp.getState();
                       const vectorPaths = appState.vectorPaths || [];
-                      const activeLayerId = appState.activeLayerId; // Get active layer ID for stroke saving
+                      const activePathId = appState.activePathId;
+                      const activeLayerId = appState.activeLayerId;
                       
                       if (vectorPaths.length === 0) {
                         console.log('⚠️ No vector paths to apply tools to');
-                        // Show user-friendly message
                         alert('No vector paths to apply. Please create vector paths first using the vector tool.');
                         return;
                       }
                       
-                      console.log('🎨 Vector paths found:', vectorPaths.length);
-                      console.log('🎨 Vector paths:', vectorPaths);
+                      if (!activePathId) {
+                        console.log('⚠️ No path selected');
+                        alert('No path selected. Please select a vector path by clicking on it first.');
+                        return;
+                      }
                       
                       // Get current tool settings
                       const currentTool = appState.activeTool;
@@ -1156,29 +1162,29 @@ export function MainLayout({ children }: MainLayoutProps) {
                         return;
                       }
                       
-                      console.log(`🎨 Applying ${currentTool} to ${vectorPaths.length} vector paths`);
+                      // Find the selected path by activePathId
+                      const selectedPath = vectorPaths.find((p: any) => p.id === activePathId);
                       
-                      // CRITICAL FIX: Validate paths before applying
-                      const validPaths = vectorPaths.filter((path: any) => {
-                        // Must have points
-                        const points = path.points || path.anchors || path.vertices || (Array.isArray(path) ? path : []);
-                        if (!points || points.length < 2) {
-                          console.warn('⚠️ Skipping path (needs 2+ points):', path.id, 'points:', points?.length || 0);
-                          return false;
-                        }
-                        if (!path.id) {
-                          console.warn('⚠️ Skipping path with no ID');
-                          return false;
-                        }
-                        return true;
-                      });
-                      
-                      if (validPaths.length === 0) {
-                        console.log('⚠️ No valid paths to apply tools to');
+                      if (!selectedPath) {
+                        console.warn('⚠️ Selected path not found:', activePathId);
+                        alert('Selected path not found. Please select a path again.');
                         return;
                       }
                       
-                      console.log(`🎨 Applying ${currentTool} to ${validPaths.length} valid paths out of ${vectorPaths.length} total`);
+                      // Validate the selected path
+                      const points = selectedPath.points || selectedPath.anchors || selectedPath.vertices || [];
+                      if (!points || points.length < 2) {
+                        console.warn('⚠️ Selected path has insufficient points:', points?.length || 0);
+                        alert('Selected path needs at least 2 points. Please create a valid path.');
+                        return;
+                      }
+                      
+                      console.log(`🎨 Applying ${currentTool} to selected path:`, selectedPath.id);
+                      console.log('🎨 Selected path points:', points.length);
+                      
+                      // Apply to only the selected path
+                      const validPaths = [selectedPath];
+                      console.log(`🎨 Applying ${currentTool} to 1 selected path`);
                       
                       // REMOVED: allNewBrushStrokes array - no longer needed
                       // We render directly to layer.canvas, not to brushStrokes array
@@ -1237,27 +1243,49 @@ export function MainLayout({ children }: MainLayoutProps) {
                           return;
                         }
                         
-                        // Create sampled points for smooth tool application
-                        const sampledPoints = [];
-                        for (let i = 0; i < points.length - 1; i++) {
-                          const p1 = points[i];
-                          const p2 = points[i + 1];
+                        // Create sampled points for smooth tool application with bezier curve support
+                        const composedCanvas = appState.composedCanvas;
+                        const canvasWidth = composedCanvas?.width || 2048;
+                        const canvasHeight = composedCanvas?.height || 2048;
+                        const sampledPoints: Array<{ u: number; v: number; x?: number; y?: number }> = [];
+                        
+                        // Sample path with bezier curve support (similar to finishVectorPath)
+                        const stepsBase = 24;
+                        const getPt = (i: number) => points[(i + points.length) % points.length];
+                        const segCount = path.closed ? points.length : points.length - 1;
+                        
+                        for (let i = 0; i < segCount; i++) {
+                          const a = getPt(i);
+                          const b = getPt(i + 1);
+                          const hasOut = !!a?.outHandle;
+                          const hasIn = !!b?.inHandle;
                           
-                          // Handle different point structures
-                          const p1U = p1.u || p1.x || p1[0];
-                          const p1V = p1.v || p1.y || p1[1];
-                          const p2U = p2.u || p2.x || p2[0];
-                          const p2V = p2.v || p2.y || p2[1];
-                          
-                          const steps = Math.max(5, Math.floor(Math.sqrt(
-                            Math.pow(p2U - p1U, 2) + Math.pow(p2V - p1V, 2)
-                          )));
-                          
-                          for (let j = 0; j <= steps; j++) {
-                            const t = j / steps;
+                          for (let s = 0; s <= stepsBase; s++) {
+                            const t = s / stepsBase;
+                            let u: number, v: number;
+                            
+                            if (hasOut && hasIn) {
+                              const h1 = a.outHandle!;
+                              const h2 = b.inHandle!;
+                              const mt = 1 - t;
+                              u = mt*mt*mt*a.u + 3*mt*mt*t*h1.u + 3*mt*t*t*h2.u + t*t*t*b.u;
+                              v = mt*mt*mt*a.v + 3*mt*mt*t*h1.v + 3*mt*t*t*h2.v + t*t*t*b.v;
+                            } else if (hasOut || hasIn) {
+                              const h1 = hasOut ? a.outHandle! : { u: a.u, v: a.v };
+                              const h2 = hasIn ? b.inHandle! : { u: b.u, v: b.v };
+                              const mt = 1 - t;
+                              u = mt*mt*mt*a.u + 3*mt*mt*t*h1.u + 3*mt*t*t*h2.u + t*t*t*b.u;
+                              v = mt*mt*mt*a.v + 3*mt*mt*t*h1.v + 3*mt*t*t*h2.v + t*t*t*b.v;
+                            } else {
+                              u = a.u + (b.u - a.u) * t;
+                              v = a.v + (b.v - a.v) * t;
+                            }
+                            
                             sampledPoints.push({
-                              u: p1U + t * (p2U - p1U),
-                              v: p1V + t * (p2V - p1V)
+                              u,
+                              v,
+                              x: Math.round(u * canvasWidth),
+                              y: Math.round(v * canvasHeight)
                             });
                           }
                         }
@@ -1392,125 +1420,107 @@ export function MainLayout({ children }: MainLayoutProps) {
                             break;
                             
                           case 'brush':
-                            console.log('🎨 Applying brush tool to', sampledPoints.length, 'points');
+                            console.log('🎨 Applying brush tool to selected path');
                             const brushEngine = (window as any).__brushEngine;
                             
-                            if (brushEngine && brushEngine.renderVectorPath && layer && layerCanvas) {
-                              console.log('🎨 Using brush engine for gradient-aware rendering');
+                            if (brushEngine && layer && layerCanvas && ctx) {
+                              console.log('🎨 Using brush engine with CURRENT tool settings');
                               
-                              // CRITICAL FIX: Get composed canvas dimensions instead of layer canvas
+                              // Get canvas dimensions for coordinate conversion
                               const composedCanvas = appState.composedCanvas;
                               const canvasWidth = composedCanvas?.width || layerCanvas.width || 2048;
                               const canvasHeight = composedCanvas?.height || layerCanvas.height || 2048;
                               
-                              // Create canvas coordinates for brush engine
-                              const canvasPoints = path.points.map((p: any) => ({
-                                x: Math.floor(p.u * canvasWidth),
-                                y: Math.floor(p.v * canvasHeight),
-                                u: p.u,
-                                v: p.v,
-                                pressure: 1,
-                                timestamp: Date.now(),
-                                distance: 0
-                              }));
+                              // Get current gradient settings if any
+                              const gradientSettings = (window as any).getGradientSettings?.();
+                              const brushGradientData = gradientSettings?.brush;
                               
-                              // CRITICAL FIX: Use path's own settings from creation time, not current settings
-                              // This ensures each path keeps its own color/gradient from when it was created
-                              const canvasPath = {
-                                ...path,
-                                points: canvasPoints,
-                                // CRITICAL FIX: Set the tool property so renderVectorPath knows which tool to use
-                                tool: currentTool || 'brush',
-                                settings: {
-                                  ...(path.settings || {}), // Use path's own settings from creation time
-                                  // Only use current settings as fallback if path has no settings
-                                  color: path.settings?.color || appState.brushColor || '#000000',
-                                  size: path.settings?.size || appState.brushSize || 10,
-                                  opacity: path.settings?.opacity || appState.brushOpacity || 1.0,
-                                  // CRITICAL: Use path's gradient setting, NOT current gradient
-                                  gradient: path.settings?.gradient || undefined
-                                }
+                              // CRITICAL FIX: Use CURRENT tool settings (not path settings) when applying
+                              // This allows user to change tool settings and apply them to the path
+                              const currentBrushSettings = {
+                                color: appState.brushColor || '#000000',
+                                size: appState.brushSize || 50,
+                                opacity: appState.brushOpacity || 1.0,
+                                hardness: appState.brushHardness || 0.5,
+                                flow: appState.brushFlow || 1.0,
+                                spacing: appState.brushSpacing || 0.1,
+                                shape: appState.brushShape || 'round',
+                                blendMode: appState.blendMode || 'source-over',
+                                customBrushImage: appState.customBrushImage || undefined, // Include custom brush image
+                                gradient: brushGradientData?.mode === 'gradient' ? {
+                                  type: brushGradientData.type,
+                                  angle: brushGradientData.angle,
+                                  stops: brushGradientData.stops
+                                } : undefined
                               };
                               
-                              console.log('🎨 Canvas path prepared:', {
-                                id: canvasPath.id,
-                                tool: canvasPath.tool,
-                                pointsCount: canvasPath.points?.length || 0,
-                                hasSettings: !!canvasPath.settings,
-                                settings: canvasPath.settings
-                              });
+                              console.log(`🎨 Applying brush to ${sampledPoints.length} sampled points`);
                               
-                              // CRITICAL FIX: Use the ctx we already got (don't get new one inside loop)
-                              // Canvas is already cleared before loop, so just render to it
-                              if (ctx) {
-                                try {
-                                  // CRITICAL FIX: Render to layer canvas using brush engine
-                                  brushEngine.renderVectorPath(canvasPath, ctx);
-                                  console.log('🎨 Brush engine rendering completed for path:', path.id);
+                              // Render brush stamps along the path using current brush settings
+                              ctx.save();
+                              ctx.globalCompositeOperation = currentBrushSettings.blendMode;
+                              
+                              // Create brush stamp once for efficiency (will be cached by brush engine)
+                              const brushStamp = brushEngine.createBrushStamp(currentBrushSettings);
+                              const brushSize = currentBrushSettings.size;
+                              
+                              if (brushStamp) {
+                                // Apply brush stamps at each sampled point
+                                sampledPoints.forEach((point: any, index: number) => {
+                                  ctx.globalAlpha = currentBrushSettings.opacity * currentBrushSettings.flow;
                                   
-                                  // CRITICAL FIX: Verify that something was actually drawn
-                                  // Check if canvas has any non-transparent pixels after rendering
-                                  const imageData = ctx.getImageData(0, 0, Math.min(100, layerCanvas.width), Math.min(100, layerCanvas.height));
-                                  const hasPixels = imageData.data.some((val, idx) => idx % 4 === 3 && val > 0); // Check alpha channel
-                                  console.log('🎨 Canvas content check:', { hasPixels, sampleSize: `${Math.min(100, layerCanvas.width)}x${Math.min(100, layerCanvas.height)}` });
-                                } catch (error) {
-                                  console.error('❌ Error rendering path with brush engine:', error);
-                                  // Fallback: Draw simple stroke
-                                  ctx.save();
-                                  ctx.strokeStyle = canvasPath.settings?.color || appState.brushColor || '#000000';
-                                  ctx.lineWidth = canvasPath.settings?.size || appState.brushSize || 10;
-                                  ctx.globalAlpha = canvasPath.settings?.opacity || appState.brushOpacity || 1.0;
-                                  ctx.lineCap = 'round';
-                                  ctx.lineJoin = 'round';
-                                  ctx.beginPath();
-                                  canvasPoints.forEach((point: any, index: number) => {
-                                    if (index === 0) ctx.moveTo(point.x, point.y);
-                                    else ctx.lineTo(point.x, point.y);
-                                  });
-                                  ctx.stroke();
-                                  ctx.restore();
-                                  console.log('✅ Fallback rendering completed');
-                                }
-                              } else {
-                                console.warn('⚠️ Could not get canvas context from layer');
+                                  if (currentBrushSettings.customBrushImage) {
+                                    // Custom brush image - scale to brush size
+                                    ctx.imageSmoothingEnabled = true;
+                                    ctx.imageSmoothingQuality = 'high';
+                                    ctx.drawImage(
+                                      brushStamp,
+                                      0, 0, brushStamp.width, brushStamp.height,
+                                      (point.x || point.u * canvasWidth) - brushSize / 2,
+                                      (point.y || point.v * canvasHeight) - brushSize / 2,
+                                      brushSize, brushSize
+                                    );
+                                  } else {
+                                    // Default brush - use stamp size directly
+                                    ctx.drawImage(
+                                      brushStamp,
+                                      (point.x || point.u * canvasWidth) - brushStamp.width / 2,
+                                      (point.y || point.v * canvasHeight) - brushStamp.height / 2
+                                    );
+                                  }
+                                });
                               }
+                              
+                              ctx.restore();
+                              console.log('✅ Brush applied to selected path with current settings');
                             } else if (layer && layerCanvas && ctx) {
-                              // CRITICAL FIX: Use the SAME ctx we already have (don't get new one)
-                              // Fallback to manual rendering without gradient
-                              console.log('🎨 Drawing continuous brush stroke (fallback mode)');
+                              // Fallback if brush engine not available
+                              console.log('🎨 Drawing brush stroke (fallback mode)');
+                              
+                              // Get canvas dimensions for coordinate conversion
+                              const composedCanvas = appState.composedCanvas;
+                              const canvasWidth = composedCanvas?.width || layerCanvas.width || 2048;
+                              const canvasHeight = composedCanvas?.height || layerCanvas.height || 2048;
                               
                               ctx.save();
-                              ctx.globalCompositeOperation = 'source-over';
+                              ctx.globalCompositeOperation = appState.blendMode || 'source-over';
                               ctx.globalAlpha = appState.brushOpacity || 1.0;
                               ctx.strokeStyle = appState.brushColor || '#000000';
-                              ctx.lineWidth = appState.brushSize || 5;
+                              ctx.lineWidth = appState.brushSize || 10;
                               ctx.lineCap = 'round';
                               ctx.lineJoin = 'round';
-                              ctx.shadowColor = 'rgba(0,0,0,0.3)';
-                              ctx.shadowBlur = 4;
-                              ctx.shadowOffsetX = 2;
-                              ctx.shadowOffsetY = 2;
                               
-                              // Draw continuous stroke
                               ctx.beginPath();
                               sampledPoints.forEach((point: any, index: number) => {
-                                const x = Math.round(point.u * layerCanvas.width);
-                                const y = Math.round(point.v * layerCanvas.height);
-                                
-                                if (index === 0) {
-                                  ctx.moveTo(x, y);
-            } else {
-                                  ctx.lineTo(x, y);
-                                }
-                                
-                                console.log(`🎨 Drawing brush point ${index}:`, { x, y, u: point.u, v: point.v });
+                                const x = point.x || Math.round(point.u * canvasWidth);
+                                const y = point.y || Math.round(point.v * canvasHeight);
+                                if (index === 0) ctx.moveTo(x, y);
+                                else ctx.lineTo(x, y);
                               });
                               ctx.stroke();
                               ctx.restore();
                               
-                              console.log('🎨 Continuous brush stroke completed');
-                            } else {
-                              console.log('⚠️ No active layer or canvas found or ctx not available');
+                              console.log('✅ Fallback brush stroke applied');
                             }
                             break;
                             
@@ -1641,7 +1651,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                     gap: '4px'
               }}
             >
-                  ✅ Apply {vectorPaths.length > 0 && `(${vectorPaths.length})`}
+                  ✅ Apply {activePathId ? 'to Selected Path' : `(${vectorPaths.length})`}
             </button>
 
           <button

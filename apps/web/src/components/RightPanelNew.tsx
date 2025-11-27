@@ -30,6 +30,7 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
     symmetryZ,
     activeTool,
     activeTextId,
+    customBrushImage,
     setBrushColor,
     setBrushSize,
     setBrushOpacity,
@@ -38,6 +39,7 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
     setBrushSpacing,
     setBlendMode,
     setBrushSymmetry,
+    setCustomBrushImage,
     textElements,
     addTextElement,
     selectTextElement,
@@ -79,6 +81,8 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
     setBrushSpacing: state.setBrushSpacing,
     setBlendMode: state.setBlendMode,
     setBrushSymmetry: state.setBrushSymmetry,
+    customBrushImage: state.customBrushImage,
+    setCustomBrushImage: state.setCustomBrushImage,
     textElements: state.textElements,
     addTextElement: state.addTextElement,
     selectTextElement: state.selectTextElement,
@@ -167,6 +171,126 @@ export function RightPanel({ activeToolSidebar }: RightPanelProps) {
             { value: 'calligraphy', label: 'Calligraphy' },
           ]}
         />
+
+        <div className="label" style={{ marginTop: 20 }}>Custom Brush Image (Stencil)</div>
+        <div style={{ 
+          fontSize: '11px', 
+          color: 'rgba(255,255,255,0.6)', 
+          marginBottom: 10,
+          marginTop: 4
+        }}>
+          Upload an image to use as a stencil brush. Only opaque areas will be painted.
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '12px',
+              borderRadius: '6px',
+              border: '2px dashed rgba(255,255,255,0.3)',
+              background: 'rgba(255,255,255,0.08)',
+              color: '#ffffff',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'center',
+              transition: 'all 0.2s',
+              boxSizing: 'border-box'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)';
+              e.currentTarget.style.background = 'rgba(255,255,255,0.12)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)';
+              e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+            }}
+          >
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const dataUrl = event.target?.result as string;
+                    // Preload the image to ensure it's ready for use
+                    const img = new Image();
+                    img.onload = () => {
+                      setCustomBrushImage(dataUrl);
+                      // Clear brush cache to force regeneration with new image
+                      if ((window as any).__brushEngine) {
+                        (window as any).__brushEngine.clearCache();
+                      }
+                    };
+                    img.onerror = () => {
+                      alert('Failed to load brush image. Please try a different image.');
+                    };
+                    img.src = dataUrl;
+                  };
+                  reader.onerror = () => {
+                    alert('Failed to read brush image file. Please try again.');
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
+              style={{ 
+                display: 'none'
+              }}
+            />
+            📁 Click to Upload Image
+          </label>
+        </div>
+        {customBrushImage && (
+          <div style={{ marginTop: 8, marginBottom: 8 }}>
+            <div style={{ 
+              position: 'relative',
+              width: '100%',
+              paddingBottom: '100%',
+              background: 'rgba(255,255,255,0.1)',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}>
+              <img
+                src={customBrushImage}
+                alt="Custom brush preview"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  imageRendering: 'pixelated'
+                }}
+              />
+            </div>
+            <button
+              onClick={() => {
+                setCustomBrushImage(null);
+                // Clear brush cache when removing custom brush
+                if ((window as any).__brushEngine) {
+                  (window as any).__brushEngine.clearCache();
+                }
+              }}
+              style={{
+                width: '100%',
+                marginTop: 8,
+                padding: '6px',
+                background: '#dc3545',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              Remove Custom Brush
+            </button>
+          </div>
+        )}
       </Section>
 
       {/* Puff Print Settings - Removed, will be rebuilt with new 3D geometry approach */}

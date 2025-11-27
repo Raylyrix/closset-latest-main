@@ -211,8 +211,8 @@ interface AppState {
   shapeElements: Array<{
     id: string;
     type: 'rectangle' | 'circle' | 'triangle' | 'star' | 'polygon' | 'heart' | 'diamond';
-    positionX: number; // Center X as percentage (0-100%)
-    positionY: number; // Center Y as percentage (0-100%, canvas space: 0% = top)
+    positionX: number; // Center X in pixels (canvas space: 0 = left)
+    positionY: number; // Center Y in pixels (canvas space: 0 = top)
     size: number; // Size in pixels
     color: string;
     opacity: number;
@@ -381,6 +381,8 @@ interface AppState {
   setBrushColor: (color: string) => void;
   setBrushSize: (size: number) => void;
   setBrushOpacity: (opacity: number) => void;
+  customBrushImage: string | null; // Data URL or image source for custom brush
+  setCustomBrushImage: (image: string | null) => void;
   
   // Puff tool settings
   puffSize: number;
@@ -1046,6 +1048,8 @@ export const useApp = create<AppState>((set, get) => ({
   setBrushColor: (color) => set({ brushColor: color }),
   setBrushSize: (size) => set({ brushSize: size }),
   setBrushOpacity: (opacity) => set({ brushOpacity: opacity }),
+  customBrushImage: null as string | null,
+  setCustomBrushImage: (image) => set({ customBrushImage: image }),
   setPuffSize: (size) => set({ puffSize: size }),
   setPuffHeight: (height) => set({ puffHeight: height }),
   setPuffColor: (color) => set({ puffColor: color }),

@@ -13,6 +13,7 @@ type Props = {
 
 export const CursorOverlay = memo(function CursorOverlay({ x, y, visible, tool, size, shape = 'round', angle = 0 }: Props) {
   const vectorMode = useApp(s => (s as any).vectorMode);
+  const customBrushImage = useApp(s => s.customBrushImage);
   if (!visible) return null;
   // Treat vectorMode as an active drawing mode so overlay appears and uses plus cursor
   const drawing = vectorMode || ['brush','eraser','fill','picker','smudge','blur','select','transform','move','puffPrint','line','rect','ellipse','gradient','embroidery','vectorTools','pen','curvature','addAnchor','removeAnchor','convertAnchor','pathSelection','text','shapes'].includes(tool);
@@ -21,6 +22,7 @@ export const CursorOverlay = memo(function CursorOverlay({ x, y, visible, tool, 
   const diameter = Math.max(6, Math.min(256, size));
   const isVectorTool = vectorMode || tool === 'vectorTools' || ['pen', 'curvature', 'addAnchor', 'removeAnchor', 'convertAnchor', 'pathSelection'].includes(tool);
   const isCircle = (tool === 'brush' || tool === 'eraser' || tool === 'smudge' || tool === 'blur' || tool === 'puffPrint' || tool === 'line' || tool === 'rect' || tool === 'ellipse' || tool === 'gradient' || tool === 'embroidery') && shape !== 'square' && !isVectorTool;
+  const hasCustomBrush = tool === 'brush' && customBrushImage;
   const border = (
     tool === 'eraser' ? '1px dashed rgba(255,255,255,0.95)'
     : tool === 'smudge' ? '2px double rgba(147,197,253,0.9)'
@@ -171,6 +173,31 @@ export const CursorOverlay = memo(function CursorOverlay({ x, y, visible, tool, 
       ) : tool === 'shapes' ? (
         <div className="cursor-shapes" style={{ transform: `translate(${x}px, ${y}px)` }}>
           <div className="shapes-plus" />
+        </div>
+      ) : hasCustomBrush ? (
+        <div
+          style={{
+            position: 'absolute',
+            width: diameter,
+            height: diameter,
+            transform: `translate(${x - diameter / 2}px, ${y - diameter / 2}px)`,
+            pointerEvents: 'none',
+            border: '1px solid rgba(255,255,255,0.5)',
+            borderRadius: '2px',
+            overflow: 'hidden',
+            boxShadow: '0 0 4px rgba(0,0,0,0.5)'
+          }}
+        >
+          <img
+            src={customBrushImage || ''}
+            alt="Custom brush preview"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              imageRendering: 'pixelated'
+            }}
+          />
         </div>
       ) : isCircle ? (
         <div
