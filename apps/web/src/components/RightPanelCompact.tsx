@@ -1,13 +1,16 @@
 import React from 'react';
 import { HexColorPicker } from 'react-colorful';
 import { useApp } from '../App';
+import { BrushPreviewPanel } from './BrushPreviewPanel';
 // REMOVED: Conflicting layer systems - using AdvancedLayerSystemV2 only
 // import { useLayerManager } from '../stores/LayerManager';
 // import { layerIntegration } from '../services/LayerIntegration';
 // import { useAdvancedLayerStore } from '../core/AdvancedLayerSystem';
-import { useAdvancedLayerStoreV2, AdvancedLayer, LayerGroup, BlendMode, LayerEffect, LayerMask } from '../core/AdvancedLayerSystemV2';
+import { useAdvancedLayerStoreV2, AdvancedLayer, LayerGroup, BlendMode, LayerEffect, LayerMask, ClipMask } from '../core/AdvancedLayerSystemV2';
 import { useLayerSelectionSystem } from '../core/LayerSelectionSystem';
 import { EnhancedTextSettings } from './EnhancedTextSettings';
+import { LayerEffectsPanel } from './LayerEffectsPanel';
+import { ClipMaskPanel } from './ClipMaskPanel';
 // PuffSettings removed - will be rebuilt with new 3D geometry approach
 
 // Enhanced Layer Item Component
@@ -213,7 +216,11 @@ const EnhancedLayerItem: React.FC<EnhancedLayerItemProps> = ({
       onDragEnd={handleDragEnd}
       onDrop={handleDrop}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+        {/* Clip mask indicator */}
+        {layer.clippedByLayerId && (
+          <span style={{ fontSize: '10px', color: '#00ff00', marginRight: '4px' }}>✂️</span>
+        )}
         {/* Visibility Toggle */}
         <button
           onClick={(e) => { e.stopPropagation(); onToggleVisibility(); }}
@@ -244,7 +251,7 @@ const EnhancedLayerItem: React.FC<EnhancedLayerItemProps> = ({
             padding: '4px',
             background: 'transparent',
             border: 'none',
-            color: layer.locked ? '#E8E8E8' : '#666666',
+            color: layer.locking?.all ? '#E8E8E8' : '#666666',
             cursor: 'pointer',
             fontSize: '10px',
             borderRadius: '4px',
@@ -255,9 +262,9 @@ const EnhancedLayerItem: React.FC<EnhancedLayerItemProps> = ({
             width: '20px',
             height: '20px'
           }}
-          title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+          title={layer.locking?.all ? 'Unlock layer' : 'Lock layer'}
         >
-          {layer.locked ? '🔒' : '🔓'}
+          {layer.locking?.all ? '🔒' : '🔓'}
         </button>
 
         {/* Layer Icon */}
@@ -520,9 +527,9 @@ const EnhancedLayerItem: React.FC<EnhancedLayerItemProps> = ({
               style={{
                 padding: '1px 2px',
                 fontSize: '6px',
-                background: layer.locked ? 'rgba(255, 107, 107, 0.2)' : 'rgba(255, 0, 0, 0.2)',
+                background: layer.locking?.all ? 'rgba(255, 107, 107, 0.2)' : 'rgba(255, 0, 0, 0.2)',
                 border: 'none',
-                color: layer.locked ? '#ff6b6b' : '#ff6666',
+                color: layer.locking?.all ? '#ff6b6b' : '#ff6666',
                 cursor: 'pointer',
                 borderRadius: '2px'
               }}
@@ -671,13 +678,13 @@ const EnhancedLayerItem: React.FC<EnhancedLayerItemProps> = ({
                 fontSize: '8px',
                 background: 'transparent',
                 border: 'none',
-                color: layer.locked ? '#ff6b6b' : '#fff',
+                color: layer.locking?.all ? '#ff6b6b' : '#fff',
                 textAlign: 'left',
                 width: '100%',
                 cursor: 'pointer'
               }}
             >
-              {layer.locked ? '🔒' : '🔓'} {layer.locked ? 'Unlock Layer' : 'Lock Layer'}
+              {layer.locking?.all ? '🔒' : '🔓'} {layer.locking?.all ? 'Unlock Layer' : 'Lock Layer'}
             </button>
             
             <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.2)', margin: '3px 0' }}></div>
@@ -980,13 +987,13 @@ const EnhancedGroupItem: React.FC<EnhancedGroupItemProps> = ({
             padding: '2px',
             background: 'transparent',
             border: 'none',
-            color: group.locked ? '#ff6b6b' : '#999',
+            color: group.locking.all ? '#ff6b6b' : '#999',
             cursor: 'pointer',
             fontSize: '8px'
           }}
-          title={group.locked ? 'Unlock group' : 'Lock group'}
+          title={group.locking.all ? 'Unlock group' : 'Lock group'}
         >
-          {group.locked ? '🔒' : '🔓'}
+          {group.locking.all ? '🔒' : '🔓'}
         </button>
 
         {/* Group Icon */}
@@ -1093,9 +1100,9 @@ const EnhancedGroupItem: React.FC<EnhancedGroupItemProps> = ({
             style={{
               padding: '1px 2px',
               fontSize: '6px',
-              background: group.locked ? 'rgba(255, 107, 107, 0.2)' : 'rgba(255, 0, 0, 0.2)',
+              background: group.locking.all ? 'rgba(255, 107, 107, 0.2)' : 'rgba(255, 0, 0, 0.2)',
               border: 'none',
-              color: group.locked ? '#ff6b6b' : '#ff6666',
+              color: group.locking.all ? '#ff6b6b' : '#ff6666',
               cursor: 'pointer',
               borderRadius: '2px'
             }}
@@ -1180,13 +1187,13 @@ const EnhancedGroupItem: React.FC<EnhancedGroupItemProps> = ({
                 fontSize: '8px',
                 background: 'transparent',
                 border: 'none',
-                color: group.locked ? '#ff6b6b' : '#fff',
+                color: group.locking.all ? '#ff6b6b' : '#fff',
                 textAlign: 'left',
                 width: '100%',
                 cursor: 'pointer'
               }}
             >
-              {group.locked ? '🔒' : '🔓'} {group.locked ? 'Unlock Group' : 'Lock Group'}
+              {group.locking.all ? '🔒' : '🔓'} {group.locking.all ? 'Unlock Group' : 'Lock Group'}
             </button>
             
             <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.2)', margin: '3px 0' }}></div>
@@ -1282,6 +1289,26 @@ interface RightPanelCompactProps {
 export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps) {
   // Panel height state for resizing
   const [toolSettingsHeight, setToolSettingsHeight] = React.useState(400);
+  // Feature 28: Brush Search
+  const [brushSearchQuery, setBrushSearchQuery] = React.useState('');
+  // Feature 29: Brush Categories
+  const {
+    selectedBrushCategory,
+    setSelectedBrushCategory,
+    updateBrushCategory,
+    addBrushTag,
+    removeBrushTag,
+    updateBrushTags,
+    getAllBrushTags
+  } = useApp(state => ({
+    selectedBrushCategory: state.selectedBrushCategory,
+    setSelectedBrushCategory: state.setSelectedBrushCategory,
+    updateBrushCategory: state.updateBrushCategory,
+    addBrushTag: state.addBrushTag,
+    removeBrushTag: state.removeBrushTag,
+    updateBrushTags: state.updateBrushTags,
+    getAllBrushTags: state.getAllBrushTags
+  }));
   const [isResizing, setIsResizing] = React.useState(false);
   const [dragStartY, setDragStartY] = React.useState(0);
   const [dragStartHeight, setDragStartHeight] = React.useState(0);
@@ -1301,6 +1328,24 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     symmetryZ,
     activeTool,
     customBrushImage,
+    customBrushRotation,
+    customBrushScale,
+    customBrushFlipHorizontal,
+    customBrushFlipVertical,
+    customBrushColorizationMode,
+    customBrushAlphaThreshold,
+    customBrushRandomization,
+    customBrushPressureSize,
+    customBrushPressureOpacity,
+    customBrushStampMode,
+    customBrushPatternMode,
+    customBrushPatternType,
+    customBrushPatternSpacing,
+    customBrushSpacing,
+    customBrushBrightness,
+    customBrushContrast,
+    customBrushFilter,
+    customBrushFilterAmount,
     setBrushColor,
     setBrushSize,
     setBrushOpacity,
@@ -1311,6 +1356,35 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     setBlendMode,
     setBrushSymmetry,
     setCustomBrushImage,
+    setCustomBrushRotation,
+    setCustomBrushScale,
+    setCustomBrushFlipHorizontal,
+    setCustomBrushFlipVertical,
+    setCustomBrushColorizationMode,
+    setCustomBrushAlphaThreshold,
+    setCustomBrushRandomization,
+    setCustomBrushPressureSize,
+    setCustomBrushPressureOpacity,
+    setCustomBrushStampMode,
+    setCustomBrushPatternMode,
+    setCustomBrushPatternType,
+    setCustomBrushPatternSpacing,
+    setCustomBrushSpacing,
+    setCustomBrushBrightness,
+    setCustomBrushContrast,
+    setCustomBrushFilter,
+    setCustomBrushFilterAmount,
+    savedBrushes,
+    presetBrushes,
+    recentlyUsedBrushes,
+    saveCurrentBrush,
+    loadBrush,
+    deleteSavedBrush,
+    refreshSavedBrushes,
+    toggleBrushPreset,
+    createBrushFromSelection,
+    createBrushFromLayer,
+    importBrush,
     setSymmetryX,
     setSymmetryY,
     setSymmetryZ,
@@ -1408,7 +1482,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     setActiveShapeId,
     updateShapeElement,
     deleteShapeElement,
-    duplicateShapeElement,
+    // duplicateShapeElement, // TODO: Add when shape tool is rebuilt
     // Image settings
     selectedImageId,
     setSelectedImageId,
@@ -1486,6 +1560,19 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     updateMask,
     toggleMaskEnabled,
     toggleMaskInverted,
+    addClipMask,
+    removeClipMask,
+    updateClipMask,
+    toggleClipMaskEnabled,
+    toggleClipMaskInverted,
+    createClipMaskFromSelection,
+    createClipMaskFromPath,
+    createClipMaskFromShape,
+    createClipMaskFromText,
+    createClipMaskFromImage,
+    createClipMaskFromLayer,
+    createClipMaskToLayerBelow,
+    removeClipMaskRelationship,
     generateLayerName: generateAdvancedLayerName,
     selectLayers,
     clearSelection,
@@ -1756,6 +1843,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
     }
   }, [activeToolSidebar]);
 
+  // Initialize brush library and refresh saved brushes on mount
+  React.useEffect(() => {
+    refreshSavedBrushes();
+  }, [refreshSavedBrushes]);
+
   // Resize handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsResizing(true);
@@ -1799,7 +1891,8 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
       'text': '📝',
       'shapes': '🔷',
       'image': '📷',
-      'universalSelect': '🎯'
+      'universalSelect': '🎯',
+      'customBrush': '🎨'
     };
     return toolIcons[tool] || '🛠️';
   };
@@ -1815,10 +1908,18 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
       'text': 'Text',
       'shapes': 'Shapes',
       'image': 'Image',
-      'universalSelect': 'Select'
+      'universalSelect': 'Select',
+      'customBrush': 'Custom Brush'
     };
     return toolNames[tool] || 'Tool';
   };
+
+  // If custom brush sidebar is active, set activeTab to show custom brush in tool settings
+  React.useEffect(() => {
+    if (activeToolSidebar === 'customBrush') {
+      setActiveTab('customBrush');
+    }
+  }, [activeToolSidebar]);
 
   return (
     <div style={{
@@ -1851,9 +1952,43 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           color: '#a0aec0',
           fontWeight: '700',
           textTransform: 'uppercase',
-          letterSpacing: '1px'
+          letterSpacing: '1px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
         }}>
-          {activeTool ? `${getToolIcon(activeTool)} ${getToolName(activeTool)} Settings` : 'Tool Settings'}
+          <span>
+            {activeToolSidebar === 'customBrush' 
+              ? '🎨 Custom Brush Settings' 
+              : activeTool 
+                ? `${getToolIcon(activeTool)} ${getToolName(activeTool)} Settings` 
+                : 'Tool Settings'}
+          </span>
+          {activeToolSidebar === 'customBrush' && (
+            <button
+              onClick={() => {
+                (window as any).__customBrushSidebarActive = false;
+                const event = new CustomEvent('closeCustomBrushSidebar');
+                window.dispatchEvent(event);
+                // Clear activeToolSidebar in MainLayout
+                if ((window as any).__setActiveToolSidebar) {
+                  (window as any).__setActiveToolSidebar(null);
+                }
+              }}
+              style={{
+                padding: '2px 6px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '3px',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: '8px'
+              }}
+              title="Close Custom Brush Settings"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Tool Settings Content */}
@@ -1862,8 +1997,8 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
           padding: '12px',
           overflowY: 'auto'
         }}>
-        {/* Brush Settings */}
-        {(activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'fill') && (
+        {/* Brush Settings - Includes custom brush when activeToolSidebar is 'customBrush' */}
+        {(activeTool === 'brush' || activeTool === 'eraser' || activeTool === 'fill' || activeToolSidebar === 'customBrush') && (
           <div onClick={(e) => e.stopPropagation()}>
             <div style={{
               fontSize: '11px',
@@ -6965,15 +7100,16 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                         <button
                           onClick={() => {
                             // PHASE 2 FIX: Update image via V2 system
-                            const v2State = useAdvancedLayerStoreV2.getState();
-                            v2State.updateImageElementFromApp(selectedImageId, { locked: !selectedImage.locked });
+                            // TODO: Add locking support to ImageElement interface
+                            // const v2State = useAdvancedLayerStoreV2.getState();
+                            // v2State.updateImageElementFromApp(selectedImageId, { /* locking will be added later */ });
                           }}
                           style={{
                             flex: 1,
                             padding: '8px',
                             fontSize: '10px',
-                            background: selectedImage.locked ? 'rgba(255,165,0,0.2)' : 'rgba(255,255,255,0.1)',
-                            color: selectedImage.locked ? '#FFA500' : '#CCC',
+                            background: false /* TODO: Add locking to ImageElement */ ? 'rgba(255,165,0,0.2)' : 'rgba(255,255,255,0.1)',
+                            color: false /* TODO: Add locking to ImageElement */ ? '#FFA500' : '#CCC',
                             border: '1px solid rgba(255,255,255,0.2)',
                             borderRadius: '4px',
                             cursor: 'pointer',
@@ -6983,7 +7119,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                             gap: '4px'
                           }}
                         >
-                          {selectedImage.locked ? '🔒' : '🔓'} {selectedImage.locked ? 'Locked' : 'Unlocked'}
+                          {false /* TODO: Add locking to ImageElement */ ? '🔒' : '🔓'} {false /* TODO: Add locking to ImageElement */ ? 'Locked' : 'Unlocked'}
                         </button>
                         <button
                           onClick={() => {
@@ -7316,6 +7452,8 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
             </div>
           </div>
         )}
+
+        {/* Custom Brush Settings - REMOVED: Now handled by RightPanelNew.tsx when activeToolSidebar === 'customBrush' */}
 
         {/* Advanced Layer Settings */}
         {activeTab === 'layers' && (
@@ -7656,7 +7794,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   const { layers } = useAdvancedLayerStoreV2.getState();
                   const totalLayers = advancedLayerOrder.length;
                   const visibleLayers = layers.filter(layer => layer.visible).length;
-                  const lockedLayers = layers.filter(layer => layer.locked).length;
+                  const lockedLayers = layers.filter(layer => layer.locking?.all).length;
                   
                   return (
                     <div>
@@ -7964,7 +8102,10 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     return (
                       <div
                         key={layer.id}
-                        onClick={() => selectLayer(layer.id)}
+                        onClick={() => {
+                          selectLayer(layer.id);
+                          setActiveLayer(layer.id); // Also set as active layer for clip mask panel
+                        }}
                         style={{
                           padding: '6px 8px',
                           borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
@@ -7989,7 +8130,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                           style={{ 
                             color: layer.visible ? '#fff' : '#666',
                             flex: 1,
-                            textDecoration: layer.locked ? 'line-through' : 'none',
+                            textDecoration: layer.locking?.all ? 'line-through' : 'none',
                             cursor: 'pointer',
                             padding: '2px 4px',
                             borderRadius: '2px',
@@ -8545,6 +8686,193 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               </div>
             )}
 
+            {/* Clip Masks Panel */}
+            {advancedActiveLayerId && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{
+                  fontSize: '9px',
+                  color: '#CCC',
+                  marginBottom: '6px'
+                }}>
+                  ✂️ Clip Masks
+                </div>
+                <div style={{
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '4px',
+                  background: 'rgba(0, 0, 0, 0.2)',
+                  padding: '6px'
+                }}>
+                  {(() => {
+                    const activeLayer = advancedLayers.find(l => l.id === advancedActiveLayerId);
+                    const hasClipMask = activeLayer?.clipMask;
+                    
+                    if (!hasClipMask) {
+                      return (
+                        <div>
+                          <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '8px', color: '#888', marginBottom: '6px' }}>
+                              No clip mask applied
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <button
+                                onClick={() => {
+                                  const canvasSize = 2048;
+                                  const selection = {
+                                    x: canvasSize * 0.25,
+                                    y: canvasSize * 0.25,
+                                    width: canvasSize * 0.5,
+                                    height: canvasSize * 0.5
+                                  };
+                                  createClipMaskFromSelection(advancedActiveLayerId, selection);
+                                }}
+                                style={{
+                                  padding: '6px 12px',
+                                  backgroundColor: '#007bff',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '9px'
+                                }}
+                              >
+                                ✂️ From Selection
+                              </button>
+                              <button
+                                onClick={() => {
+                                  createClipMaskFromShape(advancedActiveLayerId, 'circle', {
+                                    x: 1024,
+                                    y: 1024,
+                                    radius: 400
+                                  });
+                                }}
+                                style={{
+                                  padding: '6px 12px',
+                                  backgroundColor: '#28a745',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '9px'
+                                }}
+                              >
+                                ⭕ From Circle
+                              </button>
+                              <button
+                                onClick={() => {
+                                  createClipMaskFromShape(advancedActiveLayerId, 'rectangle', {
+                                    x: 512,
+                                    y: 512,
+                                    width: 1024,
+                                    height: 1024
+                                  });
+                                }}
+                                style={{
+                                  padding: '6px 12px',
+                                  backgroundColor: '#17a2b8',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '9px'
+                                }}
+                              >
+                                ▭ From Rectangle
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    
+                    return (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px'
+                        }}>
+                          <span style={{ fontSize: '8px', color: '#fff' }}>
+                            Clip Mask {hasClipMask.enabled ? '✅' : '❌'}
+                          </span>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              onClick={() => toggleClipMaskEnabled(advancedActiveLayerId)}
+                              style={{
+                                padding: '2px 6px',
+                                backgroundColor: hasClipMask.enabled ? '#28a745' : '#6c757d',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '2px',
+                                cursor: 'pointer',
+                                fontSize: '8px'
+                              }}
+                            >
+                              {hasClipMask.enabled ? 'ON' : 'OFF'}
+                            </button>
+                            <button
+                              onClick={() => toggleClipMaskInverted(advancedActiveLayerId)}
+                              style={{
+                                padding: '2px 6px',
+                                backgroundColor: hasClipMask.inverted ? '#ffc107' : '#6c757d',
+                                color: '#000000',
+                                border: 'none',
+                                borderRadius: '2px',
+                                cursor: 'pointer',
+                                fontSize: '8px'
+                              }}
+                            >
+                              {hasClipMask.inverted ? 'INV' : 'NORM'}
+                            </button>
+                            <button
+                              onClick={() => removeClipMask(advancedActiveLayerId)}
+                              style={{
+                                padding: '2px 6px',
+                                backgroundColor: '#dc3545',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '2px',
+                                cursor: 'pointer',
+                                fontSize: '8px'
+                              }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: '8px',
+                          color: '#888',
+                          textAlign: 'center',
+                          padding: '4px',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          borderRadius: '2px',
+                          marginBottom: '6px'
+                        }}>
+                          Type: {hasClipMask.type} | {hasClipMask.enabled 
+                            ? (hasClipMask.inverted ? 'Inverted' : 'Active')
+                            : 'Disabled'
+                          }
+                        </div>
+                        {hasClipMask.bounds && (
+                          <div style={{
+                            fontSize: '7px',
+                            color: '#666',
+                            textAlign: 'center',
+                            padding: '2px',
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            borderRadius: '2px'
+                          }}>
+                            Bounds: {Math.round(hasClipMask.bounds.x)}, {Math.round(hasClipMask.bounds.y)} | {Math.round(hasClipMask.bounds.width)}×{Math.round(hasClipMask.bounds.height)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
             {/* Event History */}
             <div style={{ marginBottom: '12px' }}>
               <div style={{
@@ -8856,7 +9184,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               <div style={{ fontSize: '9px', color: '#CCC', marginBottom: '4px' }}>Shape Type</div>
               <select
                 value={useApp.getState().shapeType || 'rectangle'}
-                onChange={(e) => useApp.setState({ shapeType: e.target.value })}
+                onChange={(e) => useApp.setState({ shapeType: e.target.value as any })}
                 style={{
                   width: '100%',
                   padding: '4px',
@@ -9137,7 +9465,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       rotation: useApp.getState().shapeRotation || 0,
                       positionX: useApp.getState().shapePositionX || 50,
                       positionY: useApp.getState().shapePositionY || 50,
-                      gradient: shapesColorMode === 'gradient' ? shapesGradient : null
+                      gradient: shapesColorMode === 'gradient' ? shapesGradient : undefined
                     });
                   }
                 }}
@@ -9157,11 +9485,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
               </button>
               <button
                 onClick={() => {
-                  // Clear all shapes
-                  const { clearShapes } = useApp.getState();
-                  if (clearShapes) {
-                    clearShapes();
-                  }
+                  // Clear all shapes - TODO: Implement clearShapes when shape tool is rebuilt
+                  // const { clearShapes } = useApp.getState();
+                  // if (clearShapes) {
+                  //   clearShapes();
+                  // }
                 }}
                 style={{
                   flex: 1,
@@ -9245,7 +9573,8 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          duplicateShapeElement(shape.id);
+                          // TODO: Implement duplicateShapeElement when shape tool is rebuilt
+                          // duplicateShapeElement(shape.id);
                           
                           // Trigger live texture update
                           setTimeout(() => {
@@ -9318,7 +9647,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   <select
                     value={activeShape.type}
                     onChange={(e) => {
-                      updateShapeElement(activeShapeId, { type: e.target.value });
+                      updateShapeElement(activeShapeId, { type: e.target.value as any });
                       setTimeout(() => {
                         if ((window as any).updateModelTexture) {
                           (window as any).updateModelTexture(true, true);
@@ -9414,7 +9743,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     <button
                       onClick={() => {
                         // Update the active shape to use solid color mode
-                        updateShapeElement(activeShapeId, { gradient: null });
+                        updateShapeElement(activeShapeId, { gradient: undefined });
                         setTimeout(() => {
                           if ((window as any).updateModelTexture) {
                             (window as any).updateModelTexture(true, true);
@@ -9688,7 +10017,8 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   </button>
                   <button
                     onClick={() => {
-                      duplicateShapeElement(activeShapeId);
+                      // TODO: Implement duplicateShapeElement when shape tool is rebuilt
+                      // duplicateShapeElement(activeShapeId);
                       
                       // Trigger live texture update
                       setTimeout(() => {
@@ -9751,11 +10081,11 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
             <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
               <button
                 onClick={() => {
-                  // Clear all shapes
-                  const { clearShapes } = useApp.getState();
-                  if (clearShapes) {
-                    clearShapes();
-                  }
+                  // Clear all shapes - TODO: Implement clearShapes when shape tool is rebuilt
+                  // const { clearShapes } = useApp.getState();
+                  // if (clearShapes) {
+                  //   clearShapes();
+                  // }
                 }}
                 style={{
                   flex: 1,
@@ -10062,7 +10392,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                                   setLayerVisibility(layer.id, !layer.visible);
                                 }}
                                 onToggleLock={() => {
-                                  setLayerLocked(layer.id, !layer.locked);
+                                  setLayerLocked(layer.id, !layer.locking?.all);
                                 }}
                                 onRename={(newName) => {
                                   renameLayer(layer.id, newName);
@@ -10105,12 +10435,33 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   ))}
                 
                 {/* Render Ungrouped Layers */}
-                {advancedLayers
-                  .filter(layer => !layer.groupId)
-                  .sort((a, b) => b.order - a.order)
-                  .map((layer) => (
+                {(() => {
+                  // Group layers by clip mask relationships for nested display
+                  const ungroupedLayers = advancedLayers.filter(layer => !layer.groupId);
+                  const sortedLayers = [...ungroupedLayers].sort((a, b) => b.order - a.order);
+                  
+                  // Build a map of layers that clip other layers
+                  const clippingLayers = new Map<string, AdvancedLayer[]>();
+                  sortedLayers.forEach(layer => {
+                    if (layer.clippedByLayerId) {
+                      const clipped = clippingLayers.get(layer.clippedByLayerId) || [];
+                      clipped.push(layer);
+                      clippingLayers.set(layer.clippedByLayerId, clipped);
+                    }
+                  });
+                  
+                  // Render layers with nested clipped layers
+                  return sortedLayers.map((layer) => {
+                    // Skip if this layer is clipped (it will be rendered nested)
+                    if (layer.clippedByLayerId && clippingLayers.has(layer.clippedByLayerId)) {
+                      return null;
+                    }
+                    
+                    const clippedLayers = clippingLayers.get(layer.id) || [];
+                    
+                    return (
+                      <React.Fragment key={layer.id}>
                     <EnhancedLayerItem
-                      key={layer.id}
                       layer={layer}
                       isActive={layer.id === advancedActiveLayerId}
                       isSelected={advancedSelectedLayerIds.includes(layer.id)}
@@ -10148,7 +10499,7 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                         setLayerVisibility(layer.id, !layer.visible);
                       }}
                       onToggleLock={() => {
-                        setLayerLocked(layer.id, !layer.locked);
+                            setLayerLocked(layer.id, !layer.locking?.all);
                       }}
                       onRename={(newName) => {
                         renameLayer(layer.id, newName);
@@ -10181,10 +10532,63 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                       onReorderLayers={(newOrder) => {
                         reorderLayers(newOrder);
                         console.log('🎨 Reordered layers:', newOrder);
+                          }}
+                          allLayers={advancedLayers}
+                        />
+                        {/* Render clipped layers nested */}
+                        {clippedLayers.length > 0 && (
+                          <div style={{ marginLeft: '20px', borderLeft: '2px solid rgba(0, 255, 0, 0.5)', paddingLeft: '4px' }}>
+                            {clippedLayers
+                              .sort((a, b) => b.order - a.order)
+                              .map((clippedLayer) => (
+                                <EnhancedLayerItem
+                                  key={clippedLayer.id}
+                                  layer={clippedLayer}
+                                  isActive={clippedLayer.id === advancedActiveLayerId}
+                                  isSelected={advancedSelectedLayerIds.includes(clippedLayer.id)}
+                                  onSelect={() => {
+                                    setActiveLayer(clippedLayer.id);
+                                    console.log('🎨 Selected clipped layer:', clippedLayer.name);
+                                  }}
+                                  onToggleVisibility={() => {
+                                    setLayerVisibility(clippedLayer.id, !clippedLayer.visible);
+                                  }}
+                                  onToggleLock={() => {
+                                    setLayerLocked(clippedLayer.id, !clippedLayer.locking.all);
+                                  }}
+                                  onRename={(newName) => {
+                                    renameLayer(clippedLayer.id, newName);
+                                  }}
+                                  onDelete={() => {
+                                    deleteLayer(clippedLayer.id);
+                                  }}
+                                  onDuplicate={() => {
+                                    duplicateLayer(clippedLayer.id);
+                                  }}
+                                  onMoveUp={() => {
+                                    moveLayerUp(clippedLayer.id);
+                                  }}
+                                  onMoveDown={() => {
+                                    moveLayerDown(clippedLayer.id);
+                                  }}
+                                  onSetOpacity={(opacity) => {
+                                    setLayerOpacity(clippedLayer.id, opacity);
+                                  }}
+                                  onSetBlendMode={(blendMode) => {
+                                    setLayerBlendMode(clippedLayer.id, blendMode);
+                                  }}
+                                  onReorderLayers={(newOrder) => {
+                                    reorderLayers(newOrder);
                       }}
                       allLayers={advancedLayers}
                     />
                   ))}
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -10565,136 +10969,327 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                   </select>
                 </div>
 
-                {/* Layer Effects */}
+                {/* Layer Effects - Extracted Component */}
+                <LayerEffectsPanel
+                  activeLayer={activeLayer}
+                  addEffect={addEffect}
+                  removeEffect={removeEffect}
+                />
+
+                {/* Clip Masks */}
                 <div style={{ marginBottom: '6px' }}>
                   <div style={{ fontSize: '7px', color: '#999', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span>✨</span>
-                    <span>Layer Effects</span>
-                    <span style={{ fontSize: '6px', color: '#666' }}>({activeLayer.effects?.length || 0})</span>
+                    <span>✂️</span>
+                    <span>Clip Masks</span>
+                    <span style={{ fontSize: '6px', color: '#666' }}>
+                      ({(() => {
+                        if (activeLayer.clippedByLayerId) return 'Clipped';
+                        if (activeLayer.clipMask && activeLayer.clipMask.clipsLayerIds) {
+                          return activeLayer.clipMask.clipsLayerIds.length;
+                        }
+                        return 0;
+                      })()})
+                    </span>
                   </div>
                   
-                  <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap' }}>
+                  {!activeLayer.clippedByLayerId ? (
+                    <div>
                     <button
                       onClick={() => {
-                        addEffect(activeLayer.id, {
-                          id: `drop-shadow-${Date.now()}`,
-                          type: 'drop-shadow',
-                          enabled: true,
-                          properties: {
-                            offsetX: 2,
-                            offsetY: 2,
-                            blur: 4,
-                            spread: 0,
-                            color: 'rgba(0, 0, 0, 0.5)',
-                            opacity: 0.5
-                          }
-                        });
-                        console.log('🎨 Added drop shadow effect to layer:', activeLayer.name);
+                          createClipMaskToLayerBelow(activeLayer.id);
                       }}
                       style={{
-                        padding: '3px 6px',
-                        fontSize: '6px',
-                        background: 'rgba(0, 150, 255, 0.2)',
-                        color: '#66B3FF',
-                        border: '1px solid rgba(0, 150, 255, 0.3)',
-                        borderRadius: '2px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      🌑 Drop Shadow
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        addEffect(activeLayer.id, {
-                          id: `outer-glow-${Date.now()}`,
-                          type: 'outer-glow',
-                          enabled: true,
-                          properties: {
-                            color: '#00FF00',
-                            opacity: 0.8,
-                            blur: 8,
-                            spread: 2
-                          }
-                        });
-                        console.log('🎨 Added glow effect to layer:', activeLayer.name);
-                      }}
-                      style={{
-                        padding: '3px 6px',
-                        fontSize: '6px',
-                        background: 'rgba(0, 255, 0, 0.2)',
-                        color: '#00FF00',
-                        border: '1px solid rgba(0, 255, 0, 0.3)',
-                        borderRadius: '2px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      ✨ Glow
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        addEffect(activeLayer.id, {
-                          id: `brightness-${Date.now()}`,
-                          type: 'brightness',
-                          enabled: true,
-                          properties: {
-                            amount: 0.2,
-                            color: '#FF0000'
-                          }
-                        });
-                        console.log('🎨 Added stroke effect to layer:', activeLayer.name);
-                      }}
-                      style={{
-                        padding: '3px 6px',
-                        fontSize: '6px',
-                        background: 'rgba(255, 0, 0, 0.2)',
-                        color: '#FF6666',
-                        border: '1px solid rgba(255, 0, 0, 0.3)',
-                        borderRadius: '2px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      🔲 Stroke
-                    </button>
-                  </div>
-                  
-                  {/* Display Active Effects */}
-                  {activeLayer.effects && activeLayer.effects.length > 0 && (
-                    <div style={{ marginTop: '4px', fontSize: '6px' }}>
-                      {activeLayer.effects.map((effect, index) => (
-                        <div key={index} style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '4px',
-                          padding: '2px 4px',
-                          background: 'rgba(255, 255, 255, 0.05)',
-                          borderRadius: '2px',
-                          marginBottom: '2px'
-                        }}>
-                          <span style={{ color: effect.enabled ? '#00FF00' : '#666' }}>
-                            {effect.enabled ? '●' : '○'}
-                          </span>
-                          <span style={{ color: '#CCC' }}>{effect.type}</span>
+                          width: '100%',
+                          padding: '4px 8px',
+                          fontSize: '7px',
+                          background: 'rgba(0, 123, 255, 0.3)',
+                          color: '#fff',
+                          border: '1px solid rgba(0, 123, 255, 0.5)',
+                          borderRadius: '3px',
+                          cursor: 'pointer',
+                          fontWeight: '600'
+                        }}
+                      >
+                        ✂️ Create Clip Mask
+                      </button>
+                      <div style={{ fontSize: '5px', color: '#888', marginTop: '4px', textAlign: 'center' }}>
+                        Clips this layer to the layer below
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ 
+                      padding: '4px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      borderRadius: '2px',
+                      fontSize: '6px'
+                    }}>
+                      {/* Status and Controls */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ color: '#CCC', fontSize: '6px' }}>
+                          ✂️ Clipped
+                        </span>
+                        <div style={{ display: 'flex', gap: '2px' }}>
                           <button
-                            onClick={() => {
-                              removeEffect(activeLayer.id, index.toString());
-                              console.log('🎨 Removed effect from layer:', activeLayer.name);
-                            }}
+                            onClick={() => removeClipMaskRelationship(activeLayer.id)}
                             style={{
-                              padding: '1px 3px',
-                              fontSize: '5px',
-                              background: 'rgba(255, 0, 0, 0.2)',
-                              color: '#FF6666',
+                              padding: '2px 4px',
+                        fontSize: '6px',
+                              background: 'rgba(220, 53, 69, 0.3)',
+                              color: '#fff',
                               border: 'none',
-                              borderRadius: '1px',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                            Remove
+                    </button>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '5px', color: '#888', textAlign: 'center', marginTop: '4px' }}>
+                        Clipped by: {(() => {
+                          const clippingLayer = advancedLayers.find(l => l.id === activeLayer.clippedByLayerId);
+                          return clippingLayer ? clippingLayer.name : 'Unknown';
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Show clip mask controls if this layer has a clipMask (it clips other layers) */}
+                  {activeLayer.clipMask && activeLayer.clipMask.type !== 'layer' && (
+                    <div style={{ 
+                      padding: '4px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      borderRadius: '2px',
+                      fontSize: '6px',
+                      marginTop: '4px'
+                    }}>
+                      {/* Status and Controls */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ color: '#CCC', fontSize: '6px' }}>
+                          {activeLayer.clipMask?.enabled ? '✅' : '❌'} {activeLayer.clipMask.type}
+                        </span>
+                        <div style={{ display: 'flex', gap: '2px' }}>
+                    <button
+                            onClick={() => toggleClipMaskEnabled(activeLayer.id)}
+                      style={{
+                              padding: '2px 4px',
+                        fontSize: '6px',
+                              background: activeLayer.clipMask?.enabled ? 'rgba(40, 167, 69, 0.3)' : 'rgba(108, 117, 125, 0.3)',
+                              color: '#fff',
+                              border: 'none',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                            {activeLayer.clipMask?.enabled ? 'ON' : 'OFF'}
+                    </button>
+                    <button
+                            onClick={() => toggleClipMaskInverted(activeLayer.id)}
+                      style={{
+                              padding: '2px 4px',
+                        fontSize: '6px',
+                              background: activeLayer.clipMask?.inverted ? 'rgba(255, 193, 7, 0.3)' : 'rgba(108, 117, 125, 0.3)',
+                              color: activeLayer.clipMask?.inverted ? '#000' : '#fff',
+                              border: 'none',
+                        borderRadius: '2px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                            {activeLayer.clipMask?.inverted ? 'INV' : 'NORM'}
+                    </button>
+                          <button
+                            onClick={() => removeClipMask(activeLayer.id)}
+                            style={{
+                              padding: '2px 4px',
+                              fontSize: '6px',
+                              background: 'rgba(220, 53, 69, 0.3)',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: '2px',
                               cursor: 'pointer'
                             }}
                           >
-                            ✕
+                            🗑️
                           </button>
                         </div>
-                      ))}
+                      </div>
+
+                      {/* Transform Controls */}
+                      {activeLayer.clipMask?.transform && (
+                        <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                          <div style={{ fontSize: '5px', color: '#999', marginBottom: '3px' }}>Transform</div>
+                          
+                          {/* Position */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px', marginBottom: '2px' }}>
+                            <div>
+                              <div style={{ fontSize: '5px', color: '#888', marginBottom: '1px' }}>X:</div>
+                              <input
+                                type="number"
+                                value={Math.round(activeLayer.clipMask?.transform.x || 0)}
+                                onChange={(e) => {
+                                  const newX = parseFloat(e.target.value) || 0;
+                                  updateClipMask(activeLayer.id, {
+                                    transform: {
+                                      ...activeLayer.clipMask?.transform,
+                                      x: newX
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '1px 2px',
+                                  fontSize: '6px',
+                                  background: 'rgba(0, 0, 0, 0.5)',
+                                  color: '#fff',
+                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  borderRadius: '2px'
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '5px', color: '#888', marginBottom: '1px' }}>Y:</div>
+                              <input
+                                type="number"
+                                value={Math.round(activeLayer.clipMask?.transform.y || 0)}
+                                onChange={(e) => {
+                                  const newY = parseFloat(e.target.value) || 0;
+                                  updateClipMask(activeLayer.id, {
+                                    transform: {
+                                      ...activeLayer.clipMask?.transform,
+                                      y: newY
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '1px 2px',
+                                  fontSize: '6px',
+                                  background: 'rgba(0, 0, 0, 0.5)',
+                                  color: '#fff',
+                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  borderRadius: '2px'
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Scale */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px', marginBottom: '2px' }}>
+                            <div>
+                              <div style={{ fontSize: '5px', color: '#888', marginBottom: '1px' }}>Scale X:</div>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={activeLayer.clipMask?.transform.scaleX || 1}
+                                onChange={(e) => {
+                                  const newScaleX = parseFloat(e.target.value) || 1;
+                                  updateClipMask(activeLayer.id, {
+                                    transform: {
+                                      ...activeLayer.clipMask?.transform,
+                                      scaleX: newScaleX
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '1px 2px',
+                                  fontSize: '6px',
+                                  background: 'rgba(0, 0, 0, 0.5)',
+                                  color: '#fff',
+                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  borderRadius: '2px'
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '5px', color: '#888', marginBottom: '1px' }}>Scale Y:</div>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={activeLayer.clipMask?.transform.scaleY || 1}
+                                onChange={(e) => {
+                                  const newScaleY = parseFloat(e.target.value) || 1;
+                                  updateClipMask(activeLayer.id, {
+                                    transform: {
+                                      ...activeLayer.clipMask?.transform,
+                                      scaleY: newScaleY
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '1px 2px',
+                                  fontSize: '6px',
+                                  background: 'rgba(0, 0, 0, 0.5)',
+                                  color: '#fff',
+                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  borderRadius: '2px'
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Rotation */}
+                          <div>
+                            <div style={{ fontSize: '5px', color: '#888', marginBottom: '1px' }}>Rotation:</div>
+                            <input
+                              type="number"
+                              step="1"
+                              value={Math.round(((activeLayer.clipMask?.transform.rotation || 0) * 180 / Math.PI))}
+                              onChange={(e) => {
+                                const degrees = parseFloat(e.target.value) || 0;
+                                const radians = degrees * Math.PI / 180;
+                                updateClipMask(activeLayer.id, {
+                                  transform: {
+                                    ...activeLayer.clipMask?.transform,
+                                    rotation: radians
+                                  }
+                                });
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '1px 2px',
+                                fontSize: '6px',
+                                background: 'rgba(0, 0, 0, 0.5)',
+                                color: '#fff',
+                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                borderRadius: '2px'
+                              }}
+                            />
+                          </div>
+
+                          {/* Bounds Info */}
+                          {activeLayer.clipMask?.bounds && (
+                            <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid rgba(255, 255, 255, 0.1)', fontSize: '5px', color: '#888' }}>
+                              Size: {Math.round(activeLayer.clipMask?.bounds.width)} × {Math.round(activeLayer.clipMask?.bounds.height)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ fontSize: '5px', color: '#888', textAlign: 'center', marginTop: '4px' }}>
+                        Clipped by: {(() => {
+                          const clippingLayer = advancedLayers.find(l => l.id === activeLayer.clippedByLayerId);
+                          return clippingLayer ? clippingLayer.name : 'Unknown';
+                        })()}
+                      </div>
+                      <button
+                        onClick={() => removeClipMaskRelationship(activeLayer.id)}
+                        style={{
+                          width: '100%',
+                          padding: '3px 6px',
+                          fontSize: '6px',
+                          background: 'rgba(220, 53, 69, 0.3)',
+                          color: '#fff',
+                          border: '1px solid rgba(220, 53, 69, 0.5)',
+                          borderRadius: '2px',
+                          cursor: 'pointer',
+                          marginTop: '4px'
+                        }}
+                      >
+                        Remove Clip Mask
+                      </button>
                     </div>
                   )}
                 </div>
@@ -10910,6 +11505,172 @@ export function RightPanelCompact({ activeToolSidebar }: RightPanelCompactProps)
                     <div>Created: {new Date(activeLayer.createdAt).toLocaleDateString()}</div>
                     <div>Modified: {new Date(activeLayer.updatedAt).toLocaleDateString()}</div>
                     {activeLayer.groupId && <div>Group: {activeLayer.groupId}</div>}
+                  </div>
+                </div>
+
+                {/* Clip Masks Panel */}
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '7px', color: '#999', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>✂️</span>
+                    <span>Clip Mask</span>
+                  </div>
+                  <div style={{
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '3px',
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    padding: '4px'
+                  }}>
+                    {(() => {
+                      const hasClipMask = activeLayer?.clipMask;
+                      
+                      if (!hasClipMask) {
+                        return (
+                          <div>
+                            <div style={{ fontSize: '6px', color: '#888', marginBottom: '4px', textAlign: 'center' }}>
+                              No clip mask
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <button
+                                onClick={() => {
+                                  const canvasSize = 2048;
+                                  const selection = {
+                                    x: canvasSize * 0.25,
+                                    y: canvasSize * 0.25,
+                                    width: canvasSize * 0.5,
+                                    height: canvasSize * 0.5
+                                  };
+                                  createClipMaskFromSelection(activeLayer.id, selection);
+                                }}
+                                style={{
+                                  padding: '3px 6px',
+                                  backgroundColor: '#007bff',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '2px',
+                                  cursor: 'pointer',
+                                  fontSize: '7px'
+                                }}
+                              >
+                                ✂️ From Selection
+                              </button>
+                              <button
+                                onClick={() => {
+                                  createClipMaskFromShape(activeLayer.id, 'circle', {
+                                    x: 1024,
+                                    y: 1024,
+                                    radius: 400
+                                  });
+                                }}
+                                style={{
+                                  padding: '3px 6px',
+                                  backgroundColor: '#28a745',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '2px',
+                                  cursor: 'pointer',
+                                  fontSize: '7px'
+                                }}
+                              >
+                                ⭕ From Circle
+                              </button>
+                              <button
+                                onClick={() => {
+                                  createClipMaskFromShape(activeLayer.id, 'rectangle', {
+                                    x: 512,
+                                    y: 512,
+                                    width: 1024,
+                                    height: 1024
+                                  });
+                                }}
+                                style={{
+                                  padding: '3px 6px',
+                                  backgroundColor: '#17a2b8',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '2px',
+                                  cursor: 'pointer',
+                                  fontSize: '7px'
+                                }}
+                              >
+                                ▭ From Rectangle
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+                      
+                      return (
+                        <div>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '4px'
+                          }}>
+                            <span style={{ fontSize: '6px', color: '#fff' }}>
+                              {hasClipMask.enabled ? '✅' : '❌'} {hasClipMask.type}
+                            </span>
+                            <div style={{ display: 'flex', gap: '2px' }}>
+                              <button
+                                onClick={() => toggleClipMaskEnabled(activeLayer.id)}
+                                style={{
+                                  padding: '1px 4px',
+                                  backgroundColor: hasClipMask.enabled ? '#28a745' : '#6c757d',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '2px',
+                                  cursor: 'pointer',
+                                  fontSize: '6px'
+                                }}
+                              >
+                                {hasClipMask.enabled ? 'ON' : 'OFF'}
+                              </button>
+                              <button
+                                onClick={() => toggleClipMaskInverted(activeLayer.id)}
+                                style={{
+                                  padding: '1px 4px',
+                                  backgroundColor: hasClipMask.inverted ? '#ffc107' : '#6c757d',
+                                  color: '#000000',
+                                  border: 'none',
+                                  borderRadius: '2px',
+                                  cursor: 'pointer',
+                                  fontSize: '6px'
+                                }}
+                              >
+                                {hasClipMask.inverted ? 'INV' : 'NORM'}
+                              </button>
+                              <button
+                                onClick={() => removeClipMask(activeLayer.id)}
+                                style={{
+                                  padding: '1px 4px',
+                                  backgroundColor: '#dc3545',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '2px',
+                                  cursor: 'pointer',
+                                  fontSize: '6px'
+                                }}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                          <div style={{
+                            fontSize: '6px',
+                            color: '#888',
+                            textAlign: 'center',
+                            padding: '2px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            borderRadius: '2px'
+                          }}>
+                            {hasClipMask.enabled 
+                              ? (hasClipMask.inverted ? 'Inverted' : 'Active')
+                              : 'Disabled'
+                            }
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

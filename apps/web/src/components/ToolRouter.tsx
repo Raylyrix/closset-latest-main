@@ -8,7 +8,6 @@ import { PatternMaker } from './PatternMaker';
 import { AdvancedSelection } from './AdvancedSelection';
 // Removed AI Assistant and Export features
 import { CloudSync } from './CloudSync';
-import { LayerEffects } from './LayerEffects';
 import { ColorGrading } from './ColorGrading';
 // Removed Animation tools
 import { DesignTemplates } from './DesignTemplates';
@@ -79,8 +78,8 @@ export function ToolRouter({ active }: ToolRouterProps) {
     'lasso': null, // Handled by unified vector system
     'magic_wand': null, // Handled by unified vector system
 
-    // Effects & Filters
-    'layerEffects': LayerEffects,
+    // Effects & Filters (handled in RightPanelCompact)
+    'layerEffects': null, // Handled in RightPanelCompact
     'colorGrading': ColorGrading,
 
     // Textile Design

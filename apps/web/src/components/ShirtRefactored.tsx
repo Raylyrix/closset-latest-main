@@ -7,7 +7,6 @@ import { textureManager } from '../utils/TextureManager';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { canvasPool } from '../utils/CanvasPool';
 import { geometryManager } from '../utils/GeometryManager';
-import { performanceOptimizer } from '../utils/PerformanceOptimizer';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { useApp } from '../App';
 import { useAdvancedLayerStoreV2, BlendMode } from '../core/AdvancedLayerSystemV2';
@@ -17,17 +16,8 @@ import { createDisplacementCanvas, createNormalCanvas, CANVAS_CONFIG } from '../
 import { convertUVToPixel, convertPixelToUV, getCanvasDimensions, isWhiteCanvas } from '../utils/CoordinateUtils';
 import { puffGeometryManager, PuffSettings, PuffStrokePoint } from '../utils/puff/PuffGeometryManager';
 
-// Import new modular components
+// Import modular components
 import { ShirtRenderer } from './Shirt/ShirtRenderer';
-// import { UVMapper } from './Shirt/UVMapper'; // TEMPORARILY DISABLED TO DEBUG
-// REMOVED: Conflicting layer systems - using AdvancedLayerSystemV2 only
-// import { useLayerManager } from '../stores/LayerManager';
-// import { useAdvancedLayerStore } from '../core/AdvancedLayerSystem';
-// import { layerBridge } from '../core/LayerSystemBridge';
-// import { LAYER_SYSTEM_CONFIG } from '../config/LayerConfig';
-// import { layerPersistenceManager } from '../core/LayerPersistenceManager';
-// import { useAutomaticLayerManager } from '../core/AutomaticLayerManager';
-// import { Brush3DIntegration } from './Brush3DIntegrationNew'; // Using existing useApp painting system instead
 
 // Import selection system
 import { useLayerSelectionSystem, elementDetection, SelectedElement } from '../core/LayerSelectionSystem';
@@ -257,11 +247,11 @@ export function ShirtRefactored({
     unifiedPerformanceManager.recordFrameTime(frameTime);
     
     // Also update PerformanceOptimizer FPS tracking
-    performanceOptimizer.updateFPS();
+    // FPS tracking now handled by usePerformanceTracking hook
     
     // PERFORMANCE: Adaptive optimization based on actual performance
-    if (performanceOptimizer.shouldUseAggressiveOptimizations()) {
-      performanceOptimizer.forceGarbageCollection();
+    if (unifiedPerformanceManager.shouldUseAggressiveOptimizations()) {
+      unifiedPerformanceManager.triggerMemoryCleanup();
       
       // PERFORMANCE: Use unified performance manager for quality adjustments
       const capabilities = unifiedPerformanceManager.getDeviceCapabilities();
@@ -477,6 +467,21 @@ export function ShirtRefactored({
     brushShape: s.brushShape,
     brushSpacing: s.brushSpacing,
     blendMode: s.blendMode,
+    customBrushImage: s.customBrushImage,
+    customBrushRotation: s.customBrushRotation,
+    customBrushScale: s.customBrushScale,
+    customBrushFlipHorizontal: s.customBrushFlipHorizontal,
+    customBrushFlipVertical: s.customBrushFlipVertical,
+    customBrushColorizationMode: s.customBrushColorizationMode,
+    customBrushAlphaThreshold: s.customBrushAlphaThreshold,
+    customBrushRandomization: s.customBrushRandomization,
+    customBrushPressureSize: s.customBrushPressureSize,
+    customBrushPressureOpacity: s.customBrushPressureOpacity,
+    customBrushStampMode: s.customBrushStampMode,
+    customBrushPatternMode: s.customBrushPatternMode,
+    customBrushPatternType: s.customBrushPatternType,
+    customBrushPatternSpacing: s.customBrushPatternSpacing,
+    customBrushSpacing: s.customBrushSpacing,
     getActiveLayer: s.getActiveLayer,
     modelScene: s.modelScene
   }));
@@ -785,7 +790,7 @@ export function ShirtRefactored({
     console.log('🎨 updateModelTexture called with:', { forceUpdate, updateDisplacement, isTextDragging, isImageDragging });
     
     // CRITICAL FIX: Skip additional throttling for text and image dragging
-    const textureUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 200 : 100; // ms between texture updates
+    const textureUpdateThrottle = unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium' === 'low' ? 200 : 100; // ms between texture updates
     if (!forceUpdate && !isTextDragging && !isImageDragging && (window as any).lastTextureUpdateTime && (now - (window as any).lastTextureUpdateTime) < textureUpdateThrottle) {
       console.log('🎨 Texture update throttled');
       return;
@@ -1022,7 +1027,7 @@ export function ShirtRefactored({
         
         // PERFORMANCE: Throttle displacement updates to prevent lag
         const lastDisplacementUpdate = (window as any).__lastDisplacementUpdate || 0;
-        const displacementUpdateThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 500 : 200; // ms between displacement updates
+        const displacementUpdateThrottle = unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium' === 'low' ? 500 : 200; // ms between displacement updates
         const now = Date.now();
         
         // Skip displacement update if called too recently (unless forced)
@@ -1139,7 +1144,7 @@ export function ShirtRefactored({
                   // Generate normal map for realistic lighting
                   const normalCanvas = document.createElement('canvas');
                   // PERFORMANCE: Generate normal map at lower resolution for better performance
-                  const deviceTier = performanceOptimizer.getConfig().deviceTier;
+                  const deviceTier = unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium';
                   const normalMapScale = deviceTier === 'low' ? 0.5 : deviceTier === 'medium' ? 0.75 : 1.0;
                   normalCanvas.width = Math.floor(blurredDisp.width * normalMapScale);
                   normalCanvas.height = Math.floor(blurredDisp.height * normalMapScale);
@@ -2356,50 +2361,29 @@ export function ShirtRefactored({
     // CRITICAL FIX: Always read fresh value from ref
     const currentStrokeSession = strokeSessionRef.current;
     
-    // SINGLE TEXTURE LAYER: Use existing active layer (Texture Layer) instead of creating per stroke
+    // Use the currently active layer (respects user's layer selection)
     if (!currentStrokeSession || !currentStrokeSession.layerId) {
       try {
         // Use AdvancedLayerSystemV2 directly
-        const { layers, activeLayerId, setActiveLayer } = useAdvancedLayerStoreV2.getState();
+        const { layers, activeLayerId, setActiveLayer, createLayer } = useAdvancedLayerStoreV2.getState();
         
-        // SINGLE TEXTURE LAYER: Find or use existing "Texture Layer"
-        const textureLayerName = 'Texture Layer';
-        let textureLayer = layers.find(l => l.name === textureLayerName);
+        // First, check if there's an active layer that the user selected
+        let activeLayer = activeLayerId ? layers.find(l => l.id === activeLayerId) : null;
         
-        if (!textureLayer) {
-          // Create texture layer once if it doesn't exist
-          console.log('🎨 Creating single Texture Layer for all tools');
-          const { createLayer } = useAdvancedLayerStoreV2.getState();
-          const currentBlendMode = useApp.getState().blendMode;
-          const layerBlendMode = (currentBlendMode === 'source-over' ? 'normal' : currentBlendMode) as BlendMode;
-          const layerId = createLayer('paint', textureLayerName, layerBlendMode);
-          setActiveLayer(layerId);
-          
-          // Re-read to get the newly created layer
-          const { layers: updatedLayers } = useAdvancedLayerStoreV2.getState();
-          textureLayer = updatedLayers.find(l => l.id === layerId) || undefined;
-        } else {
-          // Use existing texture layer
-          if (activeLayerId !== textureLayer.id) {
-            setActiveLayer(textureLayer.id);
-          }
-        }
-        
-        const newLayer = textureLayer;
-        
-        if (newLayer) {
-          // SINGLE TEXTURE LAYER: Capture current brush settings for this stroke session
+        // If active layer exists and is visible, use it
+        if (activeLayer && activeLayer.visible && activeLayer.content.canvas) {
+          // Capture current brush settings for this stroke session
           const brushColor = useApp.getState().brushColor;
           const brushSize = useApp.getState().brushSize;
           const brushOpacity = useApp.getState().brushOpacity;
           const gradientSettings = (window as any).getGradientSettings?.();
           const brushGradientData = gradientSettings?.brush;
           
-          // SINGLE TEXTURE LAYER: Initialize stroke session using texture layer
+          // Initialize stroke session using the active layer
           const strokeId = `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           strokeSessionRef.current = {
             id: strokeId,
-            layerId: newLayer.id,
+            layerId: activeLayer.id,
             points: [],
             bounds: null,
             settings: {
@@ -2416,12 +2400,60 @@ export function ShirtRefactored({
           };
           
           layer = {
-            id: newLayer.id,
-            name: newLayer.name,
-            canvas: newLayer.content.canvas || document.createElement('canvas')
+            id: activeLayer.id,
+            name: activeLayer.name,
+            canvas: activeLayer.content.canvas
           };
           
-          console.log('🎨 SINGLE TEXTURE LAYER: Using Texture Layer for stroke:', strokeId);
+          console.log('🎨 Using active layer for stroke:', activeLayer.name, strokeId);
+        } else {
+          // No active layer or it's not suitable - create a new paint layer
+          console.log('🎨 No active layer found, creating new paint layer');
+          const currentBlendMode = useApp.getState().blendMode;
+          const layerBlendMode = (currentBlendMode === 'source-over' ? 'normal' : currentBlendMode) as BlendMode;
+          const layerId = createLayer('paint', `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} Layer`, layerBlendMode);
+          setActiveLayer(layerId);
+          
+          // Re-read to get the newly created layer
+          const { layers: updatedLayers } = useAdvancedLayerStoreV2.getState();
+          const newLayer = updatedLayers.find(l => l.id === layerId);
+          
+          if (newLayer && newLayer.content.canvas) {
+            // Capture current brush settings for this stroke session
+            const brushColor = useApp.getState().brushColor;
+            const brushSize = useApp.getState().brushSize;
+            const brushOpacity = useApp.getState().brushOpacity;
+            const gradientSettings = (window as any).getGradientSettings?.();
+            const brushGradientData = gradientSettings?.brush;
+            
+            // Initialize stroke session using the new layer
+            const strokeId = `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            strokeSessionRef.current = {
+              id: strokeId,
+              layerId: newLayer.id,
+              points: [],
+              bounds: null,
+              settings: {
+                size: brushSize,
+                color: brushColor,
+                opacity: brushOpacity,
+                gradient: brushGradientData?.mode === 'gradient' ? {
+                  type: brushGradientData.type,
+                  angle: brushGradientData.angle,
+                  stops: brushGradientData.stops
+                } : undefined
+              },
+              tool: currentActiveTool
+            };
+            
+            layer = {
+              id: newLayer.id,
+              name: newLayer.name,
+              canvas: newLayer.content.canvas
+            };
+            
+            console.log('🎨 Created and using new layer for stroke:', newLayer.name, strokeId);
+          }
         }
       } catch (error) {
         console.warn('🎨 Advanced layer system V2 failed, fallback:', error);
@@ -2634,14 +2666,48 @@ export function ShirtRefactored({
         blendMode: currentBlendMode,
         shape: currentBrushShape,
         customBrushImage: appState.customBrushImage || undefined, // Include custom brush image
+        customBrushSymmetry: appState.customBrushSymmetry || 'none',
+        customBrushSymmetryCount: appState.customBrushSymmetryCount || 4,
+        customBrushBlendMode: appState.customBrushBlendMode || 'source-over',
+        customBrushRotation: appState.customBrushRotation,
+        customBrushScale: appState.customBrushScale,
+        customBrushFlipHorizontal: appState.customBrushFlipHorizontal,
+        customBrushFlipVertical: appState.customBrushFlipVertical,
+        customBrushColorizationMode: appState.customBrushColorizationMode,
+        customBrushAlphaThreshold: appState.customBrushAlphaThreshold,
+        customBrushRandomization: appState.customBrushRandomization,
+        customBrushPressureSize: appState.customBrushPressureSize,
+        customBrushPressureOpacity: appState.customBrushPressureOpacity,
+        customBrushPatternMode: appState.customBrushPatternMode,
+        customBrushPatternType: appState.customBrushPatternType,
+        customBrushPatternSpacing: appState.customBrushPatternSpacing,
+        customBrushSpacing: appState.customBrushSpacing,
+        customBrushBrightness: appState.customBrushBrightness,
+        customBrushContrast: appState.customBrushContrast,
+        customBrushFilter: appState.customBrushFilter,
+        customBrushFilterAmount: appState.customBrushFilterAmount,
+        customBrushLayers: appState.customBrushLayers,
+        customBrushAnimated: appState.customBrushAnimated,
+        customBrushAnimationSpeed: appState.customBrushAnimationSpeed,
+        customBrushAnimationFrame: appState.customBrushAnimationFrame,
+        customBrushFrames: appState.customBrushFrames,
         dynamics: {
-          sizePressure: true,
-          opacityPressure: true,
-          anglePressure: false,
-          spacingPressure: false,
-          velocitySize: true, // Enable velocity-based size for natural strokes
-          velocityOpacity: true // Enable velocity-based opacity for natural strokes
+          sizePressure: appState.customBrushImage ? (appState.customBrushPressureSize !== undefined ? appState.customBrushPressureSize : true) : true,
+          opacityPressure: appState.customBrushImage ? (appState.customBrushPressureOpacity !== undefined ? appState.customBrushPressureOpacity : true) : true,
+          anglePressure: false, // Not currently used for custom brushes
+          spacingPressure: false, // Not currently used for custom brushes
+          velocitySize: appState.customBrushVelocitySize || false,
+          velocityOpacity: appState.customBrushVelocityOpacity || false,
+          velocityRotation: appState.customBrushVelocityRotation || false,
+          velocityScale: appState.customBrushVelocityScale || false,
+          velocityRotationAmount: appState.customBrushVelocityRotationAmount || 90,
+          velocityScaleAmount: appState.customBrushVelocityScaleAmount || 0.5
         },
+        customBrushTextureOverlay: appState.customBrushTextureOverlay,
+        customBrushTextureImage: appState.customBrushTextureImage,
+        customBrushTextureOpacity: appState.customBrushTextureOpacity,
+        customBrushTextureBlendMode: appState.customBrushTextureBlendMode,
+        customBrushTextureScale: appState.customBrushTextureScale,
         // ADVANCED: Add pressure curve for natural pressure response
         pressureCurve: 'sigmoid' as const, // Smooth S-curve for natural feel
         pressureMapSize: 1.0, // Map pressure to brush size (0.5-2.0)
@@ -2668,15 +2734,83 @@ export function ShirtRefactored({
         const brushStamp = brushEngine.createBrushStamp(brushSettings);
         layerCtx.save();
         
-        // CRITICAL FIX: Always use source-over when drawing to individual layer canvas
-        // Blend mode is applied ONLY during layer composition (composeLayers)
-        // This prevents double blending and incorrect behavior
-        layerCtx.globalCompositeOperation = 'source-over';
+        // Feature 34: Brush Blend Modes - Use custom brush blend mode if specified, otherwise use default
+        // For custom brushes, we can apply blend mode directly to the stamp drawing
+        // For regular brushes, blend mode is applied during layer composition
+        // Check if any custom brush type is active (single image, multi-layer, or animated)
+        const hasCustomBrushForBlend = brushSettings.customBrushImage || 
+                                       (brushSettings.customBrushLayers && brushSettings.customBrushLayers.length > 0) ||
+                                       (brushSettings.customBrushAnimated && brushSettings.customBrushFrames && brushSettings.customBrushFrames.length > 0);
+        
+        const useBlendMode = hasCustomBrushForBlend && brushSettings.customBrushBlendMode 
+          ? brushSettings.customBrushBlendMode 
+          : 'source-over';
+        layerCtx.globalCompositeOperation = useBlendMode;
         
         // CRITICAL FIX: Apply flow to opacity
         // Flow controls how much paint is applied per stamp (builds up paint gradually)
         // Multiply opacity by flow to control paint buildup
         layerCtx.globalAlpha = brushSettings.opacity * brushSettings.flow;
+
+        // Feature 33: Helper function to draw brush with symmetry
+        const drawBrushWithSymmetry = (x: number, y: number, stamp: HTMLCanvasElement, settings: any) => {
+          const symmetry = settings.customBrushSymmetry || 'none';
+          const symmetryCount = settings.customBrushSymmetryCount || 4;
+          
+          // Check if any custom brush type is active (single image, multi-layer, or animated)
+          const hasCustomBrush = settings.customBrushImage || 
+                                 (settings.customBrushLayers && settings.customBrushLayers.length > 0) ||
+                                 (settings.customBrushAnimated && settings.customBrushFrames && settings.customBrushFrames.length > 0);
+          
+          if (symmetry === 'none' || !hasCustomBrush) {
+            // No symmetry - just draw normally
+            layerCtx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+            return;
+          }
+          
+          // Save context state
+          layerCtx.save();
+          
+          if (symmetry === 'horizontal') {
+            // Draw original
+            layerCtx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+            // Draw mirrored horizontally
+            layerCtx.scale(-1, 1);
+            layerCtx.drawImage(stamp, -(x + settings.size / 2), y - settings.size / 2);
+          } else if (symmetry === 'vertical') {
+            // Draw original
+            layerCtx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+            // Draw mirrored vertically
+            layerCtx.scale(1, -1);
+            layerCtx.drawImage(stamp, x - settings.size / 2, -(y + settings.size / 2));
+          } else if (symmetry === 'both') {
+            // Draw original
+            layerCtx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+            // Draw mirrored horizontally
+            layerCtx.scale(-1, 1);
+            layerCtx.drawImage(stamp, -(x + settings.size / 2), y - settings.size / 2);
+            // Draw mirrored vertically
+            layerCtx.scale(1, -1);
+            layerCtx.drawImage(stamp, -(x + settings.size / 2), -(y + settings.size / 2));
+            // Draw mirrored both
+            layerCtx.scale(-1, 1);
+            layerCtx.drawImage(stamp, x - settings.size / 2, -(y + settings.size / 2));
+          } else if (symmetry === 'radial' || symmetry === 'mandala') {
+            // Draw at center
+            layerCtx.drawImage(stamp, x - settings.size / 2, y - settings.size / 2);
+            // Draw rotated copies
+            for (let i = 1; i < symmetryCount; i++) {
+              const angle = (i / symmetryCount) * Math.PI * 2;
+              layerCtx.save();
+              layerCtx.translate(x, y);
+              layerCtx.rotate(angle);
+              layerCtx.drawImage(stamp, -settings.size / 2, -settings.size / 2);
+              layerCtx.restore();
+            }
+          }
+          
+          layerCtx.restore();
+        };
         
         // SMOOTH BRUSH: Interpolate between last and current position to prevent gaps
         // CRITICAL FIX: Only interpolate if distance is reasonable (same stroke)
@@ -2695,39 +2829,35 @@ export function ShirtRefactored({
             // New stroke detected - don't interpolate, just draw at current position
             // Reset last position to current to prevent future connections
             lastPaintPositionRef.current = { x: finalX, y: finalY };
-            if (brushSettings.customBrushImage) {
-              // High-quality custom brush - scale to brush size
-              const brushSize = brushSettings.size;
-              layerCtx.imageSmoothingEnabled = true;
-              layerCtx.imageSmoothingQuality = 'high';
-              layerCtx.drawImage(
-                brushStamp,
-                0, 0, brushStamp.width, brushStamp.height, // Source: full high-res stamp
-                finalX - brushSize / 2, finalY - brushSize / 2, // Destination position
-                brushSize, brushSize // Destination size: actual brush size
-              );
-            } else {
-              layerCtx.drawImage(
-                brushStamp,
-                finalX - brushStamp.width / 2,
-                finalY - brushStamp.height / 2
-              );
-            }
+            // Feature 33: Use symmetry-aware drawing
+            drawBrushWithSymmetry(finalX, finalY, brushStamp, brushSettings);
           } else {
-            // CRITICAL FIX: For custom brush images (stencil mode), don't repeat the pattern
-            // Custom brush images should only paint once per stroke, not repeat with spacing
-            if (brushSettings.customBrushImage) {
-              // Custom brush image mode - only paint at the current position, no repetition
-              // Stamp is 2x brush size for quality, scale down to brush size when drawing
-              const brushSize = brushSettings.size;
-              layerCtx.imageSmoothingEnabled = true;
-              layerCtx.imageSmoothingQuality = 'high';
-              layerCtx.drawImage(
-                brushStamp,
-                0, 0, brushStamp.width, brushStamp.height,
-                finalX - brushSize / 2, finalY - brushSize / 2,
-                brushSize, brushSize
-              );
+            // Feature 14: Custom brush spacing control
+            // Check if any custom brush type is active (single image, multi-layer, or animated)
+            const hasCustomBrushForSpacing = brushSettings.customBrushImage || 
+                                             (brushSettings.customBrushLayers && brushSettings.customBrushLayers.length > 0) ||
+                                             (brushSettings.customBrushAnimated && brushSettings.customBrushFrames && brushSettings.customBrushFrames.length > 0);
+            
+            if (hasCustomBrushForSpacing) {
+              // Custom brush image mode - use custom brush spacing if specified
+              const customSpacing = brushSettings.customBrushSpacing !== undefined ? brushSettings.customBrushSpacing : 0.25;
+              const minSpacing = brushSettings.size * customSpacing;
+              
+              if (distance > minSpacing) {
+                // Draw intermediate stamps to fill gaps with custom spacing
+                const steps = Math.ceil(distance / minSpacing);
+                for (let i = 1; i <= steps; i++) {
+                  const t = i / steps;
+                  const interpX = lastPos.x + t * dx;
+                  const interpY = lastPos.y + t * dy;
+                  
+                  // Feature 33: Use symmetry-aware drawing
+                  drawBrushWithSymmetry(interpX, interpY, brushStamp, brushSettings);
+                }
+              } else {
+                // Feature 33: Use symmetry-aware drawing
+                drawBrushWithSymmetry(finalX, finalY, brushStamp, brushSettings);
+              }
             } else {
               // Default brush mode - interpolate to fill gaps with spacing
               const minSpacing = brushSettings.size * brushSettings.spacing;
@@ -2747,48 +2877,96 @@ export function ShirtRefactored({
                   );
                 }
               } else {
-                // Draw single stamp if points are close enough
-                if (brushSettings.customBrushImage) {
-                  // High-quality custom brush - scale to brush size
-                  const brushSize = brushSettings.size;
-                  layerCtx.imageSmoothingEnabled = true;
-                  layerCtx.imageSmoothingQuality = 'high';
-                  layerCtx.drawImage(
-                    brushStamp,
-                    0, 0, brushStamp.width, brushStamp.height,
-                    finalX - brushSize / 2, finalY - brushSize / 2,
-                    brushSize, brushSize
-                  );
-                } else {
-                  layerCtx.drawImage(
-                    brushStamp,
-                    finalX - brushStamp.width / 2,
-                    finalY - brushStamp.height / 2
-                  );
-                }
+                // Feature 33: Use symmetry-aware drawing
+                drawBrushWithSymmetry(finalX, finalY, brushStamp, brushSettings);
               }
             }
           }
         } else {
-          // First point - just draw the stamp
-          if (brushSettings.customBrushImage) {
-            // High-quality custom brush - scale to brush size
-            const brushSize = brushSettings.size;
-            layerCtx.imageSmoothingEnabled = true;
-            layerCtx.imageSmoothingQuality = 'high';
-            layerCtx.drawImage(
-              brushStamp,
-              0, 0, brushStamp.width, brushStamp.height,
-              finalX - brushSize / 2, finalY - brushSize / 2,
-              brushSize, brushSize
-            );
-          } else {
-            layerCtx.drawImage(
-              brushStamp,
-              finalX - brushStamp.width / 2,
-              finalY - brushStamp.height / 2
-            );
+          // First point or pattern mode - generate pattern points if enabled
+          let pointsToDraw: Array<{x: number, y: number}> = [{ x: finalX, y: finalY }];
+          
+          // Feature 24: Brush Scattering - random distribution of stamps
+          // Check if any custom brush type is active (single image, multi-layer, or animated)
+          const hasCustomBrush = brushSettings.customBrushImage || 
+                                 (brushSettings.customBrushLayers && brushSettings.customBrushLayers.length > 0) ||
+                                 (brushSettings.customBrushAnimated && brushSettings.customBrushFrames && brushSettings.customBrushFrames.length > 0);
+          
+          if (brushSettings.customBrushScattering && hasCustomBrush) {
+            const scatteringAmount = brushSettings.customBrushScatteringAmount !== undefined ? brushSettings.customBrushScatteringAmount : 50;
+            const scatteringCount = brushSettings.customBrushScatteringCount !== undefined ? brushSettings.customBrushScatteringCount : 3;
+            const maxOffset = (brushSettings.size * scatteringAmount) / 100; // Convert percentage to pixels
+            
+            // Generate scattered points around the center
+            pointsToDraw = [];
+            for (let i = 0; i < scatteringCount; i++) {
+              // Random angle and distance for scattering
+              const angle = Math.random() * Math.PI * 2;
+              const distance = Math.random() * maxOffset;
+              const offsetX = Math.cos(angle) * distance;
+              const offsetY = Math.sin(angle) * distance;
+              
+              pointsToDraw.push({
+                x: finalX + offsetX,
+                y: finalY + offsetY
+              });
+            }
           }
+          // Feature 13: Pattern Mode - generate pattern points (only if scattering is not enabled)
+          else if (brushSettings.customBrushPatternMode && hasCustomBrush) {
+            const patternType = brushSettings.customBrushPatternType || 'grid';
+            const spacing = brushSettings.customBrushPatternSpacing || 50;
+            const centerX = finalX;
+            const centerY = finalY;
+            
+            if (patternType === 'grid') {
+              // Grid pattern: 3x3 grid centered on click
+              for (let row = -1; row <= 1; row++) {
+                for (let col = -1; col <= 1; col++) {
+                  pointsToDraw.push({
+                    x: centerX + col * spacing,
+                    y: centerY + row * spacing
+                  });
+                }
+              }
+            } else if (patternType === 'line') {
+              // Line pattern: horizontal line
+              for (let i = -2; i <= 2; i++) {
+                pointsToDraw.push({
+                  x: centerX + i * spacing,
+                  y: centerY
+                });
+              }
+            } else if (patternType === 'circle') {
+              // Circle pattern: 8 points in a circle
+              const radius = spacing;
+              for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                pointsToDraw.push({
+                  x: centerX + Math.cos(angle) * radius,
+                  y: centerY + Math.sin(angle) * radius
+                });
+              }
+            } else if (patternType === 'spiral') {
+              // Spiral pattern: expanding spiral
+              const turns = 2;
+              const points = 12;
+              for (let i = 0; i < points; i++) {
+                const t = i / points;
+                const angle = t * Math.PI * 2 * turns;
+                const radius = (spacing * 0.3) + (t * spacing * 0.7);
+                pointsToDraw.push({
+                  x: centerX + Math.cos(angle) * radius,
+                  y: centerY + Math.sin(angle) * radius
+                });
+              }
+            }
+          }
+          
+          // Draw brush at each pattern point (Feature 33: Use symmetry-aware drawing)
+          pointsToDraw.forEach((point) => {
+            drawBrushWithSymmetry(point.x, point.y, brushStamp, brushSettings);
+          });
         }
         
         layerCtx.restore();
@@ -3363,7 +3541,7 @@ export function ShirtRefactored({
       ctx.globalAlpha = 1.0;
       
       // PERFORMANCE: Adaptive thread size based on device tier
-      const deviceTier = performanceOptimizer.getConfig().deviceTier;
+      const deviceTier = unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium';
       const threadSizeMultiplier = deviceTier === 'high' ? 2.5 : deviceTier === 'medium' ? 2 : 1.5; // Reduced multipliers for better performance
       const threadSize = embroideryThreadThickness * threadSizeMultiplier;
       
@@ -3426,7 +3604,7 @@ export function ShirtRefactored({
         ctx.fill(threadPath);
         
         // PERFORMANCE: Batch texture lines into single Path2D
-        const deviceTier = performanceOptimizer.getConfig().deviceTier;
+        const deviceTier = unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium';
         const textureSpacing = deviceTier === 'high' ? threadSize * 0.5 : deviceTier === 'medium' ? threadSize * 0.8 : threadSize * 1.2;
         
         if (deviceTier !== 'low') {
@@ -4084,7 +4262,7 @@ export function ShirtRefactored({
     // Instead, update the model texture directly from the layer canvas
     
     // Throttle texture updates to improve performance
-    if (performanceOptimizer.canUpdateTexture()) {
+    if (unifiedPerformanceManager.canUpdateTexture()) {
       const now = performance.now();
       const lastUpdate = (window as any).lastTextureUpdate || 0;
       const updateInterval = 100; // 100ms between texture updates
@@ -4321,6 +4499,49 @@ export function ShirtRefactored({
       window.removeEventListener('forceTextureUpdate', handleTextureUpdate as EventListener);
     };
   }, [updateModelTexture]);
+
+  // Feature 22: Animated brush frame cycling
+  useEffect(() => {
+    const appState = useApp.getState();
+    
+    if (appState.customBrushAnimated && appState.customBrushFrames && appState.customBrushFrames.length > 1) {
+      const animate = () => {
+        const currentState = useApp.getState();
+        
+        if (currentState.customBrushAnimated && currentState.customBrushFrames && currentState.customBrushFrames.length > 1) {
+          const now = performance.now();
+          const timeDelta = now - lastAnimationTimeRef.current;
+          
+          // Calculate frame delay based on animation speed
+          const baseDelay = currentState.customBrushFrames[0]?.delay || 100;
+          const adjustedDelay = baseDelay / currentState.customBrushAnimationSpeed;
+          
+          if (timeDelta >= adjustedDelay) {
+            const nextFrame = (currentState.customBrushAnimationFrame + 1) % currentState.customBrushFrames.length;
+            currentState.setCustomBrushAnimationFrame(nextFrame);
+            lastAnimationTimeRef.current = now;
+          }
+          
+          animationFrameRef.current = requestAnimationFrame(animate);
+        }
+      };
+      
+      lastAnimationTimeRef.current = performance.now();
+      animationFrameRef.current = requestAnimationFrame(animate);
+      
+      return () => {
+        if (animationFrameRef.current !== null) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+      };
+    } else {
+      // Reset to frame 0 when animation is disabled
+      const currentState = useApp.getState();
+      if (currentState.customBrushAnimationFrame !== 0) {
+        currentState.setCustomBrushAnimationFrame(0);
+      }
+    }
+  }, [useApp.getState().customBrushAnimated, useApp.getState().customBrushFrames?.length]);
 
   // UNIFIED IMAGE BOUNDS CALCULATION
   // This function calculates image bounds once and uses them everywhere
@@ -4743,12 +4964,26 @@ export function ShirtRefactored({
         userManuallyEnabledControlsRef.current = false; // Reset manual flag since we're now drawing
         console.log('🎨 Controls forcefully disabled, new state:', useApp.getState().controlsEnabled);
         
+        // Check for stamp mode (only for custom brushes)
+        const appState = useApp.getState();
+        // Check if any custom brush type is active (single image, multi-layer, or animated)
+        const hasCustomBrushForStamp = appState.customBrushImage || 
+                                       (appState.customBrushLayers && appState.customBrushLayers.length > 0) ||
+                                       (appState.customBrushAnimated && appState.customBrushFrames && appState.customBrushFrames.length > 0);
+        
+        const isStampMode = hasCustomBrushForStamp && appState.customBrushStampMode;
+        
         // CRITICAL: For puff tool, DON'T set paintingActiveRef before calling paintAtEvent
         // paintAtEvent needs to check if paintingActiveRef is false to start a new stroke
-        // For other tools, set it before calling paintAtEvent
+        // For other tools, set it before calling paintAtEvent (unless in stamp mode)
         if (activeTool !== 'vector' && activeTool !== 'puffPrint') {
-          paintingActiveRef.current = true;
-          console.log('🎨 Set paintingActiveRef to true for tool:', activeTool);
+          // In stamp mode, don't set paintingActiveRef so it only paints once on click
+          if (!isStampMode) {
+            paintingActiveRef.current = true;
+            console.log('🎨 Set paintingActiveRef to true for tool:', activeTool);
+          } else {
+            console.log('🎨 Stamp mode: Will paint once on click, not continuous');
+          }
           
           // Clear last embroidery point when starting a new drawing session
           if (activeTool === 'embroidery') {
@@ -4767,6 +5002,12 @@ export function ShirtRefactored({
         } else if (['brush', 'eraser', 'embroidery', 'fill', 'puffPrint', 'vector'].includes(activeTool)) {
           console.log('🎨 Calling paintAtEvent for tool:', activeTool);
           paintAtEvent(e);
+          
+          // In stamp mode, immediately disable painting after single stamp
+          if (isStampMode && activeTool === 'brush') {
+            paintingActiveRef.current = false;
+            console.log('🎨 Stamp mode: Painted once, disabled continuous painting');
+          }
           
           // CRITICAL: For puff tool, set paintingActiveRef AFTER paintAtEvent
           // This ensures paintAtEvent can check if it's a new stroke
@@ -5819,7 +6060,7 @@ const canvasDimensions = {
     return (e: any) => {
       const now = Date.now();
       // Get current config dynamically for reactive performance settings
-      const moveThrottle = performanceOptimizer.getConfig().deviceTier === 'low' ? 50 : 20; // 20fps or 50fps (reduced from 60fps)
+      const moveThrottle = unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium' === 'low' ? 50 : 20; // 20fps or 50fps (reduced from 60fps)
       if (now - lastMoveTime < moveThrottle) return; // Throttle moves
       lastMoveTime = now;
       
@@ -7087,8 +7328,12 @@ const canvasDimensions = {
       const currentActiveTool = useApp.getState().activeTool;
       if (!['brush', 'eraser', 'embroidery', 'fill', 'puffPrint'].includes(currentActiveTool)) return;
       
-      // PERFORMANCE: Only paint if actively drawing
-      if (paintingActiveRef.current) {
+      // Check for stamp mode - don't paint on move if in stamp mode
+      const appState = useApp.getState();
+      const isStampMode = appState.customBrushImage && appState.customBrushStampMode;
+      
+      // PERFORMANCE: Only paint if actively drawing (and not in stamp mode)
+      if (paintingActiveRef.current && !isStampMode) {
         paintAtEvent(e);
         
         // PERFORMANCE: Use unified performance manager to determine optimal update frequency

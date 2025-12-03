@@ -12,12 +12,6 @@ declare module '../components/DesignTemplates' {
   export default _default;
 }
 
-declare module '../components/LayerEffects' {
-  export const LayerEffects: any;
-  const _default: any;
-  export default _default;
-}
-
 declare module '../components/LoadingStates' {
   export const LoadingOverlay: any;
   export const LoadingStates: any;
@@ -41,11 +35,6 @@ declare module '../components/Shirt/hooks/useShirtRendering' {
 }
 
 declare module '../components/Shirt/hooks/useShirtState' {
-  const _default: any;
-  export default _default;
-}
-
-declare module '../components/EnhancedEmbroideryTool' {
   const _default: any;
   export default _default;
 }

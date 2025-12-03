@@ -5,11 +5,12 @@ import { RightPanelCompact } from './RightPanelCompact';
 import { LeftPanelCompact } from './LeftPanelCompact';
 import { GridOverlay } from './GridOverlay';
 import { VectorOverlay } from './VectorOverlay';
+import { ClipMaskOverlay } from './ClipMaskOverlay';
 import VectorToolbar from './VectorToolbar';
 import { useApp } from '../App';
 import { vectorStore } from '../vector/vectorState';
 import { PerformanceSettingsPopup } from './PerformanceSettingsPopup';
-import { performanceOptimizer } from '../utils/PerformanceOptimizer';
+import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { renderStitchType, StitchPoint, StitchConfig } from '../utils/stitchRendering';
 
 interface MainLayoutProps {
@@ -495,6 +496,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [rightWidth, setRightWidth] = useState(400);
   const [activeToolSidebar, setActiveToolSidebar] = useState<string | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const canvasAreaRef = React.useRef<HTMLDivElement>(null);
   
   // Resizing state
   const [isResizingLeft, setIsResizingLeft] = useState(false);
@@ -513,7 +515,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [showVectorToolbar, setShowVectorToolbar] = useState(false);
   const [showPerformanceSettings, setShowPerformanceSettings] = useState(false);
   const [showSymmetryDropdown, setShowSymmetryDropdown] = useState(false);
-  const [currentPerformancePreset, setCurrentPerformancePreset] = useState(performanceOptimizer.getCurrentPreset());
+  const [currentPerformancePreset, setCurrentPerformancePreset] = useState(unifiedPerformanceManager.getPresetName());
   const showGrid = useApp(s => s.showGrid);
   const setShowGrid = useApp(s => s.setShowGrid);
   const showRulers = useApp(s => s.showRulers);
@@ -522,7 +524,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   // Listen for performance preset changes
   useEffect(() => {
     const handlePresetChange = () => {
-      setCurrentPerformancePreset(performanceOptimizer.getCurrentPreset());
+      setCurrentPerformancePreset(unifiedPerformanceManager.getPresetName());
     };
     
     window.addEventListener('performancePresetChanged', handlePresetChange);
@@ -557,6 +559,41 @@ export function MainLayout({ children }: MainLayoutProps) {
       setActiveToolSidebar(null);
     }
   }, [activeTool]);
+
+  // Handle custom brush sidebar event
+  useEffect(() => {
+    const handleOpenCustomBrushSidebar = () => {
+      console.log('🎨 Opening custom brush sidebar');
+      setActiveToolSidebar('customBrush');
+      setShowRightPanel(true);
+      // Set a flag so the button can show as active
+      (window as any).__customBrushSidebarActive = true;
+      // Also set activeTool to 'brush' if not already set
+      const currentTool = useApp.getState().activeTool;
+      if (currentTool !== 'brush') {
+        useApp.getState().setActiveTool('brush');
+      }
+    };
+
+    const handleCloseCustomBrushSidebar = () => {
+      console.log('🎨 Closing custom brush sidebar');
+      (window as any).__customBrushSidebarActive = false;
+      setActiveToolSidebar(null);
+    };
+
+    window.addEventListener('openCustomBrushSidebar', handleOpenCustomBrushSidebar);
+    window.addEventListener('closeCustomBrushSidebar', handleCloseCustomBrushSidebar);
+    
+    // Clear flag when activeToolSidebar changes away from customBrush
+    if (activeToolSidebar !== 'customBrush') {
+      (window as any).__customBrushSidebarActive = false;
+    }
+    
+    return () => {
+      window.removeEventListener('openCustomBrushSidebar', handleOpenCustomBrushSidebar);
+      window.removeEventListener('closeCustomBrushSidebar', handleCloseCustomBrushSidebar);
+    };
+  }, [activeToolSidebar, setActiveToolSidebar]);
 
   // Close symmetry dropdown when clicking outside
   useEffect(() => {
@@ -729,35 +766,6 @@ export function MainLayout({ children }: MainLayoutProps) {
               }}
             >
               🛠️ Tools
-            </button>
-            
-            <button 
-              onClick={() => {
-                // FIXED: Toggle layers tab - switch to layers or clear it to show tool settings
-                if (activeToolSidebar === 'advancedLayers') {
-                  // If layers is active, deactivate it (will show tool settings instead)
-                  setActiveToolSidebar(null);
-                } else {
-                  // If layers is not active, activate it
-                  setShowRightPanel(true);
-                  setActiveToolSidebar('advancedLayers');
-                }
-              }}
-              style={{
-                padding: '8px 16px',
-                background: activeToolSidebar === 'advancedLayers' && showRightPanel
-                  ? '#FFFFFF'
-                  : 'transparent',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '6px',
-                color: activeToolSidebar === 'advancedLayers' && showRightPanel ? '#000000' : '#FFFFFF',
-                fontSize: '11px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
-              }}
-            >
-              Layers
             </button>
             
             <button style={{
@@ -1437,6 +1445,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                               
                               // CRITICAL FIX: Use CURRENT tool settings (not path settings) when applying
                               // This allows user to change tool settings and apply them to the path
+                              // Include ALL custom brush features for full integration with vector tools
                               const currentBrushSettings = {
                                 color: appState.brushColor || '#000000',
                                 size: appState.brushSize || 50,
@@ -1446,12 +1455,86 @@ export function MainLayout({ children }: MainLayoutProps) {
                                 spacing: appState.brushSpacing || 0.1,
                                 shape: appState.brushShape || 'round',
                                 blendMode: appState.blendMode || 'source-over',
-                                customBrushImage: appState.customBrushImage || undefined, // Include custom brush image
+                                angle: 0,
+                                roundness: 1,
+                                // Custom Brush Features - Full Integration
+                                customBrushImage: appState.customBrushImage || undefined,
+                                customBrushSymmetry: appState.customBrushSymmetry || 'none',
+                                customBrushSymmetryCount: appState.customBrushSymmetryCount || 4,
+                                customBrushBlendMode: appState.customBrushBlendMode || 'source-over',
+                                customBrushRotation: appState.customBrushRotation,
+                                customBrushScale: appState.customBrushScale,
+                                customBrushFlipHorizontal: appState.customBrushFlipHorizontal,
+                                customBrushFlipVertical: appState.customBrushFlipVertical,
+                                customBrushColorizationMode: appState.customBrushColorizationMode,
+                                customBrushAlphaThreshold: appState.customBrushAlphaThreshold,
+                                customBrushRandomization: appState.customBrushRandomization,
+                                customBrushPressureSize: appState.customBrushPressureSize,
+                                customBrushPressureOpacity: appState.customBrushPressureOpacity,
+                                customBrushPatternMode: appState.customBrushPatternMode,
+                                customBrushPatternType: appState.customBrushPatternType,
+                                customBrushPatternSpacing: appState.customBrushPatternSpacing,
+                                customBrushSpacing: appState.customBrushSpacing,
+                                customBrushBrightness: appState.customBrushBrightness,
+                                customBrushContrast: appState.customBrushContrast,
+                                customBrushFilter: appState.customBrushFilter,
+                                customBrushFilterAmount: appState.customBrushFilterAmount,
+                                customBrushLayers: appState.customBrushLayers,
+                                customBrushAnimated: appState.customBrushAnimated,
+                                customBrushAnimationSpeed: appState.customBrushAnimationSpeed,
+                                customBrushAnimationFrame: appState.customBrushAnimationFrame,
+                                customBrushFrames: appState.customBrushFrames,
+                                customBrushScattering: appState.customBrushScattering,
+                                customBrushScatteringAmount: appState.customBrushScatteringAmount,
+                                customBrushScatteringCount: appState.customBrushScatteringCount,
+                                customBrushTextureOverlay: appState.customBrushTextureOverlay,
+                                customBrushTextureImage: appState.customBrushTextureImage,
+                                customBrushTextureOpacity: appState.customBrushTextureOpacity,
+                                customBrushTextureBlendMode: appState.customBrushTextureBlendMode,
+                                customBrushTextureScale: appState.customBrushTextureScale,
+                                customBrushVelocitySize: appState.customBrushVelocitySize,
+                                customBrushVelocityOpacity: appState.customBrushVelocityOpacity,
+                                customBrushVelocityRotation: appState.customBrushVelocityRotation,
+                                customBrushVelocityScale: appState.customBrushVelocityScale,
+                                customBrushVelocityRotationAmount: appState.customBrushVelocityRotationAmount,
+                                customBrushVelocityScaleAmount: appState.customBrushVelocityScaleAmount,
+                                dynamics: {
+                                  sizePressure: appState.customBrushImage || (appState.customBrushLayers && appState.customBrushLayers.length > 0) || (appState.customBrushAnimated && appState.customBrushFrames && appState.customBrushFrames.length > 0)
+                                    ? (appState.customBrushPressureSize !== undefined ? appState.customBrushPressureSize : true)
+                                    : true,
+                                  opacityPressure: appState.customBrushImage || (appState.customBrushLayers && appState.customBrushLayers.length > 0) || (appState.customBrushAnimated && appState.customBrushFrames && appState.customBrushFrames.length > 0)
+                                    ? (appState.customBrushPressureOpacity !== undefined ? appState.customBrushPressureOpacity : true)
+                                    : true,
+                                  anglePressure: false,
+                                  spacingPressure: false,
+                                  velocitySize: appState.customBrushVelocitySize || false,
+                                  velocityOpacity: appState.customBrushVelocityOpacity || false,
+                                  velocityRotation: appState.customBrushVelocityRotation || false,
+                                  velocityScale: appState.customBrushVelocityScale || false,
+                                  velocityRotationAmount: appState.customBrushVelocityRotationAmount || 90,
+                                  velocityScaleAmount: appState.customBrushVelocityScaleAmount || 0.5
+                                },
                                 gradient: brushGradientData?.mode === 'gradient' ? {
                                   type: brushGradientData.type,
                                   angle: brushGradientData.angle,
                                   stops: brushGradientData.stops
-                                } : undefined
+                                } : undefined,
+                                // Additional brush engine properties
+                                pressureCurve: 'sigmoid' as const,
+                                pressureMapSize: 1.0,
+                                pressureMapOpacity: 1.0,
+                                simulatePressureFromVelocity: true,
+                                stabilization: 0,
+                                stabilizationRadius: 10,
+                                stabilizationWindow: 5,
+                                texture: {
+                                  enabled: false,
+                                  pattern: null,
+                                  scale: 1,
+                                  rotation: 0,
+                                  opacity: 1,
+                                  blendMode: 'multiply' as const
+                                }
                               };
                               
                               console.log(`🎨 Applying brush to ${sampledPoints.length} sampled points`);
@@ -1466,28 +1549,32 @@ export function MainLayout({ children }: MainLayoutProps) {
                               
                               if (brushStamp) {
                                 // Apply brush stamps at each sampled point
+                                // The brush engine already handles all transformations, effects, and scaling
+                                // So we can use the stamp directly without special cases
                                 sampledPoints.forEach((point: any, index: number) => {
                                   ctx.globalAlpha = currentBrushSettings.opacity * currentBrushSettings.flow;
                                   
-                                  if (currentBrushSettings.customBrushImage) {
-                                    // Custom brush image - scale to brush size
-                                    ctx.imageSmoothingEnabled = true;
-                                    ctx.imageSmoothingQuality = 'high';
-                                    ctx.drawImage(
-                                      brushStamp,
-                                      0, 0, brushStamp.width, brushStamp.height,
-                                      (point.x || point.u * canvasWidth) - brushSize / 2,
-                                      (point.y || point.v * canvasHeight) - brushSize / 2,
-                                      brushSize, brushSize
-                                    );
-                                  } else {
-                                    // Default brush - use stamp size directly
-                                    ctx.drawImage(
-                                      brushStamp,
-                                      (point.x || point.u * canvasWidth) - brushStamp.width / 2,
-                                      (point.y || point.v * canvasHeight) - brushStamp.height / 2
-                                    );
-                                  }
+                                  // Use custom brush blend mode if specified, otherwise use default
+                                  const hasCustomBrush = currentBrushSettings.customBrushImage || 
+                                                         (currentBrushSettings.customBrushLayers && currentBrushSettings.customBrushLayers.length > 0) ||
+                                                         (currentBrushSettings.customBrushAnimated && currentBrushSettings.customBrushFrames && currentBrushSettings.customBrushFrames.length > 0);
+                                  
+                                  const useBlendMode = hasCustomBrush && currentBrushSettings.customBrushBlendMode 
+                                    ? currentBrushSettings.customBrushBlendMode 
+                                    : currentBrushSettings.blendMode;
+                                  
+                                  ctx.globalCompositeOperation = useBlendMode;
+                                  
+                                  // The brush stamp from the engine already has all transformations applied
+                                  // (rotation, scale, flip, colorization, filters, etc.)
+                                  // So we just need to draw it at the correct position
+                                  ctx.imageSmoothingEnabled = true;
+                                  ctx.imageSmoothingQuality = 'high';
+                                  ctx.drawImage(
+                                    brushStamp,
+                                    (point.x || point.u * canvasWidth) - brushStamp.width / 2,
+                                    (point.y || point.v * canvasHeight) - brushStamp.height / 2
+                                  );
                                 });
                               }
                               
@@ -1798,7 +1885,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           )}
 
           {/* Canvas Area */}
-          <div className="canvas-area" style={{
+          <div ref={canvasAreaRef} className="canvas-area" style={{
             flex: 1,
             position: 'relative',
           background: '#000000',
@@ -1810,6 +1897,8 @@ export function MainLayout({ children }: MainLayoutProps) {
             <GridOverlay canvasRef={canvasRef} />
             {/* Ensure VectorOverlay is mounted on top of the canvas area when vector mode is active */}
             {vectorMode && <VectorOverlay />}
+            {/* Clip Mask Overlay for visual editing */}
+            <ClipMaskOverlay canvasRef={canvasRef} containerRef={canvasAreaRef} />
           </div>
 
           {/* Right Panel */}

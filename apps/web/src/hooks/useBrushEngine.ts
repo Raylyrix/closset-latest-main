@@ -4,6 +4,7 @@ import { BrushPoint, BrushSettings, UVCoordinate } from '../types/app';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { ProfessionalToolSet, ToolDefinition, ToolConfig } from '../vector/ProfessionalToolSet';
+import { applyBlur, applySharpen, applyEdgeDetection } from '../utils/imageProcessing';
 
 // Enhanced interfaces for the unified brush system
 interface BrushEngineState {
@@ -455,10 +456,39 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
       size *= velocityFactor;
     }
 
+    if (settings.dynamics.velocityOpacity && point.velocity > 0) {
+      const velocityFactor = Math.max(0.2, 1 - point.velocity * 0.3);
+      opacity *= velocityFactor;
+    }
+
+    // Feature 23: Velocity-based rotation
+    if (settings.dynamics.velocityRotation && point.velocity > 0) {
+      const rotationAmount = settings.dynamics.velocityRotationAmount !== undefined 
+        ? settings.dynamics.velocityRotationAmount 
+        : 90; // Default: 90 degrees per unit velocity
+      
+      // Rotate based on velocity magnitude (faster = more rotation)
+      // In a full implementation, we'd use velocity vector direction
+      const velocityRotation = (point.velocity * rotationAmount) % 360;
+      angle += velocityRotation;
+    }
+
+    // Feature 23: Velocity-based scale changes
+    if (settings.dynamics.velocityScale && point.velocity > 0) {
+      const scaleAmount = settings.dynamics.velocityScaleAmount !== undefined 
+        ? settings.dynamics.velocityScaleAmount 
+        : 0.5; // Default: 0.5x scale change per unit velocity
+      
+      // Faster strokes = smaller brush (more scale reduction)
+      const velocityScaleFactor = Math.max(0.1, 1 - (point.velocity * scaleAmount));
+      size *= velocityScaleFactor;
+    }
+
     // Ensure reasonable bounds
     size = Math.max(0.5, Math.min(size, 500));
     opacity = Math.max(0, Math.min(opacity, 1));
     spacing = Math.max(0.01, Math.min(spacing, 1));
+    angle = angle % 360;
 
     return { size, opacity, angle, spacing };
   }, []);
@@ -541,7 +571,18 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   const getBrushCacheKey = useCallback((settings: BrushSettings): string => {
     const gradientKey = settings.gradient ? JSON.stringify(settings.gradient) : 'none';
     const customBrushKey = settings.customBrushImage ? settings.customBrushImage.substring(0, 50) : 'none'; // Use first 50 chars of image data for cache key
-    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}-${customBrushKey}`;
+    const customRotationKey = settings.customBrushRotation !== undefined ? settings.customBrushRotation : 'none';
+    const customScaleKey = settings.customBrushScale !== undefined ? settings.customBrushScale : 'none';
+    const customFlipHKey = settings.customBrushFlipHorizontal ? 'h' : 'nh';
+    const customFlipVKey = settings.customBrushFlipVertical ? 'v' : 'nv';
+    const customColorizationKey = settings.customBrushColorizationMode || 'tint';
+    const customAlphaThresholdKey = settings.customBrushAlphaThreshold !== undefined ? settings.customBrushAlphaThreshold : 'none';
+    const customFilterKey = settings.customBrushFilter || 'none';
+    const customFilterAmountKey = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+    const customLayersKey = settings.customBrushLayers ? JSON.stringify(settings.customBrushLayers.map(l => ({ id: l.id, opacity: l.opacity, blendMode: l.blendMode, enabled: l.enabled }))) : 'none';
+    const customAnimatedKey = settings.customBrushAnimated ? 'anim' : 'static';
+    const customFrameKey = settings.customBrushAnimationFrame !== undefined ? settings.customBrushAnimationFrame : 0;
+    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}-${customBrushKey}-${customRotationKey}-${customScaleKey}-${customFlipHKey}-${customFlipVKey}-${customColorizationKey}-${customAlphaThresholdKey}-${customFilterKey}-${customFilterAmountKey}-${customLayersKey}-${customAnimatedKey}-${customFrameKey}`;
   }, []);
 
   const createBrushStamp = useCallback((settings: BrushSettings): HTMLCanvasElement => {
@@ -583,7 +624,320 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
       // Clear canvas
       stampCtx.clearRect(0, 0, stampSize, stampSize);
 
-      // Check if custom brush image is provided
+      // Feature 21: Check for multi-layer brushes first, then single custom brush image
+      if (settings.customBrushLayers && settings.customBrushLayers.length > 0) {
+        // Multi-layer brush: composite multiple images
+        const enabledLayers = settings.customBrushLayers.filter(layer => layer.enabled);
+        
+        if (enabledLayers.length > 0) {
+          // Use the existing stamp canvas (which is 2x optimizedSize)
+          const actualBrushSize = settings.size;
+          const customStampSize = Math.ceil(actualBrushSize * 2);
+          
+          // Create a new canvas matching brush size for proper scaling
+          const customCanvas = document.createElement('canvas');
+          customCanvas.width = customStampSize;
+          customCanvas.height = customStampSize;
+          const customCtx = customCanvas.getContext('2d', { alpha: true });
+          
+          if (!customCtx) {
+            throw new Error('Failed to get 2D context for custom brush stamp');
+          }
+          
+          // Clear the canvas
+          customCtx.clearRect(0, 0, customStampSize, customStampSize);
+          
+          // Composite each layer
+          for (const layer of enabledLayers) {
+            let layerImg = state.imageCache.get(layer.image);
+            
+            if (!layerImg) {
+              layerImg = new Image();
+              layerImg.crossOrigin = 'anonymous';
+              layerImg.src = layer.image;
+              state.imageCache.set(layer.image, layerImg);
+            }
+            
+            if (layerImg.complete && layerImg.width > 0 && layerImg.height > 0) {
+              // Calculate scaling for this layer
+              const imageMaxDimension = Math.max(layerImg.width, layerImg.height);
+              const baseScale = actualBrushSize / imageMaxDimension;
+              const customScale = settings.customBrushScale !== undefined ? settings.customBrushScale : 1.0;
+              const scale = baseScale * customScale;
+              
+              const scaledWidth = layerImg.width * scale;
+              const scaledHeight = layerImg.height * scale;
+              
+              // Set blend mode and opacity
+              customCtx.globalCompositeOperation = layer.blendMode;
+              customCtx.globalAlpha = layer.opacity;
+              
+              // Draw layer centered
+              const drawX = (customStampSize - scaledWidth) / 2;
+              const drawY = (customStampSize - scaledHeight) / 2;
+              
+              customCtx.drawImage(layerImg, drawX, drawY, scaledWidth, scaledHeight);
+            }
+          }
+          
+          // Reset global alpha
+          customCtx.globalAlpha = 1.0;
+          customCtx.globalCompositeOperation = 'source-over';
+          
+          // Apply transformations (rotation, flip) to the composite
+          const rotation = settings.customBrushRotation !== undefined ? settings.customBrushRotation : 0;
+          const rotationRad = (rotation * Math.PI) / 180;
+          const flipH = settings.customBrushFlipHorizontal || false;
+          const flipV = settings.customBrushFlipVertical || false;
+          
+          if (rotation !== 0 || flipH || flipV) {
+            customCtx.save();
+            customCtx.translate(customStampSize / 2, customStampSize / 2);
+            customCtx.rotate(rotationRad);
+            customCtx.scale(flipH ? -1 : 1, flipV ? 1 : -1);
+            customCtx.translate(-customStampSize / 2, -customStampSize / 2);
+            
+            // Get current image data, apply transform, then put back
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            customCtx.clearRect(0, 0, customStampSize, customStampSize);
+            customCtx.putImageData(imageData, 0, 0);
+            customCtx.restore();
+          }
+          
+          // Apply brightness/contrast if specified
+          const brightness = settings.customBrushBrightness || 0;
+          const contrast = settings.customBrushContrast || 0;
+          
+          if (brightness !== 0 || contrast !== 0) {
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue;
+              
+              let r = data[i];
+              let g = data[i + 1];
+              let b = data[i + 2];
+              
+              if (brightness !== 0) {
+                r = Math.max(0, Math.min(255, r + brightness));
+                g = Math.max(0, Math.min(255, g + brightness));
+                b = Math.max(0, Math.min(255, b + brightness));
+              }
+              
+              if (contrast !== 0) {
+                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                r = Math.max(0, Math.min(255, factor * (r - 128) + 128));
+                g = Math.max(0, Math.min(255, factor * (g - 128) + 128));
+                b = Math.max(0, Math.min(255, factor * (b - 128) + 128));
+              }
+              
+              data[i] = r;
+              data[i + 1] = g;
+              data[i + 2] = b;
+            }
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply filter if specified
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            const stampImageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            let filteredData: ImageData = stampImageData;
+            const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+            
+            switch (settings.customBrushFilter) {
+              case 'blur':
+                filteredData = applyBlur(stampImageData, filterAmount);
+                break;
+              case 'sharpen':
+                filteredData = applySharpen(stampImageData, filterAmount);
+                break;
+              case 'edge':
+                filteredData = applyEdgeDetection(stampImageData);
+                break;
+            }
+            
+            customCtx.putImageData(filteredData, 0, 0);
+          }
+          
+          // Feature 25: Apply texture overlay if specified
+          if (settings.customBrushTextureOverlay && settings.customBrushTextureImage) {
+            let textureImg = state.imageCache.get(settings.customBrushTextureImage);
+            
+            if (!textureImg) {
+              textureImg = new Image();
+              textureImg.crossOrigin = 'anonymous';
+              textureImg.src = settings.customBrushTextureImage;
+              state.imageCache.set(settings.customBrushTextureImage, textureImg);
+            }
+            
+            if (textureImg.complete && textureImg.width > 0 && textureImg.height > 0) {
+              customCtx.save();
+              customCtx.globalCompositeOperation = settings.customBrushTextureBlendMode || 'overlay';
+              customCtx.globalAlpha = settings.customBrushTextureOpacity !== undefined ? settings.customBrushTextureOpacity : 0.5;
+              
+              const textureScale = settings.customBrushTextureScale !== undefined ? settings.customBrushTextureScale : 1.0;
+              const textureWidth = customStampSize * textureScale;
+              const textureHeight = customStampSize * textureScale;
+              
+              // Center the texture
+              const textureX = (customStampSize - textureWidth) / 2;
+              const textureY = (customStampSize - textureHeight) / 2;
+              
+              // Create pattern for tiling
+              const patternCanvas = document.createElement('canvas');
+              patternCanvas.width = textureWidth;
+              patternCanvas.height = textureHeight;
+              const patternCtx = patternCanvas.getContext('2d');
+              
+              if (patternCtx) {
+                patternCtx.drawImage(textureImg, 0, 0, textureWidth, textureHeight);
+                const pattern = customCtx.createPattern(patternCanvas, 'repeat');
+                
+                if (pattern) {
+                  customCtx.fillStyle = pattern;
+                  customCtx.fillRect(0, 0, customStampSize, customStampSize);
+                } else {
+                  // Fallback: draw texture directly
+                  customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+                }
+              } else {
+                // Fallback: draw texture directly
+                customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+              }
+              
+              customCtx.restore();
+            }
+          }
+          
+          // Copy to main stamp canvas
+          stampCtx.clearRect(0, 0, stampSize, stampSize);
+          stampCtx.drawImage(customCanvas, 0, 0, stampSize, stampSize);
+          
+          return stampCanvas;
+        }
+      }
+      
+      // Feature 22: Check for animated brush (GIF frames)
+      if (settings.customBrushAnimated && settings.customBrushFrames && settings.customBrushFrames.length > 0) {
+        const currentFrameIndex = settings.customBrushAnimationFrame !== undefined 
+          ? Math.floor(settings.customBrushAnimationFrame) % settings.customBrushFrames.length 
+          : 0;
+        const currentFrame = settings.customBrushFrames[currentFrameIndex];
+        
+        if (currentFrame && currentFrame.image && currentFrame.image.complete && currentFrame.image.width > 0) {
+          const img = currentFrame.image;
+          // Use the same logic as single custom brush but with animated frame
+          const actualBrushSize = settings.size;
+          const customStampSize = Math.ceil(actualBrushSize * 2);
+          
+          const customCanvas = document.createElement('canvas');
+          customCanvas.width = customStampSize;
+          customCanvas.height = customStampSize;
+          const customCtx = customCanvas.getContext('2d', { alpha: true });
+          
+          if (!customCtx) {
+            throw new Error('Failed to get 2D context for animated brush stamp');
+          }
+          
+          customCtx.clearRect(0, 0, customStampSize, customStampSize);
+          
+          const imageMaxDimension = Math.max(img.width, img.height);
+          const baseScale = actualBrushSize / imageMaxDimension;
+          const customScale = settings.customBrushScale !== undefined ? settings.customBrushScale : 1.0;
+          const scale = baseScale * customScale;
+          
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          
+          customCtx.imageSmoothingEnabled = true;
+          customCtx.imageSmoothingQuality = 'high';
+          
+          const scaledDrawWidth = scaledWidth * 2;
+          const scaledDrawHeight = scaledHeight * 2;
+          const drawX = (customStampSize - scaledDrawWidth) / 2;
+          
+          customCtx.save();
+          customCtx.globalAlpha = settings.opacity || 1.0;
+          
+          const rotation = settings.customBrushRotation || 0;
+          const rotationRad = (rotation * Math.PI) / 180;
+          const flipH = settings.customBrushFlipHorizontal || false;
+          const flipV = settings.customBrushFlipVertical || false;
+          
+          customCtx.translate(customStampSize / 2, customStampSize / 2);
+          customCtx.rotate(rotationRad);
+          customCtx.scale(flipH ? -1 : 1, flipV ? 1 : -1);
+          customCtx.translate(-customStampSize / 2, -customStampSize / 2);
+          
+          const drawY = (customStampSize - scaledDrawHeight) / 2;
+          customCtx.drawImage(img, drawX, drawY, scaledDrawWidth, scaledDrawHeight);
+          customCtx.restore();
+          
+          // Apply brightness/contrast
+          const brightness = settings.customBrushBrightness || 0;
+          const contrast = settings.customBrushContrast || 0;
+          
+          if (brightness !== 0 || contrast !== 0) {
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue;
+              
+              let r = data[i];
+              let g = data[i + 1];
+              let b = data[i + 2];
+              
+              if (brightness !== 0) {
+                r = Math.max(0, Math.min(255, r + brightness));
+                g = Math.max(0, Math.min(255, g + brightness));
+                b = Math.max(0, Math.min(255, b + brightness));
+              }
+              
+              if (contrast !== 0) {
+                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                r = Math.max(0, Math.min(255, factor * (r - 128) + 128));
+                g = Math.max(0, Math.min(255, factor * (g - 128) + 128));
+                b = Math.max(0, Math.min(255, factor * (b - 128) + 128));
+              }
+              
+              data[i] = r;
+              data[i + 1] = g;
+              data[i + 2] = b;
+            }
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply filter if specified
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            const stampImageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            let filteredData: ImageData = stampImageData;
+            const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+            
+            switch (settings.customBrushFilter) {
+              case 'blur':
+                filteredData = applyBlur(stampImageData, filterAmount);
+                break;
+              case 'sharpen':
+                filteredData = applySharpen(stampImageData, filterAmount);
+                break;
+              case 'edge':
+                filteredData = applyEdgeDetection(stampImageData);
+                break;
+            }
+            
+            customCtx.putImageData(filteredData, 0, 0);
+          }
+          
+          stampCtx.clearRect(0, 0, stampSize, stampSize);
+          stampCtx.drawImage(customCanvas, 0, 0, stampSize, stampSize);
+          
+          return stampCanvas;
+        }
+      }
+      
+      // Check if custom brush image is provided (single layer)
       if (settings.customBrushImage) {
         // Check if image is already cached and loaded
         let img = state.imageCache.get(settings.customBrushImage);
@@ -598,15 +952,74 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         
         // If image is loaded and ready, use it as a stencil
         if (img.complete && img.width > 0 && img.height > 0) {
+          // Feature 20: Apply image filter if specified (synchronous processing)
+          let processedImage = img;
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            try {
+              // Create temporary canvas to apply filter
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = img.width;
+              tempCanvas.height = img.height;
+              const tempCtx = tempCanvas.getContext('2d', { alpha: true });
+              
+              if (tempCtx) {
+                tempCtx.drawImage(img, 0, 0);
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Apply filter synchronously
+                let processedData: ImageData = imageData;
+                const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+                
+                switch (settings.customBrushFilter) {
+                  case 'blur':
+                    processedData = applyBlur(imageData, filterAmount);
+                    break;
+                  case 'sharpen':
+                    processedData = applySharpen(imageData, filterAmount);
+                    break;
+                  case 'edge':
+                    processedData = applyEdgeDetection(imageData);
+                    break;
+                  default:
+                    processedData = imageData;
+                }
+                
+                tempCtx.putImageData(processedData, 0, 0);
+                
+                // Create new image from processed canvas
+                // The canvas data URL is immediately available, so we can use it
+                const processedImg = new Image();
+                processedImg.src = tempCanvas.toDataURL('image/png');
+                // For immediate use, we'll draw from the canvas directly if image isn't loaded yet
+                if (processedImg.complete) {
+                  processedImage = processedImg;
+                } else {
+                  // If not complete, we'll use the canvas directly in drawing
+                  // Store canvas reference for later use
+                  (tempCanvas as any).__isProcessed = true;
+                  processedImage = img; // Fallback to original, but we'll use canvas when drawing
+                }
+              }
+            } catch (error) {
+              console.warn('Failed to apply filter, using original image:', error);
+              processedImage = img;
+            }
+          }
+          
           // FIXED: Use actual brush size for proper scaling
           // The stamp size should match brush size, but we'll render at higher quality
           const actualBrushSize = settings.size; // Use actual brush size so it scales correctly
-          const imageMaxDimension = Math.max(img.width, img.height);
+          const imageMaxDimension = Math.max(processedImage.width || img.width, processedImage.height || img.height);
           
-          // Calculate scaling to fit the ACTUAL brush size - this ensures size changes with brush size
-          const scale = actualBrushSize / imageMaxDimension;
-          const scaledWidth = img.width * scale;
-          const scaledHeight = img.height * scale;
+          // Calculate base scaling to fit the ACTUAL brush size - this ensures size changes with brush size
+          const baseScale = actualBrushSize / imageMaxDimension;
+          
+          // Apply custom brush scale multiplier (0.5x-3.0x)
+          const customScale = settings.customBrushScale !== undefined ? settings.customBrushScale : 1.0;
+          const scale = baseScale * customScale;
+          
+          const scaledWidth = processedImage.width * scale;
+          const scaledHeight = processedImage.height * scale;
           
           // Use the existing stamp canvas (which is 2x optimizedSize)
           // But for custom brushes, use actual brush size to match exactly
@@ -642,25 +1055,186 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
           customCtx.save();
           customCtx.globalAlpha = brushOpacity;
           
-          // FIX Y-AXIS INVERSION: Flip the image vertically
-          // Translate to bottom of canvas, flip Y-axis (scale Y by -1)
+          // Apply rotation if specified
+          const rotation = settings.customBrushRotation || 0;
+          const rotationRad = (rotation * Math.PI) / 180;
+          
+          // Apply flip settings
+          const flipH = settings.customBrushFlipHorizontal || false;
+          const flipV = settings.customBrushFlipVertical || false;
+          
+          // FIX Y-AXIS INVERSION: Flip the image vertically (base flip for coordinate system)
+          // Translate to center, apply rotation, apply flips, flip Y-axis (scale Y by -1)
           customCtx.translate(customStampSize / 2, customStampSize / 2);
-          customCtx.scale(1, -1); // Flip vertically
+          customCtx.rotate(rotationRad); // Apply rotation
+          customCtx.scale(flipH ? -1 : 1, flipV ? 1 : -1); // Apply horizontal flip, then vertical flip (inverted for coordinate system)
           customCtx.translate(-customStampSize / 2, -customStampSize / 2);
           
           // Draw image centered (drawY calculated for flipped coordinate system)
           const drawY = (customStampSize - scaledDrawHeight) / 2;
+          
+          // Feature 20: Draw image first, then apply filter if needed
           customCtx.drawImage(img, drawX, drawY, scaledDrawWidth, scaledDrawHeight);
           
           // Reset transform
           customCtx.restore();
           
-          // Apply the brush color using source-atop blend mode
-          // This will ONLY color the opaque parts, preserving transparency
+          // Feature 20: Apply filter to the final stamp if specified
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            const stampImageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            let filteredData: ImageData = stampImageData;
+            const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+            
+            switch (settings.customBrushFilter) {
+              case 'blur':
+                filteredData = applyBlur(stampImageData, filterAmount);
+                break;
+              case 'sharpen':
+                filteredData = applySharpen(stampImageData, filterAmount);
+                break;
+              case 'edge':
+                filteredData = applyEdgeDetection(stampImageData);
+                break;
+            }
+            
+            customCtx.putImageData(filteredData, 0, 0);
+          }
+          
+          // Feature 25: Apply texture overlay if specified
+          if (settings.customBrushTextureOverlay && settings.customBrushTextureImage) {
+            let textureImg = state.imageCache.get(settings.customBrushTextureImage);
+            
+            if (!textureImg) {
+              textureImg = new Image();
+              textureImg.crossOrigin = 'anonymous';
+              textureImg.src = settings.customBrushTextureImage;
+              state.imageCache.set(settings.customBrushTextureImage, textureImg);
+            }
+            
+            if (textureImg.complete && textureImg.width > 0 && textureImg.height > 0) {
+              customCtx.save();
+              customCtx.globalCompositeOperation = settings.customBrushTextureBlendMode || 'overlay';
+              customCtx.globalAlpha = settings.customBrushTextureOpacity !== undefined ? settings.customBrushTextureOpacity : 0.5;
+              
+              const textureScale = settings.customBrushTextureScale !== undefined ? settings.customBrushTextureScale : 1.0;
+              const textureWidth = customStampSize * textureScale;
+              const textureHeight = customStampSize * textureScale;
+              
+              // Center the texture
+              const textureX = (customStampSize - textureWidth) / 2;
+              const textureY = (customStampSize - textureHeight) / 2;
+              
+              // Create pattern for tiling
+              const patternCanvas = document.createElement('canvas');
+              patternCanvas.width = textureWidth;
+              patternCanvas.height = textureHeight;
+              const patternCtx = patternCanvas.getContext('2d');
+              
+              if (patternCtx) {
+                patternCtx.drawImage(textureImg, 0, 0, textureWidth, textureHeight);
+                const pattern = customCtx.createPattern(patternCanvas, 'repeat');
+                
+                if (pattern) {
+                  customCtx.fillStyle = pattern;
+                  customCtx.fillRect(0, 0, customStampSize, customStampSize);
+                } else {
+                  // Fallback: draw texture directly
+                  customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+                }
+              } else {
+                // Fallback: draw texture directly
+                customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+              }
+              
+              customCtx.restore();
+            }
+          }
+          
+          // Feature 18: Apply brightness/contrast adjustments
+          const brightness = settings.customBrushBrightness !== undefined ? settings.customBrushBrightness : 0;
+          const contrast = settings.customBrushContrast !== undefined ? settings.customBrushContrast : 0;
+          
+          if (brightness !== 0 || contrast !== 0) {
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue; // Skip transparent pixels
+              
+              let r = data[i];
+              let g = data[i + 1];
+              let b = data[i + 2];
+              
+              // Apply brightness
+              if (brightness !== 0) {
+                r = Math.max(0, Math.min(255, r + brightness));
+                g = Math.max(0, Math.min(255, g + brightness));
+                b = Math.max(0, Math.min(255, b + brightness));
+              }
+              
+              // Apply contrast
+              if (contrast !== 0) {
+                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                r = Math.max(0, Math.min(255, factor * (r - 128) + 128));
+                g = Math.max(0, Math.min(255, factor * (g - 128) + 128));
+                b = Math.max(0, Math.min(255, factor * (b - 128) + 128));
+              }
+              
+              data[i] = r;
+              data[i + 1] = g;
+              data[i + 2] = b;
+            }
+            
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply alpha threshold if specified
+          const alphaThreshold = settings.customBrushAlphaThreshold !== undefined ? settings.customBrushAlphaThreshold : 50;
+          if (alphaThreshold > 0) {
+            // Get image data and apply threshold
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            const thresholdValue = Math.floor((alphaThreshold / 100) * 255);
+            
+            // Apply threshold: pixels below threshold become transparent
+            for (let i = 3; i < data.length; i += 4) {
+              if (data[i] < thresholdValue) {
+                data[i] = 0; // Set alpha to 0 (transparent)
+              }
+            }
+            
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply colorization based on mode
+          const colorizationMode = settings.customBrushColorizationMode || 'tint';
           customCtx.save();
-          customCtx.globalCompositeOperation = 'source-atop';
-          customCtx.fillStyle = brushColor;
-          customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          
+          if (colorizationMode === 'preserve') {
+            // Don't apply any color - preserve original image colors
+            // Nothing to do here
+          } else if (colorizationMode === 'tint') {
+            // Tint: Apply color using source-atop (only colors opaque parts)
+            customCtx.globalCompositeOperation = 'source-atop';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          } else if (colorizationMode === 'multiply') {
+            // Multiply: Darken the image with the brush color
+            customCtx.globalCompositeOperation = 'multiply';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          } else if (colorizationMode === 'overlay') {
+            // Overlay: Blend color with image
+            customCtx.globalCompositeOperation = 'overlay';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          } else if (colorizationMode === 'colorize') {
+            // Colorize: Replace colors while preserving luminance
+            customCtx.globalCompositeOperation = 'color';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          }
+          
           customCtx.restore();
           
           // Use this canvas as the stamp
@@ -1933,30 +2507,69 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
     // Set blend mode
     ctx.globalCompositeOperation = settings.blendMode;
 
+    // Get randomization amount (0-100%)
+    const randomization = settings.customBrushRandomization !== undefined ? settings.customBrushRandomization : 0;
+
     // Process each point in the stroke
     for (let i = 0; i < points.length; i++) {
       const point = points[i];
-      const dynamics = calculateBrushDynamics(point, settings, i);
+      
+      // Override pressure dynamics for custom brushes if specified
+      const customPressureSettings = settings.customBrushImage ? {
+        sizePressure: settings.customBrushPressureSize !== undefined ? settings.customBrushPressureSize : settings.dynamics.sizePressure,
+        opacityPressure: settings.customBrushPressureOpacity !== undefined ? settings.customBrushPressureOpacity : settings.dynamics.opacityPressure,
+        anglePressure: settings.dynamics.anglePressure,
+        spacingPressure: settings.dynamics.spacingPressure,
+        velocitySize: settings.dynamics.velocitySize,
+        velocityOpacity: settings.dynamics.velocityOpacity
+      } : settings.dynamics;
+      
+      const dynamics = calculateBrushDynamics(point, {
+        ...settings,
+        dynamics: customPressureSettings
+      }, i);
 
-      // Create or get brush stamp
+      // Apply randomization if enabled (only for custom brushes)
+      let finalRotation = dynamics.angle;
+      let finalSize = dynamics.size;
+      
+      if (randomization > 0 && settings.customBrushImage) {
+        // Random rotation variation: ±(randomization% of 360°)
+        const rotationVariation = (randomization / 100) * 360;
+        const randomRotation = (Math.random() * 2 - 1) * rotationVariation; // -variation to +variation
+        finalRotation = dynamics.angle + randomRotation;
+
+        // Random scale variation: ±(randomization% of scale)
+        const scaleVariation = (randomization / 100);
+        const randomScale = 1 + (Math.random() * 2 - 1) * scaleVariation; // 1±variation
+        finalSize = dynamics.size * randomScale;
+      }
+
+      // Create or get brush stamp (without randomization in cache key)
       const brushStamp = createBrushStamp({
         ...settings,
-        size: dynamics.size,
+        size: finalSize,
         opacity: dynamics.opacity,
-        angle: dynamics.angle
+        angle: finalRotation
       });
 
       // Position and draw the stamp
-      if (dynamics.angle !== 0) {
-        ctx.save();
-        ctx.translate(point.x, point.y);
-        ctx.rotate((dynamics.angle * Math.PI) / 180);
-        ctx.drawImage(brushStamp, -brushStamp.width / 2, -brushStamp.height / 2);
-        ctx.restore();
-      } else {
-        // Non-rotated: draw centered at point
-        ctx.drawImage(brushStamp, point.x - brushStamp.width / 2, point.y - brushStamp.height / 2);
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      
+      // Apply rotation if needed
+      if (finalRotation !== 0) {
+        ctx.rotate((finalRotation * Math.PI) / 180);
       }
+      
+      // Apply scale if randomized
+      if (randomization > 0 && settings.customBrushImage && finalSize !== dynamics.size) {
+        const scaleFactor = finalSize / dynamics.size;
+        ctx.scale(scaleFactor, scaleFactor);
+      }
+      
+      ctx.drawImage(brushStamp, -brushStamp.width / 2, -brushStamp.height / 2);
+      ctx.restore();
     }
 
     // Restore context state

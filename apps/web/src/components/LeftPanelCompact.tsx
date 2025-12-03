@@ -4,7 +4,7 @@ import { useAdvancedLayerStoreV2 } from '../core/AdvancedLayerSystemV2';
 import { SERVER_URL, upscalePng } from '../api';
 import { exportMeshAsGLB } from '../exporters';
 import { useModelStore } from '../stores/domainStores';
-import { performanceOptimizer } from '../utils/PerformanceOptimizer';
+import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 
 export function LeftPanelCompact() {
   // Use V2 system directly instead of legacy App.tsx properties
@@ -12,6 +12,30 @@ export function LeftPanelCompact() {
   const modelChoice = useApp(s => s.modelChoice);
   const activeTool = useApp(s => s.activeTool);
   const setActiveTool = useApp(s => s.setActiveTool);
+  const [customBrushSidebarActive, setCustomBrushSidebarActive] = useState(false);
+  
+  // Listen for custom brush sidebar state changes
+  useEffect(() => {
+    const handleSidebarChange = () => {
+      setCustomBrushSidebarActive((window as any).__customBrushSidebarActive === true);
+    };
+    
+    // Check initial state
+    handleSidebarChange();
+    
+    // Listen for custom events
+    window.addEventListener('openCustomBrushSidebar', handleSidebarChange);
+    window.addEventListener('closeCustomBrushSidebar', handleSidebarChange);
+    
+    // Poll for changes (fallback)
+    const interval = setInterval(handleSidebarChange, 100);
+    
+    return () => {
+      window.removeEventListener('openCustomBrushSidebar', handleSidebarChange);
+      window.removeEventListener('closeCustomBrushSidebar', handleSidebarChange);
+      clearInterval(interval);
+    };
+  }, []);
   // REMOVED: importedImages and addImportedImage - no longer used in left panel
   // REMOVED: addShapeElement - shapes quick access panel removed
   const [downloading, setDownloading] = useState(false);
@@ -24,7 +48,7 @@ export function LeftPanelCompact() {
     if (layers.length > 0 && !composedCanvas) {
       // Initialize composed canvas if missing
       console.log('LeftPanelCompact: Initializing device-optimized composed canvas');
-      const optimalSize = performanceOptimizer.getOptimalCanvasSize();
+      const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
       useApp.getState().initCanvases(optimalSize.width, optimalSize.height);
       
       // CRITICAL: Generate base layer after canvas initialization to capture original model texture
@@ -101,7 +125,8 @@ export function LeftPanelCompact() {
             { id: 'embroidery', icon: '🧵', name: 'Embroidery' },
             { id: 'text', icon: '📝', name: 'Text' },
             { id: 'shapes', icon: '🔷', name: 'Shapes' },
-            { id: 'image', icon: '📷', name: 'Image' }
+            { id: 'image', icon: '📷', name: 'Image' },
+            { id: 'customBrush', icon: '🎨', name: 'Custom Brush', isSidebar: true }
           ].map(tool => (
             <button
               key={tool.id}
@@ -109,6 +134,16 @@ export function LeftPanelCompact() {
                 e.preventDefault();
                 e.stopPropagation();
                 console.log(`🔘 ${tool.name} button clicked! Current activeTool:`, activeTool);
+                
+                // Handle sidebar tools differently
+                if ((tool as any).isSidebar) {
+                  // Set activeTool to 'brush' for custom brush (it's a brush variant)
+                  setActiveTool('brush');
+                  // Dispatch custom event to open sidebar
+                  const event = new CustomEvent('openCustomBrushSidebar');
+                  window.dispatchEvent(event);
+                  return;
+                }
                 
                 // Toggle behavior: if clicking the same tool, deactivate it
                 if (activeTool === tool.id) {
@@ -122,12 +157,12 @@ export function LeftPanelCompact() {
               }}
               style={{
                 padding: '8px',
-                background: activeTool === tool.id 
+                background: (activeTool === tool.id) || ((tool.id === 'customBrush') && customBrushSidebarActive)
                   ? '#000000' 
                   : 'rgba(255, 255, 255, 0.05)',
                 border: 'none',
                 borderRadius: '8px',
-                color: activeTool === tool.id ? '#FFFFFF' : '#a0aec0',
+                color: (activeTool === tool.id) || ((tool.id === 'customBrush') && customBrushSidebarActive) ? '#FFFFFF' : '#a0aec0',
                 fontSize: '12px',
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
@@ -135,7 +170,7 @@ export function LeftPanelCompact() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: '4px',
-                boxShadow: activeTool === tool.id 
+                boxShadow: (activeTool === tool.id) || ((tool.id === 'customBrush') && customBrushSidebarActive)
                   ? '0 4px 15px rgba(255, 255, 255, 0.2)' 
                   : '0 2px 8px rgba(0, 0, 0, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -143,7 +178,7 @@ export function LeftPanelCompact() {
                 pointerEvents: 'auto'
               }}
               onMouseEnter={(e) => {
-                if (activeTool !== tool.id) {
+                if (activeTool !== tool.id && !((tool.id === 'customBrush') && customBrushSidebarActive)) {
                   e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                   e.currentTarget.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';

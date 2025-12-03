@@ -58,6 +58,10 @@ export interface BrushDynamics {
   spacingPressure: boolean;
   velocitySize: boolean;
   velocityOpacity: boolean;
+  velocityRotation: boolean; // Velocity-based rotation
+  velocityScale: boolean; // Velocity-based scale changes
+  velocityRotationAmount?: number; // Amount of rotation per velocity unit (0-360)
+  velocityScaleAmount?: number; // Amount of scale change per velocity unit (0-2)
 }
 
 export interface BrushTexture {
@@ -125,6 +129,45 @@ export interface BrushSettings {
   
   // Custom Brush Image
   customBrushImage?: string | null; // Data URL or image source for custom brush pattern
+  customBrushRotation?: number; // Rotation angle for custom brush image (0-360 degrees)
+  customBrushScale?: number; // Scale multiplier for custom brush image (0.5x-3.0x, default: 1.0x)
+  customBrushFlipHorizontal?: boolean; // Flip custom brush image horizontally
+  customBrushFlipVertical?: boolean; // Flip custom brush image vertically
+  customBrushColorizationMode?: 'tint' | 'multiply' | 'overlay' | 'colorize' | 'preserve'; // How to apply color to custom brush
+  customBrushAlphaThreshold?: number; // Alpha threshold for stenciling (0-100%, default: 50%)
+  customBrushRandomization?: number; // Randomization amount (0-100%) for rotation/scale variation per stamp
+  customBrushPressureSize?: boolean; // Enable pressure response for size (default: true)
+  customBrushPressureOpacity?: boolean; // Enable pressure response for opacity (default: true)
+  customBrushStampMode?: boolean; // Stamp mode: true = single-click stamping, false = continuous painting
+  customBrushPatternMode?: boolean; // Pattern mode: repeat brush in patterns
+  customBrushPatternType?: 'grid' | 'line' | 'circle' | 'spiral'; // Pattern type
+  customBrushPatternSpacing?: number; // Spacing between pattern elements (in pixels)
+  customBrushSpacing?: number; // Spacing control for custom brushes (0-1, multiplier of brush size)
+  customBrushBrightness?: number; // Brightness adjustment for custom brush image (-100 to 100)
+  customBrushContrast?: number; // Contrast adjustment for custom brush image (-100 to 100)
+  customBrushFilter?: 'none' | 'blur' | 'sharpen' | 'edge'; // Image filter to apply
+  customBrushFilterAmount?: number; // Filter intensity (0-10)
+  customBrushLayers?: Array<{
+    id: string;
+    image: string; // Data URL or image source
+    opacity: number; // 0-1
+    blendMode: GlobalCompositeOperation;
+    enabled: boolean;
+  }>; // Multi-layer brush support
+  customBrushAnimated?: boolean; // Whether the brush is animated (GIF)
+  customBrushAnimationSpeed?: number; // Animation speed multiplier (0.1-5.0)
+  customBrushAnimationFrame?: number; // Current frame index (for animated brushes)
+  customBrushScattering?: boolean; // Enable brush scattering
+  customBrushScatteringAmount?: number; // Scattering amount (0-100%)
+  customBrushScatteringCount?: number; // Number of scattered stamps (1-20)
+  customBrushTextureOverlay?: boolean; // Enable texture overlay
+  customBrushTextureImage?: string | null; // Texture image URL/data URL
+  customBrushTextureOpacity?: number; // Texture opacity (0-1)
+  customBrushTextureBlendMode?: GlobalCompositeOperation; // Texture blend mode
+  customBrushTextureScale?: number; // Texture scale (0.1-5.0)
+  customBrushSymmetry?: 'none' | 'horizontal' | 'vertical' | 'both' | 'radial' | 'mandala'; // Symmetry mode for custom brush stamps
+  customBrushSymmetryCount?: number; // Number of symmetry axes/reflections (2-16, for radial/mandala)
+  customBrushBlendMode?: GlobalCompositeOperation; // Blend mode specifically for custom brush stamps
 
   // Puff-specific (for 3D)
   height?: number;

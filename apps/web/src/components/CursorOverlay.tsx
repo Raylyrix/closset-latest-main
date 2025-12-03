@@ -14,6 +14,12 @@ type Props = {
 export const CursorOverlay = memo(function CursorOverlay({ x, y, visible, tool, size, shape = 'round', angle = 0 }: Props) {
   const vectorMode = useApp(s => (s as any).vectorMode);
   const customBrushImage = useApp(s => s.customBrushImage);
+  const customBrushRotation = useApp(s => s.customBrushRotation);
+  const customBrushScale = useApp(s => s.customBrushScale);
+  const customBrushFlipHorizontal = useApp(s => s.customBrushFlipHorizontal);
+  const customBrushFlipVertical = useApp(s => s.customBrushFlipVertical);
+  const customBrushColorizationMode = useApp(s => s.customBrushColorizationMode);
+  const brushColor = useApp(s => s.brushColor);
   if (!visible) return null;
   // Treat vectorMode as an active drawing mode so overlay appears and uses plus cursor
   const drawing = vectorMode || ['brush','eraser','fill','picker','smudge','blur','select','transform','move','puffPrint','line','rect','ellipse','gradient','embroidery','vectorTools','pen','curvature','addAnchor','removeAnchor','convertAnchor','pathSelection','text','shapes'].includes(tool);
@@ -175,30 +181,71 @@ export const CursorOverlay = memo(function CursorOverlay({ x, y, visible, tool, 
           <div className="shapes-plus" />
         </div>
       ) : hasCustomBrush ? (
-        <div
-          style={{
-            position: 'absolute',
-            width: diameter,
-            height: diameter,
-            transform: `translate(${x - diameter / 2}px, ${y - diameter / 2}px)`,
-            pointerEvents: 'none',
-            border: '1px solid rgba(255,255,255,0.5)',
-            borderRadius: '2px',
-            overflow: 'hidden',
-            boxShadow: '0 0 4px rgba(0,0,0,0.5)'
-          }}
-        >
-          <img
-            src={customBrushImage || ''}
-            alt="Custom brush preview"
+        <>
+          <div
             style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              imageRendering: 'pixelated'
+              position: 'absolute',
+              width: diameter * (customBrushScale || 1),
+              height: diameter * (customBrushScale || 1),
+              transform: `
+                translate(${x - (diameter * (customBrushScale || 1)) / 2}px, ${y - (diameter * (customBrushScale || 1)) / 2}px)
+                rotate(${customBrushRotation || 0}deg)
+                scaleX(${customBrushFlipHorizontal ? -1 : 1})
+                scaleY(${customBrushFlipVertical ? -1 : 1})
+              `,
+              pointerEvents: 'none',
+              border: '1px solid rgba(255,255,255,0.5)',
+              borderRadius: '2px',
+              overflow: 'hidden',
+              boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+              transformOrigin: 'center center'
             }}
-          />
-        </div>
+          >
+            <img
+              src={customBrushImage || ''}
+              alt="Custom brush preview"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                imageRendering: 'pixelated',
+                filter: customBrushColorizationMode === 'preserve' ? 'none' : 
+                        customBrushColorizationMode === 'tint' ? `drop-shadow(0 0 0 ${brushColor})` :
+                        customBrushColorizationMode === 'multiply' ? `brightness(0.8) saturate(1.5)` :
+                        'none'
+              }}
+            />
+          </div>
+          {/* Feature 17: On-Canvas Brush Indicator */}
+          <div
+            style={{
+              position: 'absolute',
+              left: `${x + (diameter * (customBrushScale || 1)) / 2 + 8}px`,
+              top: `${y - 20}px`,
+              pointerEvents: 'none',
+              background: 'rgba(0, 0, 0, 0.7)',
+              color: '#fff',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              fontFamily: 'monospace',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              zIndex: 10000
+            }}
+          >
+            <div style={{ fontSize: '9px', marginBottom: '2px', opacity: 0.8 }}>Brush: {size}px</div>
+            <div style={{ fontSize: '8px', opacity: 0.7 }}>
+              Scale: {customBrushScale.toFixed(1)}x | Rot: {Math.round(customBrushRotation)}°
+            </div>
+            {customBrushFlipHorizontal || customBrushFlipVertical ? (
+              <div style={{ fontSize: '8px', opacity: 0.7 }}>
+                {customBrushFlipHorizontal && '↔'} {customBrushFlipVertical && '↕'}
+              </div>
+            ) : null}
+          </div>
+        </>
       ) : isCircle ? (
         <div
           className="cursor-circle"

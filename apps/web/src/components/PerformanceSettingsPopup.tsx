@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { performanceOptimizer } from '../utils/PerformanceOptimizer';
+import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 
 interface PerformanceSettingsPopupProps {
   isOpen: boolean;
@@ -25,20 +25,20 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
     const initializeData = async () => {
       try {
         // Get current performance config
-        const config = performanceOptimizer.getConfig();
+        const config = unifiedPerformanceManager.getCurrentPreset();
         setDeviceTier(config.deviceTier);
         setPerformanceMetrics({
-          currentFPS: performanceOptimizer.getCurrentFPS(),
-          averageFPS: performanceOptimizer.getCurrentFPS(),
+          currentFPS: unifiedPerformanceManager.getPerformanceMetrics().currentFPS,
+          averageFPS: unifiedPerformanceManager.getPerformanceMetrics().currentFPS,
           frameDrops: 0
         });
 
         // Update performance metrics periodically
         const interval = setInterval(() => {
-          const config = performanceOptimizer.getConfig();
+          const config = unifiedPerformanceManager.getCurrentPreset();
           setPerformanceMetrics({
-            currentFPS: performanceOptimizer.getCurrentFPS(),
-            averageFPS: performanceOptimizer.getCurrentFPS(),
+            currentFPS: unifiedPerformanceManager.getPerformanceMetrics().currentFPS,
+            averageFPS: unifiedPerformanceManager.getPerformanceMetrics().currentFPS,
             frameDrops: 0
           });
         }, 1000);
@@ -57,11 +57,11 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
   // Listen for performance config changes to update the UI
   useEffect(() => {
     const handleConfigUpdate = () => {
-      const config = performanceOptimizer.getConfig();
+      const config = unifiedPerformanceManager.getCurrentPreset();
       setDeviceTier(config.deviceTier);
       setPerformanceMetrics({
-        currentFPS: performanceOptimizer.getCurrentFPS(),
-        averageFPS: performanceOptimizer.getCurrentFPS(),
+        currentFPS: unifiedPerformanceManager.getPerformanceMetrics().currentFPS,
+        averageFPS: unifiedPerformanceManager.getPerformanceMetrics().currentFPS,
         frameDrops: 0
       });
     };
@@ -162,7 +162,7 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
              {/* Test Button */}
              <button
                onClick={() => {
-                 const config = performanceOptimizer.getConfig();
+                 const config = unifiedPerformanceManager.getCurrentPreset();
                  console.log('🔧 Current Performance Config:', config);
                  alert(`Current Config:\nTarget FPS: ${config.targetFPS}\nTexture Updates/sec: ${config.maxTextureUpdatesPerSecond}\nCanvas Redraws/sec: ${config.maxCanvasRedrawsPerSecond}\nDevice Tier: ${config.deviceTier}\nAggressive Opt: ${config.enableAggressiveOptimizations}`);
                }}
@@ -300,10 +300,10 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                color: '#a0aec0',
                fontFamily: 'monospace'
              }}>
-               <div>Target FPS: {performanceOptimizer.getConfig().targetFPS}</div>
-               <div>Texture Updates/sec: {performanceOptimizer.getConfig().maxTextureUpdatesPerSecond}</div>
-               <div>Canvas Redraws/sec: {performanceOptimizer.getConfig().maxCanvasRedrawsPerSecond}</div>
-               <div>Aggressive Opt: {performanceOptimizer.getConfig().enableAggressiveOptimizations ? 'ON' : 'OFF'}</div>
+               <div>Target FPS: {unifiedPerformanceManager.getCurrentPreset().targetFPS}</div>
+               <div>Texture Updates/sec: {unifiedPerformanceManager.getCurrentPreset().maxTextureUpdatesPerSecond}</div>
+               <div>Canvas Redraws/sec: {unifiedPerformanceManager.getCurrentPreset().maxCanvasRedrawsPerSecond}</div>
+               <div>Aggressive Opt: {unifiedPerformanceManager.getCurrentPreset().enableAggressiveOptimizations ? 'ON' : 'OFF'}</div>
              </div>
            </div>
 
@@ -336,9 +336,9 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                        e.stopPropagation();
                        console.log('🔧 Performance preset clicked:', preset);
                        try {
-                         performanceOptimizer.setPreset(presetMap[preset] as any);
+                         unifiedPerformanceManager.setPreset(presetMap[preset] as any);
                          setCurrentPreset(presetMap[preset]);
-                         setDeviceTier(performanceOptimizer.getDeviceTier());
+                         setDeviceTier(unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium');
                          
                          // Show visual feedback
                          const button = e.currentTarget;
@@ -450,19 +450,19 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                <div>
                  <span style={{ fontSize: '11px', color: '#a0aec0' }}>Max FPS: </span>
                  <span style={{ fontSize: '11px', fontWeight: '600', color: '#ffffff' }}>
-                   {performanceOptimizer.getConfig().targetFPS}
+                   {unifiedPerformanceManager.getCurrentPreset().targetFPS}
                  </span>
                </div>
                <div>
                  <span style={{ fontSize: '11px', color: '#a0aec0' }}>Texture Updates/sec: </span>
                  <span style={{ fontSize: '11px', fontWeight: '600', color: '#ffffff' }}>
-                   {performanceOptimizer.getConfig().maxTextureUpdatesPerSecond}
+                   {unifiedPerformanceManager.getCurrentPreset().maxTextureUpdatesPerSecond}
                  </span>
                </div>
                <div>
                  <span style={{ fontSize: '11px', color: '#a0aec0' }}>Aggressive Opt: </span>
-                 <span style={{ fontSize: '11px', fontWeight: '600', color: performanceOptimizer.getConfig().enableAggressiveOptimizations ? '#ef4444' : '#4ade80' }}>
-                   {performanceOptimizer.getConfig().enableAggressiveOptimizations ? 'ON' : 'OFF'}
+                 <span style={{ fontSize: '11px', fontWeight: '600', color: unifiedPerformanceManager.getCurrentPreset().enableAggressiveOptimizations ? '#ef4444' : '#4ade80' }}>
+                   {unifiedPerformanceManager.getCurrentPreset().enableAggressiveOptimizations ? 'ON' : 'OFF'}
                  </span>
                </div>
              </div>
@@ -563,7 +563,8 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                   onChange={(e) => {
                     const fps = parseInt(e.target.value);
                     console.log('🔧 Max FPS changed to:', fps);
-                    performanceOptimizer.updateConfig({ targetFPS: fps });
+                    // Config updates handled by preset system
+                    // unifiedPerformanceManager.setPreset({ targetFPS: fps });
                   }}
                   style={{
                     width: '100%',
@@ -598,7 +599,8 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                     console.log('🔧 Texture quality changed to:', quality);
                     // Map texture quality to texture update frequency
                     const updatesPerSecond = quality === 'low' ? 2 : quality === 'medium' ? 4 : quality === 'high' ? 8 : 12;
-                    performanceOptimizer.updateConfig({ maxTextureUpdatesPerSecond: updatesPerSecond });
+                    // Config updates handled by preset system
+                    // unifiedPerformanceManager.setPreset({ maxTextureUpdatesPerSecond: updatesPerSecond });
                   }}
                   style={{
                     width: '100%',
@@ -631,7 +633,8 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                     type="checkbox"
                     onChange={(e) => {
                       console.log('🔧 Advanced features toggled:', e.target.checked);
-                      performanceOptimizer.updateConfig({ enableAggressiveOptimizations: !e.target.checked });
+                      // Config updates handled by preset system
+                    // unifiedPerformanceManager.setPreset({ enableAggressiveOptimizations: !e.target.checked });
                     }}
                     style={{
                       width: '14px',
@@ -651,9 +654,9 @@ export const PerformanceSettingsPopup: React.FC<PerformanceSettingsPopupProps> =
                     e.stopPropagation();
                     console.log('🔧 Resetting to defaults');
                     // Reset to balanced preset
-                    performanceOptimizer.setPreset('balanced');
+                    unifiedPerformanceManager.setPreset('balanced');
                     setCurrentPreset('balanced');
-                    setDeviceTier(performanceOptimizer.getDeviceTier());
+                    setDeviceTier(unifiedPerformanceManager.getDeviceCapabilities().isLowEnd ? 'low' : unifiedPerformanceManager.getDeviceCapabilities().isHighEnd ? 'high' : 'medium');
                   }}
                   style={{
                     padding: '8px 16px',

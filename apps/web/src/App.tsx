@@ -12,7 +12,6 @@ import { createDisplacementCanvas, CANVAS_CONFIG } from './constants/CanvasSizes
 import ShirtRefactored from './components/ShirtRefactored'; // Use new refactored component
 import { AdvancedLayerSystemV2Test } from '../tests/AdvancedLayerSystemV2Test';
 // PERFORMANCE FIX: Removed Brush3DIntegration import to prevent conflicts with existing painting system
-import { LeftPanel } from './components/LeftPanel';
 import { Section } from './components/Section';
 import { CustomSelect } from './components/CustomSelect';
 import { ModelManager } from './components/ModelManager';
@@ -27,6 +26,7 @@ import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { EmbroideryStitch, EmbroideryPattern } from './services/embroideryService';
 import { handleRenderingError, handleCanvasError, ErrorCategory, ErrorSeverity } from './utils/CentralizedErrorHandler';
 import { vectorStore } from './vector/vectorState';
+import { brushLibrary, SavedBrush, BrushCategory } from './services/BrushLibrary';
 // REMOVED: PuffVectorEngine - deleted as part of old puff tool removal
 import { renderStitchType } from './utils/stitchRendering';
 import VectorEditorOverlay from './vector/VectorEditorOverlay';
@@ -40,6 +40,10 @@ import { useModelStore, useToolStore, useProjectStore } from './stores/domainSto
 // Import unified brush system
 import { useBrushEngine } from './hooks/useBrushEngine';
 import { UnifiedToolSystem } from './core/UnifiedToolSystem';
+
+// 🚀 NEW: Import new persistence system
+import { projectFileManager, initAutoSaveManager, getAutoSaveManager } from './core/persistence';
+import { ProjectManager } from './components/ProjectManager';
 
 const cloneProject = (proj: any | null): any | null => {
   if (!proj) return null;
@@ -220,7 +224,11 @@ interface AppState {
     stroke?: string;
     strokeWidth?: number;
     visible: boolean;
+    name?: string; // Optional name for shape identification
+    gradient?: any; // Optional gradient object (can be gradient state or null)
   }>;
+  shapePositionX?: number; // Shape position X override
+  shapePositionY?: number; // Shape position Y override
   activeShapeId: string | null;
   shapeType: 'rectangle' | 'circle' | 'triangle' | 'star' | 'polygon' | 'heart' | 'diamond';
   shapeSize: number;
@@ -383,6 +391,118 @@ interface AppState {
   setBrushOpacity: (opacity: number) => void;
   customBrushImage: string | null; // Data URL or image source for custom brush
   setCustomBrushImage: (image: string | null) => void;
+  customBrushRotation: number; // Rotation for custom brush images (0-360 degrees)
+  setCustomBrushRotation: (rotation: number) => void;
+  customBrushScale: number; // Scale multiplier for custom brush images (0.5x-3.0x)
+  setCustomBrushScale: (scale: number) => void;
+  customBrushFlipHorizontal: boolean; // Flip custom brush image horizontally
+  setCustomBrushFlipHorizontal: (flip: boolean) => void;
+  customBrushFlipVertical: boolean; // Flip custom brush image vertically
+  setCustomBrushFlipVertical: (flip: boolean) => void;
+  customBrushColorizationMode: 'tint' | 'multiply' | 'overlay' | 'colorize' | 'preserve'; // How to apply color to custom brush
+  setCustomBrushColorizationMode: (mode: 'tint' | 'multiply' | 'overlay' | 'colorize' | 'preserve') => void;
+  customBrushAlphaThreshold: number; // Alpha threshold for stenciling (0-100%)
+  setCustomBrushAlphaThreshold: (threshold: number) => void;
+  customBrushRandomization: number; // Randomization amount (0-100%) for rotation/scale variation
+  setCustomBrushRandomization: (amount: number) => void;
+  customBrushPressureSize: boolean; // Enable pressure response for size
+  setCustomBrushPressureSize: (enabled: boolean) => void;
+  customBrushPressureOpacity: boolean; // Enable pressure response for opacity
+  setCustomBrushPressureOpacity: (enabled: boolean) => void;
+  customBrushStampMode: boolean; // Stamp mode: true = single-click stamping, false = continuous painting
+  setCustomBrushStampMode: (enabled: boolean) => void;
+  customBrushPatternMode: boolean; // Pattern mode: repeat brush in patterns
+  setCustomBrushPatternMode: (enabled: boolean) => void;
+  customBrushPatternType: 'grid' | 'line' | 'circle' | 'spiral'; // Pattern type
+  setCustomBrushPatternType: (type: 'grid' | 'line' | 'circle' | 'spiral') => void;
+  customBrushPatternSpacing: number; // Spacing between pattern elements (in pixels)
+  setCustomBrushPatternSpacing: (spacing: number) => void;
+  customBrushSpacing: number; // Spacing control for custom brushes (0-1, multiplier of brush size)
+  setCustomBrushSpacing: (spacing: number) => void;
+  customBrushBrightness: number; // Brightness adjustment for custom brush image (-100 to 100)
+  setCustomBrushBrightness: (brightness: number) => void;
+  customBrushContrast: number; // Contrast adjustment for custom brush image (-100 to 100)
+  setCustomBrushContrast: (contrast: number) => void;
+  customBrushFilter: 'none' | 'blur' | 'sharpen' | 'edge'; // Image filter to apply
+  setCustomBrushFilter: (filter: 'none' | 'blur' | 'sharpen' | 'edge') => void;
+  customBrushFilterAmount: number; // Filter intensity (0-10)
+  setCustomBrushFilterAmount: (amount: number) => void;
+  customBrushLayers: Array<{
+    id: string;
+    image: string;
+    opacity: number;
+    blendMode: GlobalCompositeOperation;
+    enabled: boolean;
+  }>; // Multi-layer brush support
+  addBrushLayer: (image: string) => void;
+  removeBrushLayer: (id: string) => void;
+  updateBrushLayer: (id: string, updates: Partial<{
+    opacity: number;
+    blendMode: GlobalCompositeOperation;
+    enabled: boolean;
+  }>) => void;
+  reorderBrushLayers: (fromIndex: number, toIndex: number) => void;
+  customBrushAnimated: boolean; // Whether the brush is animated (GIF)
+  setCustomBrushAnimated: (animated: boolean) => void;
+  customBrushAnimationSpeed: number; // Animation speed multiplier (0.1-5.0)
+  setCustomBrushAnimationSpeed: (speed: number) => void;
+  customBrushAnimationFrame: number; // Current frame index
+  setCustomBrushAnimationFrame: (frame: number) => void;
+  customBrushFrames: Array<{ image: HTMLImageElement; delay: number }>; // Extracted GIF frames
+  setCustomBrushFrames: (frames: Array<{ image: HTMLImageElement; delay: number }>) => void;
+  customBrushVelocitySize: boolean; // Velocity-based size changes
+  setCustomBrushVelocitySize: (enabled: boolean) => void;
+  customBrushVelocityOpacity: boolean; // Velocity-based opacity changes
+  setCustomBrushVelocityOpacity: (enabled: boolean) => void;
+  customBrushVelocityRotation: boolean; // Velocity-based rotation
+  setCustomBrushVelocityRotation: (enabled: boolean) => void;
+  customBrushVelocityScale: boolean; // Velocity-based scale changes
+  setCustomBrushVelocityScale: (enabled: boolean) => void;
+  customBrushVelocityRotationAmount: number; // Amount of rotation per velocity unit (0-360)
+  setCustomBrushVelocityRotationAmount: (amount: number) => void;
+  customBrushVelocityScaleAmount: number; // Amount of scale change per velocity unit (0-2)
+  setCustomBrushVelocityScaleAmount: (amount: number) => void;
+  customBrushScattering: boolean; // Enable brush scattering
+  setCustomBrushScattering: (enabled: boolean) => void;
+  customBrushScatteringAmount: number; // Scattering amount (0-100%)
+  setCustomBrushScatteringAmount: (amount: number) => void;
+  customBrushScatteringCount: number; // Number of scattered stamps (1-20)
+  setCustomBrushScatteringCount: (count: number) => void;
+  customBrushSymmetry: 'none' | 'horizontal' | 'vertical' | 'both' | 'radial' | 'mandala';
+  setCustomBrushSymmetry: (symmetry: 'none' | 'horizontal' | 'vertical' | 'both' | 'radial' | 'mandala') => void;
+  customBrushSymmetryCount: number; // Number of symmetry axes/reflections (2-16)
+  setCustomBrushSymmetryCount: (count: number) => void;
+  customBrushTextureOverlay: boolean;
+  setCustomBrushTextureOverlay: (enabled: boolean) => void;
+  customBrushTextureImage: string | null;
+  setCustomBrushTextureImage: (image: string | null) => void;
+  customBrushTextureOpacity: number;
+  setCustomBrushTextureOpacity: (opacity: number) => void;
+  customBrushTextureBlendMode: GlobalCompositeOperation;
+  setCustomBrushTextureBlendMode: (mode: GlobalCompositeOperation) => void;
+  customBrushTextureScale: number;
+  setCustomBrushTextureScale: (scale: number) => void;
+  customBrushBlendMode: GlobalCompositeOperation;
+  setCustomBrushBlendMode: (mode: GlobalCompositeOperation) => void;
+  // Brush Library
+  savedBrushes: SavedBrush[];
+  saveCurrentBrush: (name: string, category?: BrushCategory) => Promise<void>;
+  loadBrush: (id: string) => void;
+  deleteSavedBrush: (id: string) => Promise<void>;
+  refreshSavedBrushes: () => void;
+  toggleBrushPreset: (id: string) => Promise<void>;
+  presetBrushes: SavedBrush[];
+  recentlyUsedBrushes: SavedBrush[];
+  selectedBrushCategory: BrushCategory | 'all';
+  setSelectedBrushCategory: (category: BrushCategory | 'all') => void;
+  updateBrushCategory: (id: string, category: BrushCategory | undefined) => Promise<void>;
+  addBrushTag: (id: string, tag: string) => Promise<void>;
+  removeBrushTag: (id: string, tag: string) => Promise<void>;
+  updateBrushTags: (id: string, tags: string[]) => Promise<void>;
+  getAllBrushTags: () => string[];
+  createBrushFromSelection: (x: number, y: number, width: number, height: number) => Promise<void>;
+  createBrushFromLayer: (layerId: string) => Promise<void>;
+  importBrush: (file: File) => Promise<void>;
   
   // Puff tool settings
   puffSize: number;
@@ -423,6 +543,11 @@ interface AppState {
   setPuffColor: (color: string) => void;
   setPuffOpacity: (opacity: number) => void;
   setPuffSoftness: (softness: number) => void;
+  setPuffHairs: (hairs: boolean) => void;
+  setPuffHairHeight: (height: number) => void;
+  setPuffHairDensity: (density: number) => void;
+  setPuffHairThickness: (thickness: number) => void;
+  setPuffHairVariation: (variation: number) => void;
   
   // Phase 1: Shape Customization Setters
   setPuffTopShape: (shape: 'flat' | 'rounded' | 'pointed' | 'beveled') => void;
@@ -1049,7 +1174,423 @@ export const useApp = create<AppState>((set, get) => ({
   setBrushSize: (size) => set({ brushSize: size }),
   setBrushOpacity: (opacity) => set({ brushOpacity: opacity }),
   customBrushImage: null as string | null,
-  setCustomBrushImage: (image) => set({ customBrushImage: image }),
+  setCustomBrushImage: (image) => {
+    set({ customBrushImage: image });
+    // Clear brush cache when custom brush image changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushRotation: 0,
+  setCustomBrushRotation: (rotation) => {
+    set({ customBrushRotation: rotation });
+    // Clear brush cache when rotation changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushScale: 1.0,
+  setCustomBrushScale: (scale) => {
+    set({ customBrushScale: scale });
+    // Clear brush cache when scale changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushFlipHorizontal: false,
+  setCustomBrushFlipHorizontal: (flip) => {
+    set({ customBrushFlipHorizontal: flip });
+    // Clear brush cache when flip changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushFlipVertical: false,
+  setCustomBrushFlipVertical: (flip) => {
+    set({ customBrushFlipVertical: flip });
+    // Clear brush cache when flip changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushColorizationMode: 'tint' as 'tint' | 'multiply' | 'overlay' | 'colorize' | 'preserve',
+  setCustomBrushColorizationMode: (mode) => {
+    set({ customBrushColorizationMode: mode });
+    // Clear brush cache when colorization mode changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushAlphaThreshold: 50,
+  setCustomBrushAlphaThreshold: (threshold) => {
+    set({ customBrushAlphaThreshold: threshold });
+    // Clear brush cache when alpha threshold changes
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushRandomization: 0,
+  setCustomBrushRandomization: (amount) => {
+    set({ customBrushRandomization: amount });
+    // Note: Randomization doesn't need cache clearing as it's applied per-stamp
+  },
+  customBrushPressureSize: true,
+  setCustomBrushPressureSize: (enabled) => {
+    set({ customBrushPressureSize: enabled });
+  },
+  customBrushPressureOpacity: true,
+  setCustomBrushPressureOpacity: (enabled) => {
+    set({ customBrushPressureOpacity: enabled });
+  },
+  customBrushStampMode: false,
+  setCustomBrushStampMode: (enabled) => {
+    set({ customBrushStampMode: enabled });
+  },
+  customBrushPatternMode: false,
+  setCustomBrushPatternMode: (enabled) => {
+    set({ customBrushPatternMode: enabled });
+  },
+  customBrushPatternType: 'grid',
+  setCustomBrushPatternType: (type) => {
+    set({ customBrushPatternType: type });
+  },
+  customBrushPatternSpacing: 50,
+  setCustomBrushPatternSpacing: (spacing) => {
+    set({ customBrushPatternSpacing: spacing });
+  },
+  customBrushSpacing: 0.25,
+  setCustomBrushSpacing: (spacing) => {
+    set({ customBrushSpacing: spacing });
+  },
+  customBrushBrightness: 0,
+  setCustomBrushBrightness: (brightness) => {
+    set({ customBrushBrightness: brightness });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushContrast: 0,
+  setCustomBrushContrast: (contrast) => {
+    set({ customBrushContrast: contrast });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushFilter: 'none',
+  setCustomBrushFilter: (filter) => {
+    set({ customBrushFilter: filter });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushFilterAmount: 1,
+  setCustomBrushFilterAmount: (amount) => {
+    set({ customBrushFilterAmount: amount });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushLayers: [],
+  addBrushLayer: (image) => {
+    const state = get();
+    const newLayer = {
+      id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      image,
+      opacity: 1.0,
+      blendMode: 'source-over' as GlobalCompositeOperation,
+      enabled: true
+    };
+    set({ customBrushLayers: [...state.customBrushLayers, newLayer] });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  removeBrushLayer: (id) => {
+    const state = get();
+    set({ customBrushLayers: state.customBrushLayers.filter(layer => layer.id !== id) });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  updateBrushLayer: (id, updates) => {
+    const state = get();
+    set({
+      customBrushLayers: state.customBrushLayers.map(layer =>
+        layer.id === id ? { ...layer, ...updates } : layer
+      )
+    });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  reorderBrushLayers: (fromIndex, toIndex) => {
+    const state = get();
+    const newLayers = [...state.customBrushLayers];
+    const [moved] = newLayers.splice(fromIndex, 1);
+    newLayers.splice(toIndex, 0, moved);
+    set({ customBrushLayers: newLayers });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushVelocitySize: false,
+  setCustomBrushVelocitySize: (enabled) => {
+    set({ customBrushVelocitySize: enabled });
+  },
+  customBrushVelocityOpacity: false,
+  setCustomBrushVelocityOpacity: (enabled) => {
+    set({ customBrushVelocityOpacity: enabled });
+  },
+  customBrushVelocityRotation: false,
+  setCustomBrushVelocityRotation: (enabled) => {
+    set({ customBrushVelocityRotation: enabled });
+  },
+  customBrushVelocityScale: false,
+  setCustomBrushVelocityScale: (enabled) => {
+    set({ customBrushVelocityScale: enabled });
+  },
+  customBrushVelocityRotationAmount: 90,
+  setCustomBrushVelocityRotationAmount: (amount) => {
+    set({ customBrushVelocityRotationAmount: amount });
+  },
+  customBrushVelocityScaleAmount: 0.5,
+  setCustomBrushVelocityScaleAmount: (amount) => {
+    set({ customBrushVelocityScaleAmount: amount });
+  },
+  customBrushScattering: false,
+  setCustomBrushScattering: (enabled) => {
+    set({ customBrushScattering: enabled });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushScatteringAmount: 50,
+  setCustomBrushScatteringAmount: (amount) => {
+    set({ customBrushScatteringAmount: amount });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushScatteringCount: 3,
+  setCustomBrushScatteringCount: (count) => {
+    set({ customBrushScatteringCount: count });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushTextureOverlay: false,
+  setCustomBrushTextureOverlay: (enabled: boolean) => {
+    set({ customBrushTextureOverlay: enabled });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushTextureImage: null,
+  setCustomBrushTextureImage: (image: string | null) => {
+    set({ customBrushTextureImage: image });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushTextureOpacity: 0.5,
+  setCustomBrushTextureOpacity: (opacity: number) => {
+    set({ customBrushTextureOpacity: opacity });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushTextureBlendMode: 'overlay' as GlobalCompositeOperation,
+  setCustomBrushTextureBlendMode: (mode: GlobalCompositeOperation) => {
+    set({ customBrushTextureBlendMode: mode });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushTextureScale: 1.0,
+  setCustomBrushTextureScale: (scale: number) => {
+    set({ customBrushTextureScale: scale });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushSymmetry: 'none' as 'none' | 'horizontal' | 'vertical' | 'both' | 'radial' | 'mandala',
+  setCustomBrushSymmetry: (symmetry: 'none' | 'horizontal' | 'vertical' | 'both' | 'radial' | 'mandala') => {
+    set({ customBrushSymmetry: symmetry });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushSymmetryCount: 4, // Number of symmetry axes/reflections (2-16)
+  setCustomBrushSymmetryCount: (count: number) => {
+    set({ customBrushSymmetryCount: Math.max(2, Math.min(16, count)) });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushBlendMode: 'source-over' as GlobalCompositeOperation,
+  setCustomBrushBlendMode: (mode: GlobalCompositeOperation) => {
+    set({ customBrushBlendMode: mode });
+  },
+  customBrushAnimated: false,
+  setCustomBrushAnimated: (animated) => {
+    set({ customBrushAnimated: animated });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushAnimationSpeed: 1.0,
+  setCustomBrushAnimationSpeed: (speed) => {
+    set({ customBrushAnimationSpeed: speed });
+  },
+  customBrushAnimationFrame: 0,
+  setCustomBrushAnimationFrame: (frame) => {
+    set({ customBrushAnimationFrame: frame });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  customBrushFrames: [],
+  setCustomBrushFrames: (frames) => {
+    set({ customBrushFrames: frames });
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+  },
+  // Brush Library
+  savedBrushes: [],
+  saveCurrentBrush: async (name) => {
+    const state = get();
+    if (!state.customBrushImage) {
+      console.warn('⚠️ No custom brush image to save');
+      return;
+    }
+
+    try {
+      const brush = await brushLibrary.saveBrush(
+        name,
+        state.customBrushImage,
+        {
+          rotation: state.customBrushRotation,
+          scale: state.customBrushScale,
+          flipHorizontal: state.customBrushFlipHorizontal,
+          flipVertical: state.customBrushFlipVertical,
+          colorizationMode: state.customBrushColorizationMode,
+          alphaThreshold: state.customBrushAlphaThreshold
+        }
+      );
+      
+      // Refresh saved brushes list
+      get().refreshSavedBrushes();
+      console.log(`✅ Saved brush: ${name}`);
+    } catch (error) {
+      console.error('❌ Failed to save brush:', error);
+      throw error;
+    }
+  },
+  loadBrush: (id) => {
+    const brush = brushLibrary.getBrush(id);
+    if (!brush) {
+      console.warn(`⚠️ Brush not found: ${id}`);
+      return;
+    }
+
+    set({
+      customBrushImage: brush.image,
+      customBrushRotation: brush.settings.rotation,
+      customBrushScale: brush.settings.scale,
+      customBrushFlipHorizontal: brush.settings.flipHorizontal,
+      customBrushFlipVertical: brush.settings.flipVertical,
+      customBrushColorizationMode: brush.settings.colorizationMode,
+      customBrushAlphaThreshold: brush.settings.alphaThreshold
+    });
+
+    // Mark as used and refresh
+    brushLibrary.markAsUsed(id);
+    get().refreshSavedBrushes();
+
+    // Clear brush cache to force regeneration
+    const brushEngine = (window as any).__brushEngine;
+    if (brushEngine) {
+      brushEngine.clearCache();
+    }
+
+    console.log(`✅ Loaded brush: ${brush.name}`);
+  },
+  deleteSavedBrush: async (id) => {
+    const success = await brushLibrary.deleteBrush(id);
+    if (success) {
+      get().refreshSavedBrushes();
+      console.log(`✅ Deleted brush: ${id}`);
+    }
+    return success;
+  },
+  refreshSavedBrushes: () => {
+    const brushes = brushLibrary.getAllBrushes();
+    const presets = brushLibrary.getPresetBrushes();
+    const recentlyUsed = brushLibrary.getRecentlyUsedBrushes(5);
+    set({ 
+      savedBrushes: brushes,
+      presetBrushes: presets,
+      recentlyUsedBrushes: recentlyUsed
+    });
+  },
+  toggleBrushPreset: async (id) => {
+    const success = await brushLibrary.togglePreset(id);
+    if (success) {
+      get().refreshSavedBrushes();
+    }
+  },
+  presetBrushes: [],
+  recentlyUsedBrushes: [],
+  selectedBrushCategory: 'all',
+  setSelectedBrushCategory: (category) => {
+    set({ selectedBrushCategory: category });
+  },
+  updateBrushCategory: async (id, category) => {
+    const success = await brushLibrary.updateBrushCategory(id, category);
+    if (success) {
+      get().refreshSavedBrushes();
+    }
+    return success;
+  },
+  importBrush: async (file) => {
+    try {
+      await brushLibrary.importBrushFromFile(file);
+      get().refreshSavedBrushes();
+      console.log(`✅ Imported brush from file: ${file.name}`);
+    } catch (error) {
+      console.error('❌ Failed to import brush:', error);
+      throw error;
+    }
+  },
   setPuffSize: (size) => set({ puffSize: size }),
   setPuffHeight: (height) => set({ puffHeight: height }),
   setPuffColor: (color) => set({ puffColor: color }),
@@ -2888,6 +3429,23 @@ try {
       layerEntries.push({ id: l.id, name: l.name, visible: l.visible, width: layerCanvas.width, height: layerCanvas.height, key });
     }
     
+    // CRITICAL FIX: Save baseTexture and composedCanvas in checkpoint
+    if (state.baseTexture) {
+      console.log('💾 Checkpoint: Saving baseTexture...');
+      const baseTextureBlob = await canvasToBlob(state.baseTexture);
+      totalBytes += baseTextureBlob.size;
+      await localforage.setItem(`checkpoint-${id}-base-texture`, baseTextureBlob);
+      (checkpoint as any).hasBaseTexture = true;
+    }
+    
+    if (state.composedCanvas) {
+      console.log('💾 Checkpoint: Saving composedCanvas...');
+      const composedCanvasBlob = await canvasToBlob(state.composedCanvas);
+      totalBytes += composedCanvasBlob.size;
+      await localforage.setItem(`checkpoint-${id}-composed-canvas`, composedCanvasBlob);
+      (checkpoint as any).hasComposedCanvas = true;
+    }
+    
     (checkpoint as any).layers = layerEntries;
     const compressedData = LZString.compress(JSON.stringify(checkpoint));
     await localforage.setItem(`checkpoint-${id}`, compressedData);
@@ -2907,19 +3465,25 @@ try {
     if (!compressed) throw new Error('Checkpoint not found');
     const data = JSON.parse(LZString.decompress(compressed) || '{}');
     
-    const layers: Layer[] = [];
+    // Clear existing V2 layers before loading checkpoint
+    const v2Store = useAdvancedLayerStoreV2.getState();
+    v2Store.deleteAllLayers({ skipConfirmation: true });
+    
+    // Load layers into V2 system
+    const loadedLayerIds: string[] = [];
     for (const lp of data.layers || []) {
       const blob = await localforage.getItem<Blob>(lp.key);
       if (!blob) continue;
       const canvas = document.createElement('canvas');
       canvas.width = lp.width; canvas.height = lp.height;
-        const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext('2d')!;
       const img = new Image();
       await new Promise((resolve) => {
         img.onload = resolve;
         img.src = URL.createObjectURL(blob);
       });
       ctx.drawImage(img, 0, 0);
+      
       // Create displacement canvas for the loaded layer
       const layerDisplacementCanvas = document.createElement('canvas');
       layerDisplacementCanvas.width = canvas.width;
@@ -2931,13 +3495,93 @@ try {
       layerDispCtx.fillStyle = 'rgb(0, 0, 0)';
       layerDispCtx.fillRect(0, 0, canvas.width, canvas.height);
       
-      layers.push({ id: lp.id, name: lp.name, visible: lp.visible, canvas, history: [], future: [], order: layers.length, displacementCanvas: layerDisplacementCanvas });
+      // Create layer in V2 system
+      const layerId = v2Store.createLayer('paint', lp.name || 'Loaded Layer');
+      
+      // Update layer content with loaded canvas
+      v2Store.updateLayerContent(layerId, {
+        canvas: canvas,
+        displacementCanvas: layerDisplacementCanvas
+      });
+      
+      // Update layer visibility
+      v2Store.setLayerVisibility(layerId, lp.visible !== false);
+      
+      loadedLayerIds.push(layerId);
     }
-    const composedCanvas = document.createElement('canvas');
-    const base = layers[0];
-    const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
-    composedCanvas.width = base?.canvas.width || optimalSize.width; 
-    composedCanvas.height = base?.canvas.height || optimalSize.height;
+    
+    // Set active layer to first loaded layer
+    if (loadedLayerIds.length > 0) {
+      v2Store.setActiveLayer(loadedLayerIds[0]);
+      console.log(`💾 Checkpoint: Set active layer to first loaded layer: ${loadedLayerIds[0]}`);
+    }
+    
+    // CRITICAL FIX: Load baseTexture and composedCanvas from checkpoint
+    let baseTexture = null;
+    let composedCanvas = null;
+    
+    if (data.hasBaseTexture) {
+      const baseTextureBlob = await localforage.getItem<Blob>(`checkpoint-${id}-base-texture`);
+      if (baseTextureBlob) {
+        console.log('💾 Checkpoint: Loading baseTexture...');
+        baseTexture = document.createElement('canvas');
+        const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+        baseTexture.width = optimalSize.width;
+        baseTexture.height = optimalSize.height;
+        const baseCtx = baseTexture.getContext('2d');
+        if (baseCtx) {
+          await new Promise<void>((resolve) => {
+            const baseImg = new Image();
+            baseImg.onload = () => {
+              baseCtx.drawImage(baseImg, 0, 0, baseTexture!.width, baseTexture!.height);
+              console.log('💾 Checkpoint: baseTexture loaded successfully');
+              resolve();
+            };
+            baseImg.onerror = () => {
+              console.error('💾 Checkpoint: Failed to load baseTexture image');
+              resolve();
+            };
+            baseImg.src = URL.createObjectURL(baseTextureBlob);
+          });
+        }
+      }
+    }
+    
+    if (data.hasComposedCanvas) {
+      const composedCanvasBlob = await localforage.getItem<Blob>(`checkpoint-${id}-composed-canvas`);
+      if (composedCanvasBlob) {
+        console.log('💾 Checkpoint: Loading composedCanvas...');
+        composedCanvas = document.createElement('canvas');
+        const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+        composedCanvas.width = optimalSize.width;
+        composedCanvas.height = optimalSize.height;
+        const composedCtx = composedCanvas.getContext('2d');
+        if (composedCtx) {
+          await new Promise<void>((resolve) => {
+            const composedImg = new Image();
+            composedImg.onload = () => {
+              composedCtx.drawImage(composedImg, 0, 0, composedCanvas!.width, composedCanvas!.height);
+              console.log('💾 Checkpoint: composedCanvas loaded successfully');
+              resolve();
+            };
+            composedImg.onerror = () => {
+              console.error('💾 Checkpoint: Failed to load composedCanvas image');
+              resolve();
+            };
+            composedImg.src = URL.createObjectURL(composedCanvasBlob);
+          });
+        }
+      }
+    }
+    
+    // If no composedCanvas was saved, create an empty one
+    if (!composedCanvas) {
+      composedCanvas = document.createElement('canvas');
+      const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+      composedCanvas.width = optimalSize.width;
+      composedCanvas.height = optimalSize.height;
+    }
+    
     useApp.setState({
       modelUrl: data.modelUrl || null,
       modelPosition: data.modelPosition || [0, 0, 0],
@@ -2947,12 +3591,27 @@ try {
       backgroundIntensity: data.backgroundIntensity || 1,
       backgroundRotation: data.backgroundRotation || 0,
       // Text elements are now managed by V2 system
-      layers,
-      activeLayerId: layers[0]?.id || null,
-      composedCanvas,
+      baseTexture: baseTexture,
+      composedCanvas: composedCanvas,
       decals: [],
     } as Partial<AppState>);
-    get().composeLayers();
+    
+    // Only trigger composition if we don't have a composedCanvas from storage
+    if (!data.hasComposedCanvas) {
+      console.log('💾 Checkpoint: No composedCanvas found - triggering layer composition...');
+      get().composeLayers();
+    } else {
+      console.log('💾 Checkpoint: composedCanvas restored - skipping composition');
+      
+      // Trigger texture update to apply the restored canvas to the model
+      setTimeout(() => {
+        const appState = useApp.getState();
+        if (appState.updateModelTexture) {
+          console.log('💾 Checkpoint: Triggering texture update to apply restored canvas');
+          appState.updateModelTexture(true);
+        }
+      }, 200);
+    }
   },
 
   listCheckpoints: async () => {
@@ -2984,6 +3643,9 @@ try {
     for (const key of layerKeys) {
       await localforage.removeItem(key);
     }
+    // CRITICAL FIX: Also delete baseTexture and composedCanvas blobs
+    await localforage.removeItem(`checkpoint-${id}-base-texture`);
+    await localforage.removeItem(`checkpoint-${id}-composed-canvas`);
   },
 
   // Browser caching functions for project state persistence
@@ -3029,6 +3691,21 @@ try {
       if (normalCanvas) {
         const normalBlob = await canvasToBlob(normalCanvas);
         await localforage.setItem('project-normal-canvas', normalBlob);
+      }
+      
+      // CRITICAL FIX: Save baseTexture and composedCanvas
+      if (state.baseTexture) {
+        console.log('💾 Saving baseTexture...');
+        const baseTextureBlob = await canvasToBlob(state.baseTexture);
+        await localforage.setItem('project-base-texture', baseTextureBlob);
+        console.log('💾 baseTexture saved');
+      }
+      
+      if (state.composedCanvas) {
+        console.log('💾 Saving composedCanvas...');
+        const composedCanvasBlob = await canvasToBlob(state.composedCanvas);
+        await localforage.setItem('project-composed-canvas', composedCanvasBlob);
+        console.log('💾 composedCanvas saved');
       }
 
       // Create project state object (exclude canvases and functions)
@@ -3273,6 +3950,60 @@ try {
           normalImg.src = URL.createObjectURL(normalBlob);
         }
       }
+      
+      // CRITICAL FIX: Load baseTexture and composedCanvas
+      let baseTexture = null;
+      let composedCanvas = null;
+      
+      const baseTextureBlob = await localforage.getItem<Blob>('project-base-texture');
+      if (baseTextureBlob) {
+        console.log('💾 Loading baseTexture...');
+        baseTexture = document.createElement('canvas');
+        const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+        baseTexture.width = optimalSize.width;
+        baseTexture.height = optimalSize.height;
+        const baseCtx = baseTexture.getContext('2d');
+        if (baseCtx) {
+          await new Promise<void>((resolve) => {
+            const baseImg = new Image();
+            baseImg.onload = () => {
+              baseCtx.drawImage(baseImg, 0, 0, baseTexture!.width, baseTexture!.height);
+              console.log('💾 baseTexture loaded successfully');
+              resolve();
+            };
+            baseImg.onerror = () => {
+              console.error('💾 Failed to load baseTexture image');
+              resolve();
+            };
+            baseImg.src = URL.createObjectURL(baseTextureBlob);
+          });
+        }
+      }
+      
+      const composedCanvasBlob = await localforage.getItem<Blob>('project-composed-canvas');
+      if (composedCanvasBlob) {
+        console.log('💾 Loading composedCanvas...');
+        composedCanvas = document.createElement('canvas');
+        const optimalSize = unifiedPerformanceManager.getOptimalCanvasSize();
+        composedCanvas.width = optimalSize.width;
+        composedCanvas.height = optimalSize.height;
+        const composedCtx = composedCanvas.getContext('2d');
+        if (composedCtx) {
+          await new Promise<void>((resolve) => {
+            const composedImg = new Image();
+            composedImg.onload = () => {
+              composedCtx.drawImage(composedImg, 0, 0, composedCanvas!.width, composedCanvas!.height);
+              console.log('💾 composedCanvas loaded successfully');
+              resolve();
+            };
+            composedImg.onerror = () => {
+              console.error('💾 Failed to load composedCanvas image');
+              resolve();
+            };
+            composedImg.src = URL.createObjectURL(composedCanvasBlob);
+          });
+        }
+      }
 
       // Update the state with loaded data
       set({
@@ -3395,14 +4126,33 @@ try {
         // These are stored in the V2 layer system instead
         // displacementCanvas: displacementCanvas, // REMOVED - stored in V2 system
         // normalCanvas: normalCanvas // REMOVED - stored in V2 system
+        
+        // CRITICAL FIX: Restore baseTexture and composedCanvas
+        baseTexture: baseTexture,
+        composedCanvas: composedCanvas
       });
 
       console.log('💾 Project state loaded successfully');
       
-      // Trigger layer composition after loading
-      setTimeout(() => {
-        get().composeLayers();
-      }, 100);
+      // CRITICAL FIX: Only trigger composition if we don't have a composedCanvas
+      // If we have composedCanvas from storage, use it directly to preserve the exact state
+      if (!composedCanvas) {
+        console.log('💾 No composedCanvas found - triggering layer composition...');
+        setTimeout(() => {
+          get().composeLayers();
+        }, 100);
+      } else {
+        console.log('💾 composedCanvas restored from storage - skipping composition');
+        
+        // Trigger texture update to apply the restored canvas to the model
+        setTimeout(() => {
+          const appState = useApp.getState();
+          if (appState.updateModelTexture) {
+            console.log('💾 Triggering texture update to apply restored canvas');
+            appState.updateModelTexture(true);
+          }
+        }, 200);
+      }
       
       return true;
     } catch (error) {
@@ -3429,6 +4179,63 @@ try {
       return true;
     } catch (error) {
       console.error('💾 Failed to clear project state:', error);
+      return false;
+    }
+  },
+
+  // 🚀 NEW: Methods using new persistence system (COMPREHENSIVE FORMAT)
+  saveProjectNew: async (useDetailedFormat: boolean = true) => {
+    console.log(`💾 Saving project with ${useDetailedFormat ? 'COMPREHENSIVE' : 'basic'} format...`);
+    try {
+      // Create project if doesn't exist
+      if (!projectFileManager.getCurrentProject()) {
+        projectFileManager.createProject('My Design', {
+          width: 2048,
+          height: 2048,
+        });
+      }
+      
+      // Save with comprehensive format by default
+      const json = await projectFileManager.saveProjectToJSON({
+        compress: true,
+        detailed: useDetailedFormat,  // 🎯 COMPREHENSIVE format with ALL details
+      });
+      
+      // Store in localStorage
+      localStorage.setItem('closset_project_default', json);
+      
+      console.log(`✅ Project saved successfully with ${useDetailedFormat ? 'COMPREHENSIVE' : 'basic'} format`);
+      return true;
+    } catch (error) {
+      console.error('❌ New save failed:', error);
+      return false;
+    }
+  },
+
+  loadProjectNew: async (projectId?: string) => {
+    console.log('💾 Loading project with new persistence system...');
+    try {
+      const id = projectId || 'default';
+      await projectFileManager.loadProjectFromStorage(id);
+      console.log('✅ Project loaded successfully with new system');
+      return true;
+    } catch (error) {
+      console.error('❌ New load failed:', error);
+      return false;
+    }
+  },
+
+  exportProjectFile: async (filename?: string) => {
+    console.log('💾 Exporting project file...');
+    try {
+      await projectFileManager.saveProjectToFile(filename, {
+        compress: true,
+        includeHistory: false,
+      });
+      console.log('✅ Project exported successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Export failed:', error);
       return false;
     }
   },
@@ -3472,6 +4279,13 @@ export function App() {
   const composedCanvas = useApp(s => s.composedCanvas);
   const initializeUnifiedToolSystem = useApp(s => s.initializeUnifiedToolSystem);
   
+  // 🚀 NEW: Project Manager state
+  const [showProjectManager, setShowProjectManager] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<any>(null);
+  
+  // DEBUG: Log when component renders
+  console.log('🔍 App rendering - showProjectManager:', showProjectManager, 'autoSaveStatus:', autoSaveStatus);
+  
   // Initialize unified brush engine globally
   const brushEngine = useBrushEngine();
   
@@ -3495,6 +4309,127 @@ export function App() {
       delete (window as any).__unifiedToolSystem;
     };
   }, [initializeUnifiedToolSystem, brushEngine]);
+
+  // 🚀 NEW: Initialize Auto-Save System
+  useEffect(() => {
+    console.log('🚀 Initializing new persistence system...');
+    
+    try {
+      // Initialize auto-save
+      const autoSave = initAutoSaveManager(projectFileManager);
+      
+      // Configure auto-save
+      autoSave.updateConfig({
+        enabled: true,
+        interval: 60000, // 1 minute
+        maxBackups: 10,
+        compressionEnabled: true,
+        saveToStorage: true,
+      });
+      
+      // Check for crash recovery
+      autoSave.checkForCrashRecovery().then(recoveryPoint => {
+        if (recoveryPoint) {
+          console.log('⚠️ Found recovery point:', recoveryPoint);
+          const shouldRecover = window.confirm(
+            `⚠️ Found unsaved work from ${new Date(recoveryPoint.timestamp).toLocaleString()}.\n\nWould you like to restore it?`
+          );
+          
+          if (shouldRecover) {
+            autoSave.recoverFromPoint(recoveryPoint.id).then(success => {
+              if (success) {
+                console.log('✅ Recovery successful');
+                alert('✅ Project recovered successfully!');
+              }
+            }).catch(error => {
+              console.error('❌ Recovery error:', error);
+              // Only show alert if user chose to recover
+              if (error.message && !error.message.includes('not found')) {
+                alert('❌ Recovery failed. The recovery data may be corrupted.\n\nTip: Clear browser storage and refresh.');
+              }
+            });
+          } else {
+            console.log('User declined recovery');
+          }
+        } else {
+          console.log('✅ No recovery needed - clean session');
+        }
+      }).catch(error => {
+        console.error('Error checking recovery:', error);
+        // Don't show alert for recovery check errors - just log them
+      });
+      
+      // Start auto-save
+      autoSave.start();
+      console.log('✅ Auto-save started (interval: 60 seconds)');
+      
+      // Update status periodically
+      const statusInterval = setInterval(() => {
+        setAutoSaveStatus(autoSave.getStatus());
+      }, 1000);
+      
+      // Cleanup on unmount
+      return () => {
+        console.log('🧹 Cleaning up persistence system...');
+        autoSave.markCleanExit();
+        autoSave.stop();
+        clearInterval(statusInterval);
+      };
+    } catch (error) {
+      console.error('❌ Failed to initialize persistence system:', error);
+    }
+  }, []);
+
+  // 🚀 NEW: Keyboard Shortcuts for Save/Load
+  useEffect(() => {
+    const handleKeyboard = async (e: KeyboardEvent) => {
+      // Ctrl/Cmd + S: Quick Save
+      if ((e.ctrlKey || e.metaKey) && e.key === 's' && !e.shiftKey) {
+        e.preventDefault();
+        try {
+          const autoSave = getAutoSaveManager();
+          await autoSave.saveNow();
+          console.log('✅ Quick save completed (Ctrl+S)');
+        } catch (error) {
+          console.error('❌ Quick save failed:', error);
+        }
+      }
+      
+      // Ctrl/Cmd + Shift + S: Save As (Open Project Manager)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 's') {
+        e.preventDefault();
+        setShowProjectManager(true);
+      }
+      
+      // Ctrl/Cmd + O: Open Project Manager
+      if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+        e.preventDefault();
+        setShowProjectManager(true);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
+  }, []);
+
+  // 🚀 NEW: Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      try {
+        const autoSave = getAutoSaveManager();
+        if (autoSave.hasUnsavedChanges()) {
+          e.preventDefault();
+          e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+          return e.returnValue;
+        }
+      } catch (error) {
+        // Auto-save not initialized yet
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
   
   // Listen for controls state changes to force immediate updates
   useEffect(() => {
@@ -3895,6 +4830,115 @@ export function App() {
 
       {/* Performance Monitor */}
       <PerformanceMonitor />
+
+      {/* 🚀 NEW: Project Controls & Auto-Save Indicator */}
+      {/* DEBUG TEST: Simple visible button */}
+      <button
+        onClick={() => {
+          console.log('🔍 TEST BUTTON CLICKED!');
+          setShowProjectManager(true);
+        }}
+        style={{
+          position: 'fixed',
+          top: '10px',
+          right: '10px',
+          padding: '15px 25px',
+          backgroundColor: '#ff0000',
+          color: 'white',
+          border: '3px solid yellow',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '18px',
+          fontWeight: 'bold',
+          zIndex: 999999,
+          pointerEvents: 'auto',
+          boxShadow: '0 0 20px rgba(255,0,0,0.8)',
+        }}
+      >
+        💾 SAVE/LOAD (TEST)
+      </button>
+
+      <div style={{
+        position: 'fixed',
+        top: '70px',
+        right: '10px',
+        display: 'flex',
+        gap: '10px',
+        zIndex: 99999,
+        pointerEvents: 'auto',
+        backgroundColor: 'rgba(0,0,0,0.1)', // DEBUG: Add background to see the container
+        padding: '5px', // DEBUG: Add padding
+      }}>
+        {/* Auto-save status indicator */}
+        {autoSaveStatus && (
+          <div style={{
+            padding: '8px 12px',
+            backgroundColor: autoSaveStatus.hasUnsavedChanges ? '#ffa500' : '#28a745',
+            color: 'white',
+            borderRadius: '4px',
+            fontSize: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          }}>
+            {autoSaveStatus.hasUnsavedChanges ? '⚠️ Unsaved' : '✅ Saved'}
+            <span style={{ opacity: 0.7 }}>
+              • {autoSaveStatus.running ? 'Auto-save ON' : 'Auto-save OFF'}
+            </span>
+          </div>
+        )}
+        
+        {/* Project manager button */}
+        <button
+          onClick={() => setShowProjectManager(true)}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#007acc',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            (e.target as HTMLButtonElement).style.backgroundColor = '#005a9e';
+          }}
+          onMouseLeave={(e) => {
+            (e.target as HTMLButtonElement).style.backgroundColor = '#007acc';
+          }}
+          title="Save/Load Projects (Ctrl+Shift+S or Ctrl+O)"
+        >
+          💾 Projects
+        </button>
+      </div>
+
+      {/* 🚀 NEW: Project Manager Modal */}
+      {showProjectManager && (
+        <>
+          {/* Backdrop */}
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 999999,
+              pointerEvents: 'auto',
+            }}
+            onClick={() => setShowProjectManager(false)}
+          />
+          {/* Project Manager */}
+          <div style={{ position: 'relative', zIndex: 1000000 }}>
+            <ProjectManager onClose={() => setShowProjectManager(false)} />
+          </div>
+        </>
+      )}
 
       {/* Puff vector prompt removed - will be rebuilt with new 3D geometry approach */}
     </>
