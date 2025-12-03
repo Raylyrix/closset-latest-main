@@ -14,6 +14,8 @@ interface SelectionVisualizationProps {
   canvasHeight: number;
   onElementMove?: (elementId: string, newPosition: { x: number; y: number }) => void;
   onElementResize?: (elementId: string, newBounds: SelectedElement['bounds']) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }
 
 export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
@@ -21,6 +23,8 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
   canvasHeight,
   onElementMove,
   onElementResize,
+  onDragStart,
+  onDragEnd,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -113,7 +117,7 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
 
   const getHandleAtPoint = (x: number, y: number, bounds: SelectedElement['bounds']): string | null => {
     const handleSize = 8;
-    const tolerance = 4;
+    const tolerance = 8; // CRITICAL FIX: Increase tolerance for easier handle clicking
 
     const handles = [
       { x: bounds.minX - handleSize/2, y: bounds.minY - handleSize/2, type: 'nw' },
@@ -144,6 +148,10 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // CRITICAL: Stop event propagation to prevent Three.js camera controls from receiving it
+    e.stopPropagation();
+    e.preventDefault();
+
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -156,6 +164,7 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
         setDragStart({ x, y });
         setDragElement(activeElement.id);
         setDragHandle(handle);
+        onDragStart?.(); // Disable camera controls when starting to drag/resize
         return;
       }
     }
@@ -176,18 +185,41 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
       setDragStart({ x, y });
       setDragElement(clickedElement.id);
       setDragHandle('move');
+      onDragStart?.(); // Disable camera controls when starting to drag
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !dragElement) return;
-
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // CRITICAL: Stop event propagation during drag to prevent Three.js camera controls
+    if (isDragging) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // Update cursor based on hover state when not dragging
+    if (!isDragging && activeElement) {
+      const handle = getHandleAtPoint(x, y, activeElement.bounds);
+      if (handle) {
+        canvas.style.cursor = getCursorForHandle(handle);
+      } else {
+        // Check if hovering over element for move
+        const { bounds } = activeElement;
+        if (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
+          canvas.style.cursor = 'move';
+        } else {
+          canvas.style.cursor = 'default';
+        }
+      }
+    }
+
+    if (!isDragging || !dragElement) return;
 
     const deltaX = x - dragStart.x;
     const deltaY = y - dragStart.y;
@@ -217,7 +249,16 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
     setDragStart({ x, y });
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e?: React.MouseEvent<HTMLCanvasElement>) => {
+    // CRITICAL: Stop event propagation when releasing drag
+    if (e && isDragging) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    
+    if (isDragging) {
+      onDragEnd?.(); // Re-enable camera controls when dragging ends
+    }
     setIsDragging(false);
     setDragElement(null);
     setDragHandle(null);
@@ -277,29 +318,67 @@ export const SelectionVisualization: React.FC<SelectionVisualizationProps> = ({
         left: 0,
         width: canvasWidth,
         height: canvasHeight,
-        pointerEvents: 'none', // Disable pointer events to prevent conflicts
+        pointerEvents: 'none', // Container doesn't capture events, only canvas does
         zIndex: 1000,
       }}
     >
-      {/* Simple selection feedback without canvas */}
-      {selectedElements.map((element, index) => (
-        <div
-          key={element.id}
-          style={{
-            position: 'absolute',
-            left: element.bounds.minX,
-            top: element.bounds.minY,
-            width: element.bounds.width,
-            height: element.bounds.height,
-            border: index === 0 ? '2px solid #00ff00' : '2px solid #0066ff',
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            boxSizing: 'border-box',
-          }}
-        />
-      ))}
+      {/* CRITICAL FIX: Render canvas with event handlers for resize handles */}
+      <canvas
+        ref={canvasRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp} // Stop dragging when mouse leaves
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          handleMouseDown(e as any);
+        }}
+        onPointerMove={(e) => {
+          if (isDragging) {
+            e.stopPropagation();
+          }
+          handleMouseMove(e as any);
+        }}
+        onPointerUp={(e) => {
+          if (isDragging) {
+            e.stopPropagation();
+          }
+          handleMouseUp(e as any);
+        }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'auto', // Enable pointer events on canvas to capture mouse events
+          cursor: isDragging && dragHandle ? getCursorForHandle(dragHandle) : 'default',
+        }}
+      />
     </div>
   );
+};
+
+// Helper function to get cursor style for resize handles
+const getCursorForHandle = (handle: string | null): string => {
+  if (!handle || handle === 'move') return 'move';
+  
+  switch (handle) {
+    case 'nw':
+    case 'se':
+      return 'nwse-resize';
+    case 'ne':
+    case 'sw':
+      return 'nesw-resize';
+    case 'n':
+    case 's':
+      return 'ns-resize';
+    case 'e':
+    case 'w':
+      return 'ew-resize';
+    default:
+      return 'default';
+  }
 };
 
 export default SelectionVisualization;

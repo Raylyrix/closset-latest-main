@@ -4,6 +4,7 @@ import { BrushPoint, BrushSettings, UVCoordinate } from '../types/app';
 import { unifiedPerformanceManager } from '../utils/UnifiedPerformanceManager';
 import { CANVAS_CONFIG } from '../constants/CanvasSizes';
 import { ProfessionalToolSet, ToolDefinition, ToolConfig } from '../vector/ProfessionalToolSet';
+import { applyBlur, applySharpen, applyEdgeDetection } from '../utils/imageProcessing';
 
 // Enhanced interfaces for the unified brush system
 interface BrushEngineState {
@@ -11,6 +12,7 @@ interface BrushEngineState {
   ctx: CanvasRenderingContext2D;
   brushCache: Map<string, HTMLCanvasElement>;
   strokeCache: Map<string, BrushPoint[]>;
+  imageCache: Map<string, HTMLImageElement>; // Cache for loaded custom brush images
   performanceMetrics: {
     fps: number;
     frameTime: number;
@@ -168,6 +170,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         ctx,
         brushCache: new Map(),
         strokeCache: new Map(),
+        imageCache: new Map(),
         performanceMetrics: {
           fps: 60,
           frameTime: 16.67,
@@ -198,6 +201,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         canvas: fallbackCanvas,
         ctx: fallbackCtx,
         brushCache: new Map(),
+        imageCache: new Map(),
         strokeCache: new Map(),
         performanceMetrics: {
           fps: 30, // Reduced performance for fallback
@@ -452,10 +456,39 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
       size *= velocityFactor;
     }
 
+    if (settings.dynamics.velocityOpacity && point.velocity > 0) {
+      const velocityFactor = Math.max(0.2, 1 - point.velocity * 0.3);
+      opacity *= velocityFactor;
+    }
+
+    // Feature 23: Velocity-based rotation
+    if (settings.dynamics.velocityRotation && point.velocity > 0) {
+      const rotationAmount = settings.dynamics.velocityRotationAmount !== undefined 
+        ? settings.dynamics.velocityRotationAmount 
+        : 90; // Default: 90 degrees per unit velocity
+      
+      // Rotate based on velocity magnitude (faster = more rotation)
+      // In a full implementation, we'd use velocity vector direction
+      const velocityRotation = (point.velocity * rotationAmount) % 360;
+      angle += velocityRotation;
+    }
+
+    // Feature 23: Velocity-based scale changes
+    if (settings.dynamics.velocityScale && point.velocity > 0) {
+      const scaleAmount = settings.dynamics.velocityScaleAmount !== undefined 
+        ? settings.dynamics.velocityScaleAmount 
+        : 0.5; // Default: 0.5x scale change per unit velocity
+      
+      // Faster strokes = smaller brush (more scale reduction)
+      const velocityScaleFactor = Math.max(0.1, 1 - (point.velocity * scaleAmount));
+      size *= velocityScaleFactor;
+    }
+
     // Ensure reasonable bounds
     size = Math.max(0.5, Math.min(size, 500));
     opacity = Math.max(0, Math.min(opacity, 1));
     spacing = Math.max(0.01, Math.min(spacing, 1));
+    angle = angle % 360;
 
     return { size, opacity, angle, spacing };
   }, []);
@@ -537,7 +570,19 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
    */
   const getBrushCacheKey = useCallback((settings: BrushSettings): string => {
     const gradientKey = settings.gradient ? JSON.stringify(settings.gradient) : 'none';
-    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}`;
+    const customBrushKey = settings.customBrushImage ? settings.customBrushImage.substring(0, 50) : 'none'; // Use first 50 chars of image data for cache key
+    const customRotationKey = settings.customBrushRotation !== undefined ? settings.customBrushRotation : 'none';
+    const customScaleKey = settings.customBrushScale !== undefined ? settings.customBrushScale : 'none';
+    const customFlipHKey = settings.customBrushFlipHorizontal ? 'h' : 'nh';
+    const customFlipVKey = settings.customBrushFlipVertical ? 'v' : 'nv';
+    const customColorizationKey = settings.customBrushColorizationMode || 'tint';
+    const customAlphaThresholdKey = settings.customBrushAlphaThreshold !== undefined ? settings.customBrushAlphaThreshold : 'none';
+    const customFilterKey = settings.customBrushFilter || 'none';
+    const customFilterAmountKey = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+    const customLayersKey = settings.customBrushLayers ? JSON.stringify(settings.customBrushLayers.map(l => ({ id: l.id, opacity: l.opacity, blendMode: l.blendMode, enabled: l.enabled }))) : 'none';
+    const customAnimatedKey = settings.customBrushAnimated ? 'anim' : 'static';
+    const customFrameKey = settings.customBrushAnimationFrame !== undefined ? settings.customBrushAnimationFrame : 0;
+    return `${settings.size}-${settings.opacity}-${settings.hardness}-${settings.flow}-${settings.spacing}-${settings.color}-${settings.blendMode}-${settings.shape}-${settings.angle}-${gradientKey}-${JSON.stringify(settings.texture)}-${customBrushKey}-${customRotationKey}-${customScaleKey}-${customFlipHKey}-${customFlipVKey}-${customColorizationKey}-${customAlphaThresholdKey}-${customFilterKey}-${customFilterAmountKey}-${customLayersKey}-${customAnimatedKey}-${customFrameKey}`;
   }, []);
 
   const createBrushStamp = useCallback((settings: BrushSettings): HTMLCanvasElement => {
@@ -579,7 +624,648 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
       // Clear canvas
       stampCtx.clearRect(0, 0, stampSize, stampSize);
 
-      // Create brush-specific stamp based on shape
+      // Feature 21: Check for multi-layer brushes first, then single custom brush image
+      if (settings.customBrushLayers && settings.customBrushLayers.length > 0) {
+        // Multi-layer brush: composite multiple images
+        const enabledLayers = settings.customBrushLayers.filter(layer => layer.enabled);
+        
+        if (enabledLayers.length > 0) {
+          // Use the existing stamp canvas (which is 2x optimizedSize)
+          const actualBrushSize = settings.size;
+          const customStampSize = Math.ceil(actualBrushSize * 2);
+          
+          // Create a new canvas matching brush size for proper scaling
+          const customCanvas = document.createElement('canvas');
+          customCanvas.width = customStampSize;
+          customCanvas.height = customStampSize;
+          const customCtx = customCanvas.getContext('2d', { alpha: true });
+          
+          if (!customCtx) {
+            throw new Error('Failed to get 2D context for custom brush stamp');
+          }
+          
+          // Clear the canvas
+          customCtx.clearRect(0, 0, customStampSize, customStampSize);
+          
+          // Composite each layer
+          for (const layer of enabledLayers) {
+            let layerImg = state.imageCache.get(layer.image);
+            
+            if (!layerImg) {
+              layerImg = new Image();
+              layerImg.crossOrigin = 'anonymous';
+              layerImg.src = layer.image;
+              state.imageCache.set(layer.image, layerImg);
+            }
+            
+            if (layerImg.complete && layerImg.width > 0 && layerImg.height > 0) {
+              // Calculate scaling for this layer
+              const imageMaxDimension = Math.max(layerImg.width, layerImg.height);
+              const baseScale = actualBrushSize / imageMaxDimension;
+              const customScale = settings.customBrushScale !== undefined ? settings.customBrushScale : 1.0;
+              const scale = baseScale * customScale;
+              
+              const scaledWidth = layerImg.width * scale;
+              const scaledHeight = layerImg.height * scale;
+              
+              // Set blend mode and opacity
+              customCtx.globalCompositeOperation = layer.blendMode;
+              customCtx.globalAlpha = layer.opacity;
+              
+              // Draw layer centered
+              const drawX = (customStampSize - scaledWidth) / 2;
+              const drawY = (customStampSize - scaledHeight) / 2;
+              
+              customCtx.drawImage(layerImg, drawX, drawY, scaledWidth, scaledHeight);
+            }
+          }
+          
+          // Reset global alpha
+          customCtx.globalAlpha = 1.0;
+          customCtx.globalCompositeOperation = 'source-over';
+          
+          // Apply transformations (rotation, flip) to the composite
+          const rotation = settings.customBrushRotation !== undefined ? settings.customBrushRotation : 0;
+          const rotationRad = (rotation * Math.PI) / 180;
+          const flipH = settings.customBrushFlipHorizontal || false;
+          const flipV = settings.customBrushFlipVertical || false;
+          
+          if (rotation !== 0 || flipH || flipV) {
+            customCtx.save();
+            customCtx.translate(customStampSize / 2, customStampSize / 2);
+            customCtx.rotate(rotationRad);
+            customCtx.scale(flipH ? -1 : 1, flipV ? 1 : -1);
+            customCtx.translate(-customStampSize / 2, -customStampSize / 2);
+            
+            // Get current image data, apply transform, then put back
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            customCtx.clearRect(0, 0, customStampSize, customStampSize);
+            customCtx.putImageData(imageData, 0, 0);
+            customCtx.restore();
+          }
+          
+          // Apply brightness/contrast if specified
+          const brightness = settings.customBrushBrightness || 0;
+          const contrast = settings.customBrushContrast || 0;
+          
+          if (brightness !== 0 || contrast !== 0) {
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue;
+              
+              let r = data[i];
+              let g = data[i + 1];
+              let b = data[i + 2];
+              
+              if (brightness !== 0) {
+                r = Math.max(0, Math.min(255, r + brightness));
+                g = Math.max(0, Math.min(255, g + brightness));
+                b = Math.max(0, Math.min(255, b + brightness));
+              }
+              
+              if (contrast !== 0) {
+                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                r = Math.max(0, Math.min(255, factor * (r - 128) + 128));
+                g = Math.max(0, Math.min(255, factor * (g - 128) + 128));
+                b = Math.max(0, Math.min(255, factor * (b - 128) + 128));
+              }
+              
+              data[i] = r;
+              data[i + 1] = g;
+              data[i + 2] = b;
+            }
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply filter if specified
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            const stampImageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            let filteredData: ImageData = stampImageData;
+            const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+            
+            switch (settings.customBrushFilter) {
+              case 'blur':
+                filteredData = applyBlur(stampImageData, filterAmount);
+                break;
+              case 'sharpen':
+                filteredData = applySharpen(stampImageData, filterAmount);
+                break;
+              case 'edge':
+                filteredData = applyEdgeDetection(stampImageData);
+                break;
+            }
+            
+            customCtx.putImageData(filteredData, 0, 0);
+          }
+          
+          // Feature 25: Apply texture overlay if specified
+          if (settings.customBrushTextureOverlay && settings.customBrushTextureImage) {
+            let textureImg = state.imageCache.get(settings.customBrushTextureImage);
+            
+            if (!textureImg) {
+              textureImg = new Image();
+              textureImg.crossOrigin = 'anonymous';
+              textureImg.src = settings.customBrushTextureImage;
+              state.imageCache.set(settings.customBrushTextureImage, textureImg);
+            }
+            
+            if (textureImg.complete && textureImg.width > 0 && textureImg.height > 0) {
+              customCtx.save();
+              customCtx.globalCompositeOperation = settings.customBrushTextureBlendMode || 'overlay';
+              customCtx.globalAlpha = settings.customBrushTextureOpacity !== undefined ? settings.customBrushTextureOpacity : 0.5;
+              
+              const textureScale = settings.customBrushTextureScale !== undefined ? settings.customBrushTextureScale : 1.0;
+              const textureWidth = customStampSize * textureScale;
+              const textureHeight = customStampSize * textureScale;
+              
+              // Center the texture
+              const textureX = (customStampSize - textureWidth) / 2;
+              const textureY = (customStampSize - textureHeight) / 2;
+              
+              // Create pattern for tiling
+              const patternCanvas = document.createElement('canvas');
+              patternCanvas.width = textureWidth;
+              patternCanvas.height = textureHeight;
+              const patternCtx = patternCanvas.getContext('2d');
+              
+              if (patternCtx) {
+                patternCtx.drawImage(textureImg, 0, 0, textureWidth, textureHeight);
+                const pattern = customCtx.createPattern(patternCanvas, 'repeat');
+                
+                if (pattern) {
+                  customCtx.fillStyle = pattern;
+                  customCtx.fillRect(0, 0, customStampSize, customStampSize);
+                } else {
+                  // Fallback: draw texture directly
+                  customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+                }
+              } else {
+                // Fallback: draw texture directly
+                customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+              }
+              
+              customCtx.restore();
+            }
+          }
+          
+          // Copy to main stamp canvas
+          stampCtx.clearRect(0, 0, stampSize, stampSize);
+          stampCtx.drawImage(customCanvas, 0, 0, stampSize, stampSize);
+          
+          return stampCanvas;
+        }
+      }
+      
+      // Feature 22: Check for animated brush (GIF frames)
+      if (settings.customBrushAnimated && settings.customBrushFrames && settings.customBrushFrames.length > 0) {
+        const currentFrameIndex = settings.customBrushAnimationFrame !== undefined 
+          ? Math.floor(settings.customBrushAnimationFrame) % settings.customBrushFrames.length 
+          : 0;
+        const currentFrame = settings.customBrushFrames[currentFrameIndex];
+        
+        if (currentFrame && currentFrame.image && currentFrame.image.complete && currentFrame.image.width > 0) {
+          const img = currentFrame.image;
+          // Use the same logic as single custom brush but with animated frame
+          const actualBrushSize = settings.size;
+          const customStampSize = Math.ceil(actualBrushSize * 2);
+          
+          const customCanvas = document.createElement('canvas');
+          customCanvas.width = customStampSize;
+          customCanvas.height = customStampSize;
+          const customCtx = customCanvas.getContext('2d', { alpha: true });
+          
+          if (!customCtx) {
+            throw new Error('Failed to get 2D context for animated brush stamp');
+          }
+          
+          customCtx.clearRect(0, 0, customStampSize, customStampSize);
+          
+          const imageMaxDimension = Math.max(img.width, img.height);
+          const baseScale = actualBrushSize / imageMaxDimension;
+          const customScale = settings.customBrushScale !== undefined ? settings.customBrushScale : 1.0;
+          const scale = baseScale * customScale;
+          
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          
+          customCtx.imageSmoothingEnabled = true;
+          customCtx.imageSmoothingQuality = 'high';
+          
+          const scaledDrawWidth = scaledWidth * 2;
+          const scaledDrawHeight = scaledHeight * 2;
+          const drawX = (customStampSize - scaledDrawWidth) / 2;
+          
+          customCtx.save();
+          customCtx.globalAlpha = settings.opacity || 1.0;
+          
+          const rotation = settings.customBrushRotation || 0;
+          const rotationRad = (rotation * Math.PI) / 180;
+          const flipH = settings.customBrushFlipHorizontal || false;
+          const flipV = settings.customBrushFlipVertical || false;
+          
+          customCtx.translate(customStampSize / 2, customStampSize / 2);
+          customCtx.rotate(rotationRad);
+          customCtx.scale(flipH ? -1 : 1, flipV ? 1 : -1);
+          customCtx.translate(-customStampSize / 2, -customStampSize / 2);
+          
+          const drawY = (customStampSize - scaledDrawHeight) / 2;
+          customCtx.drawImage(img, drawX, drawY, scaledDrawWidth, scaledDrawHeight);
+          customCtx.restore();
+          
+          // Apply brightness/contrast
+          const brightness = settings.customBrushBrightness || 0;
+          const contrast = settings.customBrushContrast || 0;
+          
+          if (brightness !== 0 || contrast !== 0) {
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue;
+              
+              let r = data[i];
+              let g = data[i + 1];
+              let b = data[i + 2];
+              
+              if (brightness !== 0) {
+                r = Math.max(0, Math.min(255, r + brightness));
+                g = Math.max(0, Math.min(255, g + brightness));
+                b = Math.max(0, Math.min(255, b + brightness));
+              }
+              
+              if (contrast !== 0) {
+                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                r = Math.max(0, Math.min(255, factor * (r - 128) + 128));
+                g = Math.max(0, Math.min(255, factor * (g - 128) + 128));
+                b = Math.max(0, Math.min(255, factor * (b - 128) + 128));
+              }
+              
+              data[i] = r;
+              data[i + 1] = g;
+              data[i + 2] = b;
+            }
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply filter if specified
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            const stampImageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            let filteredData: ImageData = stampImageData;
+            const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+            
+            switch (settings.customBrushFilter) {
+              case 'blur':
+                filteredData = applyBlur(stampImageData, filterAmount);
+                break;
+              case 'sharpen':
+                filteredData = applySharpen(stampImageData, filterAmount);
+                break;
+              case 'edge':
+                filteredData = applyEdgeDetection(stampImageData);
+                break;
+            }
+            
+            customCtx.putImageData(filteredData, 0, 0);
+          }
+          
+          stampCtx.clearRect(0, 0, stampSize, stampSize);
+          stampCtx.drawImage(customCanvas, 0, 0, stampSize, stampSize);
+          
+          return stampCanvas;
+        }
+      }
+      
+      // Check if custom brush image is provided (single layer)
+      if (settings.customBrushImage) {
+        // Check if image is already cached and loaded
+        let img = state.imageCache.get(settings.customBrushImage);
+        
+        if (!img) {
+          // Image not cached, create and cache it (will load asynchronously)
+          img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = settings.customBrushImage;
+          state.imageCache.set(settings.customBrushImage, img);
+        }
+        
+        // If image is loaded and ready, use it as a stencil
+        if (img.complete && img.width > 0 && img.height > 0) {
+          // Feature 20: Apply image filter if specified (synchronous processing)
+          let processedImage = img;
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            try {
+              // Create temporary canvas to apply filter
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = img.width;
+              tempCanvas.height = img.height;
+              const tempCtx = tempCanvas.getContext('2d', { alpha: true });
+              
+              if (tempCtx) {
+                tempCtx.drawImage(img, 0, 0);
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Apply filter synchronously
+                let processedData: ImageData = imageData;
+                const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+                
+                switch (settings.customBrushFilter) {
+                  case 'blur':
+                    processedData = applyBlur(imageData, filterAmount);
+                    break;
+                  case 'sharpen':
+                    processedData = applySharpen(imageData, filterAmount);
+                    break;
+                  case 'edge':
+                    processedData = applyEdgeDetection(imageData);
+                    break;
+                  default:
+                    processedData = imageData;
+                }
+                
+                tempCtx.putImageData(processedData, 0, 0);
+                
+                // Create new image from processed canvas
+                // The canvas data URL is immediately available, so we can use it
+                const processedImg = new Image();
+                processedImg.src = tempCanvas.toDataURL('image/png');
+                // For immediate use, we'll draw from the canvas directly if image isn't loaded yet
+                if (processedImg.complete) {
+                  processedImage = processedImg;
+                } else {
+                  // If not complete, we'll use the canvas directly in drawing
+                  // Store canvas reference for later use
+                  (tempCanvas as any).__isProcessed = true;
+                  processedImage = img; // Fallback to original, but we'll use canvas when drawing
+                }
+              }
+            } catch (error) {
+              console.warn('Failed to apply filter, using original image:', error);
+              processedImage = img;
+            }
+          }
+          
+          // FIXED: Use actual brush size for proper scaling
+          // The stamp size should match brush size, but we'll render at higher quality
+          const actualBrushSize = settings.size; // Use actual brush size so it scales correctly
+          const imageMaxDimension = Math.max(processedImage.width || img.width, processedImage.height || img.height);
+          
+          // Calculate base scaling to fit the ACTUAL brush size - this ensures size changes with brush size
+          const baseScale = actualBrushSize / imageMaxDimension;
+          
+          // Apply custom brush scale multiplier (0.5x-3.0x)
+          const customScale = settings.customBrushScale !== undefined ? settings.customBrushScale : 1.0;
+          const scale = baseScale * customScale;
+          
+          const scaledWidth = processedImage.width * scale;
+          const scaledHeight = processedImage.height * scale;
+          
+          // Use the existing stamp canvas (which is 2x optimizedSize)
+          // But for custom brushes, use actual brush size to match exactly
+          const customStampSize = Math.ceil(actualBrushSize * 2); // 2x for quality
+          
+          // Create a new canvas matching brush size for proper scaling
+          const customCanvas = document.createElement('canvas');
+          customCanvas.width = customStampSize;
+          customCanvas.height = customStampSize;
+          const customCtx = customCanvas.getContext('2d', { alpha: true });
+          
+          if (!customCtx) {
+            throw new Error('Failed to get 2D context for custom brush stamp');
+          }
+          
+          // Clear the canvas
+          customCtx.clearRect(0, 0, customStampSize, customStampSize);
+          
+          // Get brush color and opacity
+          const brushColor = settings.color || '#000000';
+          const brushOpacity = (settings.opacity || 1.0);
+          
+          // QUALITY: Use high-quality image smoothing for crisp results
+          customCtx.imageSmoothingEnabled = true;
+          customCtx.imageSmoothingQuality = 'high';
+          
+          // Scale the image dimensions to match the high-res canvas
+          const scaledDrawWidth = scaledWidth * 2; // Scale to 2x for quality
+          const scaledDrawHeight = scaledHeight * 2;
+          const drawX = (customStampSize - scaledDrawWidth) / 2;
+          
+          // Draw the image at high resolution (includes alpha channel/mask)
+          customCtx.save();
+          customCtx.globalAlpha = brushOpacity;
+          
+          // Apply rotation if specified
+          const rotation = settings.customBrushRotation || 0;
+          const rotationRad = (rotation * Math.PI) / 180;
+          
+          // Apply flip settings
+          const flipH = settings.customBrushFlipHorizontal || false;
+          const flipV = settings.customBrushFlipVertical || false;
+          
+          // FIX Y-AXIS INVERSION: Flip the image vertically (base flip for coordinate system)
+          // Translate to center, apply rotation, apply flips, flip Y-axis (scale Y by -1)
+          customCtx.translate(customStampSize / 2, customStampSize / 2);
+          customCtx.rotate(rotationRad); // Apply rotation
+          customCtx.scale(flipH ? -1 : 1, flipV ? 1 : -1); // Apply horizontal flip, then vertical flip (inverted for coordinate system)
+          customCtx.translate(-customStampSize / 2, -customStampSize / 2);
+          
+          // Draw image centered (drawY calculated for flipped coordinate system)
+          const drawY = (customStampSize - scaledDrawHeight) / 2;
+          
+          // Feature 20: Draw image first, then apply filter if needed
+          customCtx.drawImage(img, drawX, drawY, scaledDrawWidth, scaledDrawHeight);
+          
+          // Reset transform
+          customCtx.restore();
+          
+          // Feature 20: Apply filter to the final stamp if specified
+          if (settings.customBrushFilter && settings.customBrushFilter !== 'none') {
+            const stampImageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            let filteredData: ImageData = stampImageData;
+            const filterAmount = settings.customBrushFilterAmount !== undefined ? settings.customBrushFilterAmount : 1;
+            
+            switch (settings.customBrushFilter) {
+              case 'blur':
+                filteredData = applyBlur(stampImageData, filterAmount);
+                break;
+              case 'sharpen':
+                filteredData = applySharpen(stampImageData, filterAmount);
+                break;
+              case 'edge':
+                filteredData = applyEdgeDetection(stampImageData);
+                break;
+            }
+            
+            customCtx.putImageData(filteredData, 0, 0);
+          }
+          
+          // Feature 25: Apply texture overlay if specified
+          if (settings.customBrushTextureOverlay && settings.customBrushTextureImage) {
+            let textureImg = state.imageCache.get(settings.customBrushTextureImage);
+            
+            if (!textureImg) {
+              textureImg = new Image();
+              textureImg.crossOrigin = 'anonymous';
+              textureImg.src = settings.customBrushTextureImage;
+              state.imageCache.set(settings.customBrushTextureImage, textureImg);
+            }
+            
+            if (textureImg.complete && textureImg.width > 0 && textureImg.height > 0) {
+              customCtx.save();
+              customCtx.globalCompositeOperation = settings.customBrushTextureBlendMode || 'overlay';
+              customCtx.globalAlpha = settings.customBrushTextureOpacity !== undefined ? settings.customBrushTextureOpacity : 0.5;
+              
+              const textureScale = settings.customBrushTextureScale !== undefined ? settings.customBrushTextureScale : 1.0;
+              const textureWidth = customStampSize * textureScale;
+              const textureHeight = customStampSize * textureScale;
+              
+              // Center the texture
+              const textureX = (customStampSize - textureWidth) / 2;
+              const textureY = (customStampSize - textureHeight) / 2;
+              
+              // Create pattern for tiling
+              const patternCanvas = document.createElement('canvas');
+              patternCanvas.width = textureWidth;
+              patternCanvas.height = textureHeight;
+              const patternCtx = patternCanvas.getContext('2d');
+              
+              if (patternCtx) {
+                patternCtx.drawImage(textureImg, 0, 0, textureWidth, textureHeight);
+                const pattern = customCtx.createPattern(patternCanvas, 'repeat');
+                
+                if (pattern) {
+                  customCtx.fillStyle = pattern;
+                  customCtx.fillRect(0, 0, customStampSize, customStampSize);
+                } else {
+                  // Fallback: draw texture directly
+                  customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+                }
+              } else {
+                // Fallback: draw texture directly
+                customCtx.drawImage(textureImg, textureX, textureY, textureWidth, textureHeight);
+              }
+              
+              customCtx.restore();
+            }
+          }
+          
+          // Feature 18: Apply brightness/contrast adjustments
+          const brightness = settings.customBrushBrightness !== undefined ? settings.customBrushBrightness : 0;
+          const contrast = settings.customBrushContrast !== undefined ? settings.customBrushContrast : 0;
+          
+          if (brightness !== 0 || contrast !== 0) {
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue; // Skip transparent pixels
+              
+              let r = data[i];
+              let g = data[i + 1];
+              let b = data[i + 2];
+              
+              // Apply brightness
+              if (brightness !== 0) {
+                r = Math.max(0, Math.min(255, r + brightness));
+                g = Math.max(0, Math.min(255, g + brightness));
+                b = Math.max(0, Math.min(255, b + brightness));
+              }
+              
+              // Apply contrast
+              if (contrast !== 0) {
+                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                r = Math.max(0, Math.min(255, factor * (r - 128) + 128));
+                g = Math.max(0, Math.min(255, factor * (g - 128) + 128));
+                b = Math.max(0, Math.min(255, factor * (b - 128) + 128));
+              }
+              
+              data[i] = r;
+              data[i + 1] = g;
+              data[i + 2] = b;
+            }
+            
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply alpha threshold if specified
+          const alphaThreshold = settings.customBrushAlphaThreshold !== undefined ? settings.customBrushAlphaThreshold : 50;
+          if (alphaThreshold > 0) {
+            // Get image data and apply threshold
+            const imageData = customCtx.getImageData(0, 0, customStampSize, customStampSize);
+            const data = imageData.data;
+            const thresholdValue = Math.floor((alphaThreshold / 100) * 255);
+            
+            // Apply threshold: pixels below threshold become transparent
+            for (let i = 3; i < data.length; i += 4) {
+              if (data[i] < thresholdValue) {
+                data[i] = 0; // Set alpha to 0 (transparent)
+              }
+            }
+            
+            customCtx.putImageData(imageData, 0, 0);
+          }
+          
+          // Apply colorization based on mode
+          const colorizationMode = settings.customBrushColorizationMode || 'tint';
+          customCtx.save();
+          
+          if (colorizationMode === 'preserve') {
+            // Don't apply any color - preserve original image colors
+            // Nothing to do here
+          } else if (colorizationMode === 'tint') {
+            // Tint: Apply color using source-atop (only colors opaque parts)
+            customCtx.globalCompositeOperation = 'source-atop';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          } else if (colorizationMode === 'multiply') {
+            // Multiply: Darken the image with the brush color
+            customCtx.globalCompositeOperation = 'multiply';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          } else if (colorizationMode === 'overlay') {
+            // Overlay: Blend color with image
+            customCtx.globalCompositeOperation = 'overlay';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          } else if (colorizationMode === 'colorize') {
+            // Colorize: Replace colors while preserving luminance
+            customCtx.globalCompositeOperation = 'color';
+            customCtx.fillStyle = brushColor;
+            customCtx.fillRect(0, 0, customStampSize, customStampSize);
+          }
+          
+          customCtx.restore();
+          
+          // Use this canvas as the stamp
+          const qualityStampCanvas = customCanvas;
+          
+          // Cache the high-quality result
+          if (state.brushCache.size < 100) {
+            state.brushCache.set(cacheKey, qualityStampCanvas);
+          } else {
+            const entries = Array.from(state.brushCache.entries());
+            const oldestEntries = entries.slice(0, 20);
+            oldestEntries.forEach(([key]) => state.brushCache.delete(key));
+            state.brushCache.set(cacheKey, qualityStampCanvas);
+          }
+          
+          updatePerformanceMetrics();
+          return qualityStampCanvas;
+        } else {
+          // Image not ready yet, fall back to default brush
+          // This can happen on first load - the image will be ready on next call
+          console.warn('Custom brush image not ready yet, using default brush. Will use custom image once loaded.');
+          createBrushSpecificStamp(stampCtx, { ...settings, size: optimizedSize }, stampSize, centerX, centerY, radius);
+          if (state.brushCache.size < 100) {
+            state.brushCache.set(cacheKey, stampCanvas);
+          }
+          updatePerformanceMetrics();
+          return stampCanvas;
+        }
+      }
+
+      // Create brush-specific stamp based on shape (default behavior)
       createBrushSpecificStamp(stampCtx, { ...settings, size: optimizedSize }, stampSize, centerX, centerY, radius);
 
       // Cache the result with size limit
@@ -940,6 +1626,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createTextureBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic textured brush with canvas/paper-like grain
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -950,9 +1637,33 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Add canvas-like grain
-        const textureNoise = Math.sin(x * 0.2) * Math.cos(y * 0.2) + Math.sin(x * 0.5) * Math.sin(y * 0.5);
-        const textureFactor = 0.8 + textureNoise * 0.4;
+        
+        // Create multi-layered texture for realistic canvas/paper grain
+        let textureFactor = 0;
+        const textureLayers = 3;
+        
+        for (let layer = 0; layer < textureLayers; layer++) {
+          const layerScale = Math.pow(2, layer);
+          const freqX = 0.15 * layerScale;
+          const freqY = 0.15 * layerScale;
+          
+          // Create canvas weave pattern
+          const weave1 = Math.sin(x * freqX) * Math.cos(y * freqY);
+          const weave2 = Math.sin(x * freqX * 1.3) * Math.sin(y * freqY * 0.8);
+          const weave3 = Math.cos(x * freqX * 0.7) * Math.cos(y * freqY * 1.2);
+          
+          const combinedWeave = (weave1 + weave2 + weave3) / 3;
+          const layerIntensity = 0.7 + combinedWeave * 0.3;
+          textureFactor += layerIntensity / textureLayers;
+        }
+        
+        // Add some random texture variation
+        const randomVariation = Math.sin(x * 0.3 + y * 0.2) * Math.cos(x * 0.1 - y * 0.15);
+        textureFactor += randomVariation * 0.1;
+        
+        // Normalize texture factor
+        textureFactor = Math.max(0.6, Math.min(1.0, textureFactor));
+        
         const alpha = settings.opacity * 255 * textureFactor * Math.exp(-normalizedDistance * normalizedDistance);
         
         // Get color (solid or gradient)
@@ -970,7 +1681,8 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createWatercolorBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
-    // Create realistic watercolor with water flow and bleeding effects
+    // REALISTIC WATERCOLOR: Transparent, luminous, with granulation and soft bleeding
+    // Key characteristics: 30-50% opacity, soft edges, paper texture visible, granulation
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -978,61 +1690,73 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const distance = Math.sqrt(dx * dx + dy * dy);
         const normalizedDistance = distance / radius;
         
-        if (normalizedDistance > 1.2) continue; // Allow some bleeding outside
+        if (normalizedDistance > 1.3) continue; // Extended bleeding area
         
         const index = (y * size + x) * 4;
         
-        // Create water flow patterns
+        // WATERCOLOR: High transparency (30-50% of normal opacity)
+        const baseTransparency = 0.4; // Watercolor is naturally transparent
+        const baseAlpha = settings.opacity * 255 * baseTransparency;
+        
+        // Create water flow patterns for realistic bleeding
         const flowX = Math.sin(x * 0.05) * Math.cos(y * 0.03);
         const flowY = Math.cos(x * 0.03) * Math.sin(y * 0.05);
         const flowMagnitude = Math.sqrt(flowX * flowX + flowY * flowY);
         
-        // Create bleeding effect - color spreads more in certain directions
-        const bleedingFactor = 1 + flowMagnitude * 0.4;
-        const waterSaturation = Math.sin(x * 0.08) * Math.cos(y * 0.08) + 
-                               Math.sin(x * 0.15) * Math.sin(y * 0.15);
+        // GRANULATION: Pigment settling into paper texture (grainy effect)
+        const granulation1 = Math.sin(x * 0.15) * Math.cos(y * 0.15);
+        const granulation2 = Math.sin(x * 0.25) * Math.sin(y * 0.2);
+        const granulation3 = Math.cos(x * 0.1) * Math.cos(y * 0.12);
+        const combinedGranulation = (granulation1 + granulation2 + granulation3) / 3;
+        const granulationFactor = 0.7 + combinedGranulation * 0.6; // Creates grainy texture
         
-        // Watercolor has variable opacity based on water content
-        const waterContent = 0.6 + waterSaturation * 0.4;
-        const baseAlpha = settings.opacity * 255 * waterContent;
+        // PAPER TEXTURE: Visible through transparent paint
+        const paperTexture1 = Math.sin(x * 0.3) * Math.cos(y * 0.3);
+        const paperTexture2 = Math.sin(x * 0.5) * Math.sin(y * 0.4);
+        const paperTexture = (paperTexture1 + paperTexture2) / 2;
+        const paperFactor = 0.85 + paperTexture * 0.3; // Paper shows through
         
-        // Create soft, organic falloff with bleeding
+        // SOFT EDGES: Very feathered, organic falloff
         let alpha = baseAlpha;
-        if (normalizedDistance <= 0.8) {
-          // Core area - full opacity
-          alpha = baseAlpha;
-        } else if (normalizedDistance <= 1.0) {
-          // Transition area - gradual falloff
-          const falloff = 1 - (normalizedDistance - 0.8) / 0.2;
-          alpha = baseAlpha * falloff;
+        if (normalizedDistance <= 0.6) {
+          // Core area - moderate opacity with granulation
+          alpha = baseAlpha * granulationFactor * paperFactor;
+        } else if (normalizedDistance <= 0.9) {
+          // Transition area - very soft falloff
+          const falloff = 1 - (normalizedDistance - 0.6) / 0.3;
+          alpha = baseAlpha * falloff * granulationFactor * paperFactor;
         } else {
-          // Bleeding area - very soft, directional
-          const bleedDistance = normalizedDistance - 1.0;
-          const bleedAlpha = baseAlpha * 0.3 * bleedingFactor * Math.exp(-bleedDistance * 5);
-          alpha = bleedAlpha;
+          // Bleeding area - very soft, directional bleeding
+          const bleedDistance = normalizedDistance - 0.9;
+          const bleedFactor = Math.exp(-bleedDistance * 3) * (1 + flowMagnitude * 0.5);
+          alpha = baseAlpha * 0.2 * bleedFactor * granulationFactor;
         }
         
-        // Add some paper texture variation
-        const paperTexture = Math.sin(x * 0.2) * Math.cos(y * 0.2);
-        const textureVariation = 0.9 + paperTexture * 0.2;
-        alpha *= textureVariation;
+        // LUMINOUS EFFECT: Watercolor glows (light passes through)
+        const luminousFactor = 1.1; // Slight brightness boost for glow
         
-        // Get color (solid or gradient)
+        // Get color (solid or gradient) - watercolor colors are more vibrant due to transparency
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // Apply luminous effect (slight brightness increase)
+        const finalR = Math.min(255, r * luminousFactor);
+        const finalG = Math.min(255, g * luminousFactor);
+        const finalB = Math.min(255, b * luminousFactor);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createOilBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
-    // Create realistic oil paint with thick, rich texture and brush stroke patterns
+    // REALISTIC OIL PAINT: Rich, thick, visible brush strokes, glossy sheen, impasto
+    // Key characteristics: 100% opacity, visible brush marks, thick texture, glossy finish
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1044,37 +1768,47 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         
         const index = (y * size + x) * 4;
         
-        // Create brush stroke patterns (oil paint shows brush marks)
+        // OIL PAINT: Full opacity (100%) - completely opaque
+        const baseOpacity = 1.0;
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // VISIBLE BRUSH STROKES: Oil paint shows brush marks clearly
         const strokeAngle = Math.atan2(dy, dx);
-        const strokePattern = Math.sin(strokeAngle * 8 + x * 0.1 + y * 0.1);
-        const strokeVariation = 0.85 + strokePattern * 0.3;
+        const strokePattern1 = Math.sin(strokeAngle * 6 + x * 0.15 + y * 0.1);
+        const strokePattern2 = Math.cos(strokeAngle * 4 - x * 0.1 + y * 0.15);
+        const combinedStroke = (strokePattern1 + strokePattern2) / 2;
+        const strokeVariation = 0.75 + combinedStroke * 0.5; // Strong brush mark variation
         
-        // Create thick paint texture with impasto effect
-        const paintThickness = Math.sin(x * 0.03) * Math.cos(y * 0.03) + 
-                              Math.sin(x * 0.07) * Math.sin(y * 0.07);
-        const thicknessVariation = 0.8 + paintThickness * 0.4;
+        // IMPASTO EFFECT: Thick paint application creates texture depth
+        const impasto1 = Math.sin(x * 0.04) * Math.cos(y * 0.04);
+        const impasto2 = Math.sin(x * 0.08) * Math.sin(y * 0.06);
+        const impasto3 = Math.cos(x * 0.06) * Math.cos(y * 0.08);
+        const combinedImpasto = (impasto1 + impasto2 + impasto3) / 3;
+        const thicknessVariation = 0.7 + combinedImpasto * 0.6; // Strong thickness variation
         
-        // Oil paint has rich, opaque coverage with some texture variation
-        const baseOpacity = settings.opacity * 255 * thicknessVariation * strokeVariation;
+        // RICH TEXTURE: Oil paint has more texture than acrylic
+        const textureVariation = Math.sin(x * 0.1) * Math.cos(y * 0.1) + 
+                                Math.sin(x * 0.05) * Math.sin(y * 0.05);
+        const textureFactor = 0.8 + textureVariation * 0.4;
         
-        // Create smooth falloff with slight texture
-        let alpha = baseOpacity;
-        if (normalizedDistance <= 0.7) {
-          // Core area - full rich coverage
-          alpha = baseOpacity;
+        // Calculate alpha with all variations
+        let alpha = baseAlpha * strokeVariation * thicknessVariation * textureFactor;
+        
+        // Smooth falloff
+        if (normalizedDistance <= 0.75) {
+          // Core area - full rich coverage with all texture
+          alpha = baseAlpha * strokeVariation * thicknessVariation * textureFactor;
         } else {
-          // Edge area - gradual falloff with paint texture
-          const falloff = 1 - (normalizedDistance - 0.7) / 0.3;
-          const edgeTexture = Math.sin(x * 0.1) * Math.cos(y * 0.1);
-          const textureFactor = 0.9 + edgeTexture * 0.2;
-          alpha = baseOpacity * falloff * textureFactor;
+          // Edge area - gradual falloff
+          const falloff = 1 - (normalizedDistance - 0.75) / 0.25;
+          alpha = baseAlpha * falloff * strokeVariation * thicknessVariation * textureFactor;
         }
         
-        // Add some random paint globules for realistic texture
+        // Add paint globules for impasto texture
         const globuleChance = Math.random();
-        if (globuleChance < 0.05) { // 5% chance of paint globule
-          const globuleIntensity = Math.random() * 0.3 + 0.7;
-          alpha += settings.opacity * 255 * globuleIntensity * 0.2;
+        if (globuleChance < 0.08) { // 8% chance - more globules than before
+          const globuleIntensity = Math.random() * 0.4 + 0.6;
+          alpha += settings.opacity * 255 * globuleIntensity * 0.3;
         }
         
         // Get color (solid or gradient)
@@ -1083,15 +1817,23 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // GLOSSY SHEEN: Oil paint has natural sheen (slight brightness boost)
+        const sheenFactor = 1.08; // 8% brightness for glossy effect
+        const finalR = Math.min(255, r * sheenFactor);
+        const finalG = Math.min(255, g * sheenFactor);
+        const finalB = Math.min(255, b * sheenFactor);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createAcrylicBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // REALISTIC ACRYLIC: Opaque, vibrant, smooth finish, sharp edges
+    // Key characteristics: 90-100% opacity, vibrant colors, smooth texture, defined edges
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1102,26 +1844,50 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Quick-drying acrylic with slight texture
-        const acrylicTexture = Math.sin(x * 0.12) * Math.cos(y * 0.12);
-        const textureFactor = 0.85 + acrylicTexture * 0.3;
-        const alpha = settings.opacity * 255 * textureFactor * Math.exp(-normalizedDistance * normalizedDistance * 0.9);
         
-        // Get color (solid or gradient)
+        // ACRYLIC: High opacity (90-100% of normal opacity) - opaque coverage
+        const baseOpacity = 0.95; // Acrylic is opaque
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // SMOOTH TEXTURE: Acrylic has smooth, even finish (less texture than oil)
+        const smoothTexture = Math.sin(x * 0.08) * Math.cos(y * 0.08);
+        const textureFactor = 0.92 + smoothTexture * 0.16; // Subtle texture variation
+        
+        // SHARP EDGES: Acrylic dries quickly, creating defined edges
+        let alpha = baseAlpha;
+        if (normalizedDistance <= 0.85) {
+          // Core area - full opaque coverage
+          alpha = baseAlpha * textureFactor;
+        } else {
+          // Edge area - sharper falloff than watercolor
+          const falloff = 1 - (normalizedDistance - 0.85) / 0.15;
+          alpha = baseAlpha * falloff * textureFactor;
+        }
+        
+        // VIBRANT COLORS: Acrylic colors are more saturated
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // Enhance color saturation for vibrant acrylic look
+        const saturationBoost = 1.15; // 15% more vibrant
+        const avgColor = (r + g + b) / 3;
+        const finalR = Math.min(255, avgColor + (r - avgColor) * saturationBoost);
+        const finalG = Math.min(255, avgColor + (g - avgColor) * saturationBoost);
+        const finalB = Math.min(255, avgColor + (b - avgColor) * saturationBoost);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createGouacheBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // REALISTIC GOUACHE: Opaque like acrylic but MATTE finish, flat coverage
+    // Key characteristics: 95% opacity, matte finish (no sheen), flat even coverage
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1132,8 +1898,25 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Matte gouache with flat coverage
-        const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 0.7);
+        
+        // GOUACHE: High opacity (95%) - opaque like acrylic
+        const baseOpacity = 0.95;
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // FLAT COVERAGE: Gouache has very even, flat coverage (no texture variation)
+        const flatCoverage = 0.98; // Very consistent
+        
+        // MATTE FINISH: No sheen/gloss (reduces brightness slightly)
+        const matteFactor = 0.92; // Slight darkening for matte effect
+        
+        // Smooth falloff
+        let alpha = baseAlpha * flatCoverage;
+        if (normalizedDistance <= 0.85) {
+          alpha = baseAlpha * flatCoverage;
+        } else {
+          const falloff = 1 - (normalizedDistance - 0.85) / 0.15;
+          alpha = baseAlpha * falloff * flatCoverage;
+        }
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1141,15 +1924,22 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // MATTE EFFECT: Reduce brightness for matte finish (opposite of oil's sheen)
+        const finalR = Math.min(255, r * matteFactor);
+        const finalG = Math.min(255, g * matteFactor);
+        const finalB = Math.min(255, b * matteFactor);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createInkBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // REALISTIC INK: Sharp, precise, very dark, hard edges, no transparency
+    // Key characteristics: 100% opacity, very sharp edges, deep dark colors, precise lines
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1160,8 +1950,21 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Sharp, precise ink brush
-        const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 3);
+        
+        // INK: Full opacity (100%) - completely opaque, no transparency
+        const baseOpacity = 1.0;
+        const baseAlpha = settings.opacity * 255 * baseOpacity;
+        
+        // VERY SHARP EDGES: Ink has extremely sharp, defined edges
+        let alpha = baseAlpha;
+        if (normalizedDistance <= 0.9) {
+          // Core area - full opacity
+          alpha = baseAlpha;
+        } else {
+          // Edge area - very sharp falloff (much sharper than other brushes)
+          const falloff = 1 - (normalizedDistance - 0.9) / 0.1;
+          alpha = baseAlpha * falloff * falloff; // Squared for extra sharpness
+        }
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1169,9 +1972,16 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
         
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        // DARK, RICH INK: Ink is typically very dark and rich
+        // Slightly darken colors for authentic ink look
+        const inkDarkness = 0.95; // Slight darkening for ink depth
+        const finalR = Math.max(0, r * inkDarkness);
+        const finalG = Math.max(0, g * inkDarkness);
+        const finalB = Math.max(0, b * inkDarkness);
+        
+        data[index] = finalR;
+        data[index + 1] = finalG;
+        data[index + 2] = finalB;
         data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
@@ -1391,6 +2201,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createMarkerBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic marker with smooth coverage and slight streak patterns
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1401,8 +2212,17 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 1) continue;
         
         const index = (y * size + x) * 4;
-        // Marker with smooth, even coverage
-        const alpha = settings.opacity * 255 * Math.exp(-normalizedDistance * normalizedDistance * 1.2);
+        
+        // Marker has smooth, even coverage with slight streak patterns
+        const baseAlpha = settings.opacity * 255;
+        
+        // Add marker streak patterns (markers often leave streaks)
+        const streakPattern = Math.sin(x * 0.12 + y * 0.08);
+        const streakFactor = 0.92 + streakPattern * 0.16;
+        
+        // Smooth falloff
+        const falloff = Math.exp(-normalizedDistance * normalizedDistance * 1.2);
+        const alpha = baseAlpha * streakFactor * falloff;
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1462,6 +2282,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
   };
 
   const createCalligraphyBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic calligraphy brush with angled tip and ink flow variation
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1471,12 +2292,24 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         const sin = Math.sin(angleRad);
         const rotatedDx = dx * cos - dy * sin;
         const rotatedDy = dx * sin + dy * cos;
-        const ellipseDist = Math.sqrt(rotatedDx * rotatedDx + rotatedDy * rotatedDy * 2) / radius;
+        
+        // Elliptical shape (wider perpendicular to angle)
+        const ellipseDist = Math.sqrt(rotatedDx * rotatedDx + rotatedDy * rotatedDy * 2.5) / radius;
         
         if (ellipseDist > 1) continue;
         
         const index = (y * size + x) * 4;
-        const alpha = settings.opacity * 255;
+        
+        // Calligraphy brush has variable ink flow based on angle and pressure
+        const baseAlpha = settings.opacity * 255;
+        
+        // Ink flow variation (more ink at center, less at edges)
+        const flowVariation = Math.sin(rotatedDx * 0.1) * Math.cos(rotatedDy * 0.1);
+        const flowFactor = 0.85 + flowVariation * 0.3;
+        
+        // Smooth falloff
+        const falloff = Math.exp(-ellipseDist * ellipseDist * 1.5);
+        const alpha = baseAlpha * flowFactor * falloff;
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1487,12 +2320,13 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         data[index] = r;
         data[index + 1] = g;
         data[index + 2] = b;
-        data[index + 3] = alpha;
+        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createStencilBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic stencil effect with hard edges and cutout pattern
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = Math.abs(x - centerX);
@@ -1503,7 +2337,28 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 0.95) continue;
         
         const index = (y * size + x) * 4;
-        const alpha = settings.opacity * 255;
+        
+        // Stencil has hard edges with slight bleed effect
+        let alpha = settings.opacity * 255;
+        
+        // Create stencil cutout pattern (grid-like openings)
+        const gridSize = Math.max(4, Math.floor(radius / 4));
+        const gridX = Math.floor((x - centerX + radius) / gridSize);
+        const gridY = Math.floor((y - centerY + radius) / gridSize);
+        
+        // Create alternating pattern for stencil effect
+        const isCutout = (gridX + gridY) % 2 === 0;
+        if (isCutout && normalizedDistance < 0.8) {
+          // Cutout area - no paint
+          alpha = 0;
+        } else {
+          // Stencil area - full opacity with hard edges
+          if (normalizedDistance > 0.85) {
+            // Edge area - slight bleed
+            const edgeFalloff = (0.95 - normalizedDistance) / 0.1;
+            alpha *= edgeFalloff;
+          }
+        }
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1514,12 +2369,13 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         data[index] = r;
         data[index + 1] = g;
         data[index + 2] = b;
-        data[index + 3] = alpha;
+        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
 
   const createStampBrush = (data: Uint8ClampedArray, size: number, centerX: number, centerY: number, radius: number, settings: BrushSettings) => {
+    // Create realistic stamp effect with even coverage and slight texture variation
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const dx = x - centerX;
@@ -1530,7 +2386,19 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         if (normalizedDistance > 0.9) continue;
         
         const index = (y * size + x) * 4;
-        const alpha = settings.opacity * 255;
+        
+        // Stamp has even coverage with slight texture for realism
+        const textureVariation = Math.sin(x * 0.1) * Math.cos(y * 0.1);
+        const textureFactor = 0.95 + textureVariation * 0.1;
+        
+        // Hard edges with slight softness at very edge
+        let alpha = settings.opacity * 255;
+        if (normalizedDistance > 0.85) {
+          // Very edge - slight falloff
+          const edgeFalloff = (0.9 - normalizedDistance) / 0.05;
+          alpha *= edgeFalloff;
+        }
+        alpha *= textureFactor;
         
         // Get color (solid or gradient)
         const color = getColorAtPosition(settings, x, y, centerX, centerY, radius);
@@ -1541,7 +2409,7 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
         data[index] = r;
         data[index + 1] = g;
         data[index + 2] = b;
-        data[index + 3] = alpha;
+        data[index + 3] = Math.max(0, Math.min(255, alpha));
       }
     }
   };
@@ -1639,30 +2507,69 @@ export function useBrushEngine(canvas?: HTMLCanvasElement): BrushEngineAPI {
     // Set blend mode
     ctx.globalCompositeOperation = settings.blendMode;
 
+    // Get randomization amount (0-100%)
+    const randomization = settings.customBrushRandomization !== undefined ? settings.customBrushRandomization : 0;
+
     // Process each point in the stroke
     for (let i = 0; i < points.length; i++) {
       const point = points[i];
-      const dynamics = calculateBrushDynamics(point, settings, i);
+      
+      // Override pressure dynamics for custom brushes if specified
+      const customPressureSettings = settings.customBrushImage ? {
+        sizePressure: settings.customBrushPressureSize !== undefined ? settings.customBrushPressureSize : settings.dynamics.sizePressure,
+        opacityPressure: settings.customBrushPressureOpacity !== undefined ? settings.customBrushPressureOpacity : settings.dynamics.opacityPressure,
+        anglePressure: settings.dynamics.anglePressure,
+        spacingPressure: settings.dynamics.spacingPressure,
+        velocitySize: settings.dynamics.velocitySize,
+        velocityOpacity: settings.dynamics.velocityOpacity
+      } : settings.dynamics;
+      
+      const dynamics = calculateBrushDynamics(point, {
+        ...settings,
+        dynamics: customPressureSettings
+      }, i);
 
-      // Create or get brush stamp
+      // Apply randomization if enabled (only for custom brushes)
+      let finalRotation = dynamics.angle;
+      let finalSize = dynamics.size;
+      
+      if (randomization > 0 && settings.customBrushImage) {
+        // Random rotation variation: ±(randomization% of 360°)
+        const rotationVariation = (randomization / 100) * 360;
+        const randomRotation = (Math.random() * 2 - 1) * rotationVariation; // -variation to +variation
+        finalRotation = dynamics.angle + randomRotation;
+
+        // Random scale variation: ±(randomization% of scale)
+        const scaleVariation = (randomization / 100);
+        const randomScale = 1 + (Math.random() * 2 - 1) * scaleVariation; // 1±variation
+        finalSize = dynamics.size * randomScale;
+      }
+
+      // Create or get brush stamp (without randomization in cache key)
       const brushStamp = createBrushStamp({
         ...settings,
-        size: dynamics.size,
+        size: finalSize,
         opacity: dynamics.opacity,
-        angle: dynamics.angle
+        angle: finalRotation
       });
 
       // Position and draw the stamp
-      if (dynamics.angle !== 0) {
-        ctx.save();
-        ctx.translate(point.x, point.y);
-        ctx.rotate((dynamics.angle * Math.PI) / 180);
-        ctx.drawImage(brushStamp, -brushStamp.width / 2, -brushStamp.height / 2);
-        ctx.restore();
-      } else {
-        // Non-rotated: draw centered at point
-        ctx.drawImage(brushStamp, point.x - brushStamp.width / 2, point.y - brushStamp.height / 2);
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      
+      // Apply rotation if needed
+      if (finalRotation !== 0) {
+        ctx.rotate((finalRotation * Math.PI) / 180);
       }
+      
+      // Apply scale if randomized
+      if (randomization > 0 && settings.customBrushImage && finalSize !== dynamics.size) {
+        const scaleFactor = finalSize / dynamics.size;
+        ctx.scale(scaleFactor, scaleFactor);
+      }
+      
+      ctx.drawImage(brushStamp, -brushStamp.width / 2, -brushStamp.height / 2);
+      ctx.restore();
     }
 
     // Restore context state

@@ -26,6 +26,9 @@ export interface LayerTransform {
   skewY: number;
 }
 
+// Partial transform for updates (all properties optional)
+export type PartialLayerTransform = Partial<LayerTransform>;
+
 // Layer effects
 export interface LayerEffect {
   id: string;
@@ -40,6 +43,53 @@ export interface LayerMask {
   canvas: HTMLCanvasElement;
   enabled: boolean;
   inverted: boolean;
+}
+
+// Clip mask - different from layer mask (binary visibility based on shape)
+// In Photoshop-style, clip masks work by having a layer clip the layers above it
+export interface ClipMask {
+  id: string;
+  type: 'path' | 'shape' | 'image' | 'text' | 'layer'; // 'layer' means it clips using the layer's content
+  data: ClipMaskData;
+  enabled: boolean;
+  inverted: boolean;
+  canvas: HTMLCanvasElement;
+  bounds: { x: number; y: number; width: number; height: number };
+  transform: Partial<LayerTransform>; // Allow partial transforms for flexibility
+  feather?: number; // Soft edge radius (0 = hard edge)
+  // For layer-based clipping (Photoshop style)
+  clipsLayerIds?: string[]; // Array of layer IDs that are clipped by this layer
+}
+
+export interface ClipMaskData {
+  // For path type
+  path?: string; // SVG path data
+  points?: Array<{ x: number; y: number }>;
+  
+  // For shape type
+  shape?: 'rectangle' | 'circle' | 'ellipse' | 'polygon';
+  shapeParams?: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    radius?: number;
+    radiusX?: number;
+    radiusY?: number;
+    sides?: number; // For polygon
+    points?: Array<{ x: number; y: number }>; // For polygon
+  };
+  
+  // For image type
+  image?: string; // Data URL or image source
+  threshold?: number; // For binary conversion (0-255)
+  
+  // For text type
+  text?: string;
+  font?: string;
+  fontSize?: number;
+  x?: number;
+  y?: number;
 }
 
 // Brush stroke interface
@@ -159,7 +209,7 @@ export interface ImageElement {
   visible: boolean;
   opacity: number;
   rotation: number;   // degrees
-  locked: boolean;    // prevent accidental edits
+  // locked property removed - use locking.all instead    // prevent accidental edits
   // Size linking and flip properties
   sizeLinked: boolean;    // link width/height scaling
   horizontalFlip: boolean; // flip horizontally
@@ -189,8 +239,12 @@ export interface LayerHistorySnapshot {
   id: string;
   timestamp: number;
   action: string;
-  layers: AdvancedLayer[];
+  layers: AdvancedLayer[]; // Full state (can be optimized to delta in future)
   activeLayerId: string | null;
+  // Delta optimization fields (for future implementation)
+  deltaMode?: boolean;
+  changedLayerIds?: string[];
+  changes?: Partial<Record<string, Partial<AdvancedLayer>>>;
 }
 
 export interface LayerHistoryState {
@@ -252,10 +306,11 @@ export interface AdvancedLayer {
   visible: boolean;
   opacity: number;
   blendMode: BlendMode;
-  locked: boolean;        // Legacy simple lock
-  locking: LayerLocking;  // Advanced locking system
+  locking: LayerLocking;  // Advanced locking system (replaces legacy 'locked')
   effects: LayerEffect[];
   mask?: LayerMask;
+  clipMask?: ClipMask;
+  clippedByLayerId?: string; // ID of the layer that clips this layer (Photoshop-style)
   transform: LayerTransform;
   content: LayerContent;
   createdAt: Date;
@@ -275,7 +330,7 @@ export interface LayerGroup {
   visible: boolean;
   opacity: number;
   blendMode: BlendMode;
-  locked: boolean;
+  // locked property removed - use locking.all instead
   locking: LayerLocking; // Advanced locking system for groups
   collapsed: boolean;
   layerIds: string[];
@@ -340,6 +395,7 @@ interface AdvancedLayerStoreV2 {
   
   // History state
   history: LayerHistoryState;
+  maxHistorySnapshots: number; // Configurable history limit
   
   // Actions
   createLayer: (type: LayerType, name?: string, blendMode?: BlendMode) => string;
@@ -411,6 +467,23 @@ interface AdvancedLayerStoreV2 {
   toggleMaskEnabled: (layerId: string) => void;
   toggleMaskInverted: (layerId: string) => void;
   
+  // Clip Masks
+  addClipMask: (layerId: string, clipMask: ClipMask) => void;
+  removeClipMask: (layerId: string) => void;
+  updateClipMask: (layerId: string, clipMaskData: Partial<Omit<ClipMask, 'transform'> & { transform?: Partial<LayerTransform> }>) => void;
+  toggleClipMaskEnabled: (layerId: string) => void;
+  toggleClipMaskInverted: (layerId: string) => void;
+  createClipMaskFromSelection: (layerId: string, selection: { x: number; y: number; width: number; height: number }) => void;
+  createClipMaskFromPath: (layerId: string, pathData: string | Array<{ x: number; y: number }>) => void;
+  createClipMaskFromShape: (layerId: string, shape: 'rectangle' | 'circle' | 'ellipse' | 'polygon', params: ClipMaskData['shapeParams']) => void;
+  createClipMaskFromText: (layerId: string, text: string, font: string, fontSize: number, x: number, y: number) => void;
+  createClipMaskFromImage: (layerId: string, imageSource: string, threshold?: number) => void;
+  createClipMaskFromLayer: (targetLayerId: string, sourceLayerId: string) => void;
+  // Photoshop-style: Clip current layer to the layer below it
+  createClipMaskToLayerBelow: (layerId: string) => void;
+  // Remove clip mask relationship
+  removeClipMaskRelationship: (layerId: string) => void;
+  
   // Auto-grouping
   enableAutoGrouping: () => void;
   disableAutoGrouping: () => void;
@@ -463,6 +536,7 @@ interface AdvancedLayerStoreV2 {
   canUndo: () => boolean;
   canRedo: () => boolean;
   clearHistory: () => void;
+  setMaxHistorySnapshots: (max: number) => void;
   
   // Layer operations
   toggleLayerVisibility: (layerId: string) => void;
@@ -668,6 +742,260 @@ const createDefaultContent = (type: LayerType): LayerContent => {
   }
 };
 
+// ============================================
+// COMPOSITION HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Applies Photoshop-style layer clipping using alpha channel of clipping layer
+ * @returns true if clipping was applied (layer should skip normal rendering)
+ */
+const applyLayerBasedClipMask = (
+  layer: AdvancedLayer,
+  clippingLayer: AdvancedLayer,
+  ctx: CanvasRenderingContext2D,
+  composedCanvas: HTMLCanvasElement
+): boolean => {
+  if (!clippingLayer.content.canvas || !layer.content.canvas) return false;
+  
+  // Create a temporary canvas to apply the clip mask
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = composedCanvas.width;
+  tempCanvas.height = composedCanvas.height;
+  const tempCtx = tempCanvas.getContext('2d');
+  if (!tempCtx) return false;
+  
+  // Draw the layer content first
+  tempCtx.drawImage(layer.content.canvas, 0, 0, composedCanvas.width, composedCanvas.height);
+  
+  // Create a mask from the clipping layer's painted content only
+  const clippingCanvas = clippingLayer.content.canvas;
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = composedCanvas.width;
+  maskCanvas.height = composedCanvas.height;
+  const maskCtx = maskCanvas.getContext('2d');
+  
+  if (maskCtx) {
+    // Clear the mask canvas to ensure it's transparent
+    maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+    
+    // Draw the clipping layer to the mask canvas
+    if (clippingCanvas.width !== composedCanvas.width || clippingCanvas.height !== composedCanvas.height) {
+      maskCtx.drawImage(clippingCanvas, 0, 0, composedCanvas.width, composedCanvas.height);
+    } else {
+      maskCtx.drawImage(clippingCanvas, 0, 0);
+    }
+    
+    // Extract only the alpha channel (painted content) - remove any color data
+    const maskImageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+    const maskData = maskImageData.data;
+    
+    // Convert to grayscale alpha mask (only use alpha channel, ignore RGB)
+    for (let i = 0; i < maskData.length; i += 4) {
+      const alpha = maskData[i + 3];
+      // Keep only the alpha channel - set RGB to white for proper masking
+      maskData[i] = 255;     // R - white
+      maskData[i + 1] = 255; // G - white
+      maskData[i + 2] = 255; // B - white
+      maskData[i + 3] = alpha; // A - preserve alpha (this is what matters for destination-in)
+    }
+    
+    maskCtx.putImageData(maskImageData, 0, 0);
+    
+    // Apply the mask using destination-in (only painted content will be visible)
+    tempCtx.globalCompositeOperation = 'destination-in';
+    tempCtx.drawImage(maskCanvas, 0, 0);
+  }
+  
+  // Draw the masked result to the main canvas
+  ctx.drawImage(tempCanvas, 0, 0);
+  return true;
+};
+
+/**
+ * Applies shape/path-based clip masks to layer using ctx.clip()
+ */
+const applyShapeBasedClipMask = (
+  layer: AdvancedLayer,
+  ctx: CanvasRenderingContext2D,
+  composedCanvas: HTMLCanvasElement
+): void => {
+  const clipMask = layer.clipMask;
+  if (!clipMask || !clipMask.enabled || clipMask.type === 'layer') return;
+  
+  ctx.save();
+  
+  // Apply clip mask transformations
+  ctx.translate(clipMask.transform.x, clipMask.transform.y);
+  ctx.rotate(clipMask.transform.rotation);
+  ctx.scale(clipMask.transform.scaleX, clipMask.transform.scaleY);
+  
+  // Create clipping path from clip mask
+  ctx.beginPath();
+  
+  if (clipMask.type === 'path') {
+    if (clipMask.data.path) {
+      // SVG path
+      const path = new Path2D(clipMask.data.path);
+      ctx.clip(path);
+    } else if (clipMask.data.points && clipMask.data.points.length > 0) {
+      // Point array
+      ctx.moveTo(clipMask.data.points[0].x, clipMask.data.points[0].y);
+      for (let i = 1; i < clipMask.data.points.length; i++) {
+        ctx.lineTo(clipMask.data.points[i].x, clipMask.data.points[i].y);
+      }
+      ctx.closePath();
+      ctx.clip();
+    }
+  } else if (clipMask.type === 'shape' && clipMask.data.shapeParams) {
+    const params = clipMask.data.shapeParams;
+    if (clipMask.data.shape === 'rectangle' && params.width && params.height) {
+      ctx.rect(params.x || 0, params.y || 0, params.width, params.height);
+      ctx.clip();
+    } else if (clipMask.data.shape === 'circle' && params.radius) {
+      ctx.arc(params.x || 0, params.y || 0, params.radius, 0, Math.PI * 2);
+      ctx.clip();
+    } else if (clipMask.data.shape === 'ellipse' && params.radiusX && params.radiusY) {
+      ctx.ellipse(params.x || 0, params.y || 0, params.radiusX, params.radiusY, 0, 0, Math.PI * 2);
+      ctx.clip();
+    } else if (clipMask.data.shape === 'polygon' && params.points && params.points.length > 0) {
+      ctx.moveTo(params.points[0].x, params.points[0].y);
+      for (let i = 1; i < params.points.length; i++) {
+        ctx.lineTo(params.points[i].x, params.points[i].y);
+      }
+      ctx.closePath();
+      ctx.clip();
+    }
+  } else if (clipMask.type === 'image' || clipMask.type === 'text') {
+    // For image/text, use bounds or entire canvas
+    if (clipMask.bounds) {
+      ctx.rect(clipMask.bounds.x, clipMask.bounds.y, clipMask.bounds.width, clipMask.bounds.height);
+      ctx.clip();
+    } else {
+      ctx.rect(0, 0, composedCanvas.width, composedCanvas.height);
+      ctx.clip();
+    }
+  }
+};
+
+/**
+ * Applies layer effects in defined order (brightness → filters → shadows/glows)
+ */
+const applyLayerEffects = (
+  layer: AdvancedLayer,
+  ctx: CanvasRenderingContext2D
+): void => {
+  if (!layer.effects || layer.effects.length === 0) return;
+  
+  console.log(`🎨 Applying ${layer.effects.length} effects to layer ${layer.name}`);
+  
+  // EFFECT COMPOSITION ORDER (Photoshop-style):
+  const effectOrder = ['brightness', 'contrast', 'saturation', 'hue', 'blur', 'sharpen', 'drop-shadow', 'inner-glow', 'outer-glow'];
+  const sortedEffects = [...layer.effects].sort((a, b) => {
+    const aIndex = effectOrder.indexOf(a.type);
+    const bIndex = effectOrder.indexOf(b.type);
+    return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+  });
+  
+  for (const effect of sortedEffects) {
+    if (!effect.enabled) continue;
+    
+    console.log(`🎨 Applying effect: ${effect.type}`, effect.properties);
+    ctx.save();
+    
+    // Reset blend mode to source-over for effects
+    ctx.globalCompositeOperation = 'source-over';
+    
+    switch (effect.type) {
+      case 'drop-shadow':
+        const shadowProps = effect.properties;
+        ctx.shadowColor = shadowProps.color || '#000000';
+        ctx.shadowBlur = shadowProps.blur || 5;
+        ctx.shadowOffsetX = shadowProps.offsetX || 2;
+        ctx.shadowOffsetY = shadowProps.offsetY || 2;
+        if (layer.content.canvas) {
+          ctx.drawImage(layer.content.canvas, 0, 0);
+        }
+        break;
+        
+      case 'outer-glow':
+        const glowProps = effect.properties;
+        ctx.shadowColor = glowProps.color || '#FFFFFF';
+        ctx.shadowBlur = glowProps.radius || 10;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        if (layer.content.canvas) {
+          ctx.drawImage(layer.content.canvas, 0, 0);
+        }
+        break;
+        
+      case 'brightness':
+        const brightnessProps = effect.properties;
+        const brightness = brightnessProps.amount || 0;
+        ctx.filter = `brightness(${1 + brightness / 100})`;
+        if (layer.content.canvas) {
+          ctx.drawImage(layer.content.canvas, 0, 0);
+        }
+        break;
+    }
+    
+    ctx.restore();
+  }
+};
+
+/**
+ * Applies final layer mask (grayscale alpha mask) to composition
+ */
+const applyFinalLayerMask = (
+  layer: AdvancedLayer,
+  ctx: CanvasRenderingContext2D
+): void => {
+  if (!layer.mask || !layer.mask.enabled || !layer.mask.canvas) return;
+  
+  console.log(`🎨 Applying mask to layer ${layer.name}`, layer.mask);
+  ctx.save();
+  ctx.globalCompositeOperation = layer.mask.inverted ? 'destination-out' : 'destination-in';
+  ctx.drawImage(layer.mask.canvas, 0, 0);
+  ctx.restore();
+};
+
+/**
+ * Draws layer content to canvas with dimension handling
+ */
+const drawLayerContent = (
+  layer: AdvancedLayer,
+  ctx: CanvasRenderingContext2D,
+  composedCanvas: HTMLCanvasElement
+): void => {
+  if (!layer.content.canvas) {
+    console.warn(`⚠️ Layer ${layer.name} (${layer.id}): No canvas found in layer.content`);
+    return;
+  }
+  
+  const layerCanvas = layer.content.canvas;
+  
+  // DEBUG: Check if canvas has content before drawing
+  const canvasCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+  if (canvasCtx) {
+    const sampleImageData = canvasCtx.getImageData(0, 0, Math.min(100, layerCanvas.width), Math.min(100, layerCanvas.height));
+    const hasNonTransparentPixels = Array.from(sampleImageData.data).some((val, idx) => idx % 4 === 3 && val > 0);
+    console.log(`🎨 Layer ${layer.name} (${layer.id}): Drawing canvas`, {
+      dimensions: `${layerCanvas.width}x${layerCanvas.height}`,
+      hasContent: hasNonTransparentPixels,
+      composedDimensions: `${composedCanvas.width}x${composedCanvas.height}`
+    });
+  }
+  
+  // Check if dimensions match - if not, scale to match
+  if (layerCanvas.width !== composedCanvas.width || layerCanvas.height !== composedCanvas.height) {
+    console.warn(`⚠️ Layer canvas dimensions (${layerCanvas.width}x${layerCanvas.height}) don't match composed canvas (${composedCanvas.width}x${composedCanvas.height}) - scaling to match`);
+    ctx.drawImage(layerCanvas, 0, 0, composedCanvas.width, composedCanvas.height);
+  } else {
+    // Dimensions match - draw directly
+    ctx.drawImage(layerCanvas, 0, 0);
+  }
+};
+
 // Create the store
 export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
   subscribeWithSelector((set, get) => ({
@@ -695,6 +1023,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       currentIndex: -1,
       maxSnapshots: 50
     },
+    maxHistorySnapshots: 50, // Default to 50, can be configured
     
     // Layer creation
     createLayer: (type: LayerType, name?: string, blendMode?: BlendMode) => {
@@ -709,7 +1038,6 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         visible: true,
         opacity: 1.0,
         blendMode: blendMode || 'normal',
-        locked: false,        // Legacy simple lock
         locking: createDefaultLocking(), // Advanced locking system
         effects: [],
         transform: createDefaultTransform(),
@@ -934,9 +1262,14 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     setLayerLocked: (id: string, locked: boolean) => {
+      // Map to locking.all for backward compatibility
       set(state => ({
         layers: state.layers.map(layer =>
-          layer.id === id ? { ...layer, locked, updatedAt: new Date() } : layer
+          layer.id === id ? { 
+            ...layer, 
+            locking: { ...layer.locking, all: locked },
+            updatedAt: new Date() 
+          } : layer
         )
       }));
       
@@ -976,7 +1309,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
             ...layer,
             locking: { ...layer.locking, ...locking },
             // Update legacy locked property if all is set
-            locked: locking.all !== undefined ? locking.all : layer.locked,
+            // locked property removed - managed via locking.all
             updatedAt: new Date()
           } : layer
         )
@@ -1653,6 +1986,459 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       }));
       
       console.log(`🎭 Toggled mask inverted on layer ${layerId}`);
+    },
+    
+    // Clip Masks
+    addClipMask: (layerId: string, clipMask: ClipMask) => {
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerId
+            ? { ...layer, clipMask, updatedAt: new Date() }
+            : layer
+        )
+      }));
+      
+      console.log(`✂️ Added clip mask to layer ${layerId}`);
+      // Trigger composition to apply clip mask
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+    
+    removeClipMask: (layerId: string) => {
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerId
+            ? { ...layer, clipMask: undefined, updatedAt: new Date() }
+            : layer
+        )
+      }));
+      
+      console.log(`✂️ Removed clip mask from layer ${layerId}`);
+      // Trigger composition to remove clip mask
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+    
+    updateClipMask: (layerId: string, clipMaskData: Partial<ClipMask>) => {
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerId && layer.clipMask
+            ? { 
+                ...layer, 
+                clipMask: { ...layer.clipMask, ...clipMaskData }, 
+                updatedAt: new Date() 
+              }
+            : layer
+        )
+      }));
+      
+      console.log(`✂️ Updated clip mask on layer ${layerId}`);
+      // Trigger composition to apply updated clip mask
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+    
+    toggleClipMaskEnabled: (layerId: string) => {
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerId && layer.clipMask
+            ? { 
+                ...layer, 
+                clipMask: { ...layer.clipMask, enabled: !layer.clipMask.enabled }, 
+                updatedAt: new Date() 
+              }
+            : layer
+        )
+      }));
+      
+      console.log(`✂️ Toggled clip mask enabled on layer ${layerId}`);
+      // Trigger composition
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+    
+    toggleClipMaskInverted: (layerId: string) => {
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerId && layer.clipMask
+            ? { 
+                ...layer, 
+                clipMask: { ...layer.clipMask, inverted: !layer.clipMask.inverted }, 
+                updatedAt: new Date() 
+              }
+            : layer
+        )
+      }));
+      
+      console.log(`✂️ Toggled clip mask inverted on layer ${layerId}`);
+      // Trigger composition
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+    
+    createClipMaskFromSelection: (layerId: string, selection: { x: number; y: number; width: number; height: number }) => {
+      const clipMaskCanvas = createLayerCanvas();
+      const ctx = clipMaskCanvas.getContext('2d');
+      if (!ctx) return;
+      
+      // Create rectangular clip mask from selection
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(selection.x, selection.y, selection.width, selection.height);
+      
+      const clipMask: ClipMask = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'shape',
+        data: {
+          shape: 'rectangle',
+          shapeParams: {
+            x: selection.x,
+            y: selection.y,
+            width: selection.width,
+            height: selection.height
+          }
+        },
+        enabled: true,
+        inverted: false,
+        canvas: clipMaskCanvas,
+        bounds: selection,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 }
+      };
+      
+      get().addClipMask(layerId, clipMask);
+    },
+    
+    createClipMaskFromPath: (layerId: string, pathData: string | Array<{ x: number; y: number }>) => {
+      const clipMaskCanvas = createLayerCanvas();
+      const ctx = clipMaskCanvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      
+      if (typeof pathData === 'string') {
+        // SVG path data
+        const path = new Path2D(pathData);
+        ctx.fill(path);
+      } else {
+        // Array of points
+        if (pathData.length > 0) {
+          ctx.moveTo(pathData[0].x, pathData[0].y);
+          for (let i = 1; i < pathData.length; i++) {
+            ctx.lineTo(pathData[i].x, pathData[i].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      
+      // Calculate bounds
+      const bounds = pathData instanceof Array && pathData.length > 0
+        ? {
+            x: Math.min(...pathData.map(p => p.x)),
+            y: Math.min(...pathData.map(p => p.y)),
+            width: Math.max(...pathData.map(p => p.x)) - Math.min(...pathData.map(p => p.x)),
+            height: Math.max(...pathData.map(p => p.y)) - Math.min(...pathData.map(p => p.y))
+          }
+        : { x: 0, y: 0, width: clipMaskCanvas.width, height: clipMaskCanvas.height };
+      
+      const clipMask: ClipMask = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'path',
+        data: {
+          path: typeof pathData === 'string' ? pathData : undefined,
+          points: pathData instanceof Array ? pathData : undefined
+        },
+        enabled: true,
+        inverted: false,
+        canvas: clipMaskCanvas,
+        bounds,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 }
+      };
+      
+      get().addClipMask(layerId, clipMask);
+    },
+    
+    createClipMaskFromShape: (layerId: string, shape: 'rectangle' | 'circle' | 'ellipse' | 'polygon', params: ClipMaskData['shapeParams']) => {
+      const clipMaskCanvas = createLayerCanvas();
+      const ctx = clipMaskCanvas.getContext('2d');
+      if (!ctx || !params) return;
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      
+      if (shape === 'rectangle' && params.width && params.height) {
+        ctx.rect(params.x || 0, params.y || 0, params.width, params.height);
+      } else if (shape === 'circle' && params.radius) {
+        ctx.arc(params.x || 0, params.y || 0, params.radius, 0, Math.PI * 2);
+      } else if (shape === 'ellipse' && params.radiusX && params.radiusY) {
+        ctx.ellipse(params.x || 0, params.y || 0, params.radiusX, params.radiusY, 0, 0, Math.PI * 2);
+      } else if (shape === 'polygon' && params.points && params.points.length > 0) {
+        ctx.moveTo(params.points[0].x, params.points[0].y);
+        for (let i = 1; i < params.points.length; i++) {
+          ctx.lineTo(params.points[i].x, params.points[i].y);
+        }
+        ctx.closePath();
+      }
+      
+      ctx.fill();
+      
+      const bounds = params.width && params.height
+        ? { x: params.x || 0, y: params.y || 0, width: params.width, height: params.height }
+        : { x: 0, y: 0, width: clipMaskCanvas.width, height: clipMaskCanvas.height };
+      
+      const clipMask: ClipMask = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'shape',
+        data: { shape, shapeParams: params },
+        enabled: true,
+        inverted: false,
+        canvas: clipMaskCanvas,
+        bounds,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 }
+      };
+      
+      get().addClipMask(layerId, clipMask);
+    },
+    
+    createClipMaskFromText: (layerId: string, text: string, font: string, fontSize: number, x: number, y: number) => {
+      const clipMaskCanvas = createLayerCanvas();
+      const ctx = clipMaskCanvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${fontSize}px ${font}`;
+      ctx.fillText(text, x, y);
+      
+      const metrics = ctx.measureText(text);
+      const bounds = {
+        x,
+        y: y - fontSize,
+        width: metrics.width,
+        height: fontSize
+      };
+      
+      const clipMask: ClipMask = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'text',
+        data: { text, font, fontSize, x, y },
+        enabled: true,
+        inverted: false,
+        canvas: clipMaskCanvas,
+        bounds,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 }
+      };
+      
+      get().addClipMask(layerId, clipMask);
+    },
+    
+    createClipMaskFromImage: (layerId: string, imageSource: string, threshold: number = 128) => {
+      const clipMaskCanvas = createLayerCanvas();
+      const ctx = clipMaskCanvas.getContext('2d');
+      if (!ctx) return;
+      
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, clipMaskCanvas.width, clipMaskCanvas.height);
+        
+        // Convert to binary mask based on threshold
+        const imageData = ctx.getImageData(0, 0, clipMaskCanvas.width, clipMaskCanvas.height);
+        const data = imageData.data;
+        
+        for (let i = 0; i < data.length; i += 4) {
+          // Use alpha channel or convert grayscale to binary
+          const alpha = data[i + 3];
+          const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          const value = alpha > threshold || gray > threshold ? 255 : 0;
+          
+          data[i] = value;     // R
+          data[i + 1] = value; // G
+          data[i + 2] = value; // B
+          data[i + 3] = 255;   // A
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+        
+        const bounds = {
+          x: 0,
+          y: 0,
+          width: clipMaskCanvas.width,
+          height: clipMaskCanvas.height
+        };
+        
+        const clipMask: ClipMask = {
+          id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'image',
+          data: { image: imageSource, threshold },
+          enabled: true,
+          inverted: false,
+          canvas: clipMaskCanvas,
+          bounds,
+          transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 }
+        };
+        
+        get().addClipMask(layerId, clipMask);
+      };
+      
+      img.src = imageSource;
+    },
+    
+    // Photoshop-style: Clip current layer to the layer below it
+    createClipMaskToLayerBelow: (layerId: string) => {
+      const state = get();
+      const currentLayer = state.layers.find(l => l.id === layerId);
+      if (!currentLayer) return;
+
+      // Find the layer below (higher order number = lower in stack)
+      const sortedLayers = [...state.layers].sort((a, b) => b.order - a.order);
+      const currentIndex = sortedLayers.findIndex(l => l.id === layerId);
+      
+      if (currentIndex === -1 || currentIndex === sortedLayers.length - 1) {
+        console.warn('⚠️ No layer below to clip to');
+        return;
+      }
+
+      const layerBelow = sortedLayers[currentIndex + 1];
+      
+      // Set the current layer to be clipped by the layer below
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerId
+            ? { ...layer, clippedByLayerId: layerBelow.id, updatedAt: new Date() }
+            : layer
+        )
+      }));
+
+      // Also mark the layer below as having a clip mask that clips layers above
+      const layerBelowClipMask: ClipMask = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'layer',
+        data: {},
+        enabled: true,
+        inverted: false,
+        canvas: layerBelow.content.canvas || createLayerCanvas(),
+        bounds: layerBelow.bounds || { x: 0, y: 0, width: 2048, height: 2048 },
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 },
+        clipsLayerIds: [layerId]
+      };
+
+      set(state => ({
+        layers: state.layers.map(layer =>
+          layer.id === layerBelow.id
+            ? { ...layer, clipMask: layerBelowClipMask, updatedAt: new Date() }
+            : layer
+        )
+      }));
+
+      console.log(`✂️ Clipped layer ${layerId} to layer ${layerBelow.id} below`);
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+
+    // Remove clip mask relationship
+    removeClipMaskRelationship: (layerId: string) => {
+      const state = get();
+      const layer = state.layers.find(l => l.id === layerId);
+      if (!layer || !layer.clippedByLayerId) return;
+
+      const clippingLayerId = layer.clippedByLayerId;
+      
+      // Remove clippedByLayerId from current layer
+      set(state => ({
+        layers: state.layers.map(l =>
+          l.id === layerId
+            ? { ...l, clippedByLayerId: undefined, updatedAt: new Date() }
+            : l
+        )
+      }));
+
+      // Remove clip mask from clipping layer if it has no more clipped layers
+      set(state => {
+        const clippingLayer = state.layers.find(l => l.id === clippingLayerId);
+        if (clippingLayer?.clipMask?.clipsLayerIds) {
+          const remainingClipped = clippingLayer.clipMask.clipsLayerIds.filter(id => id !== layerId);
+          if (remainingClipped.length === 0) {
+            // No more clipped layers, remove clip mask
+            return {
+              layers: state.layers.map(l =>
+                l.id === clippingLayerId
+                  ? { ...l, clipMask: undefined, updatedAt: new Date() }
+                  : l
+              )
+            };
+          } else {
+            // Update clipsLayerIds
+            return {
+              layers: state.layers.map(l =>
+                l.id === clippingLayerId && l.clipMask
+                  ? { ...l, clipMask: { ...l.clipMask, clipsLayerIds: remainingClipped }, updatedAt: new Date() }
+                  : l
+              )
+            };
+          }
+        }
+        return state;
+      });
+
+      console.log(`✂️ Removed clip mask relationship from layer ${layerId}`);
+      setTimeout(() => {
+        get().composeLayers();
+      }, 10);
+    },
+
+    createClipMaskFromLayer: (targetLayerId: string, sourceLayerId: string) => {
+      const state = get();
+      const sourceLayer = state.layers.find(l => l.id === sourceLayerId);
+      if (!sourceLayer || !sourceLayer.content.canvas) return;
+      
+      const clipMaskCanvas = createLayerCanvas();
+      const ctx = clipMaskCanvas.getContext('2d');
+      if (!ctx) return;
+      
+      // Copy source layer content to clip mask
+      ctx.drawImage(sourceLayer.content.canvas, 0, 0, clipMaskCanvas.width, clipMaskCanvas.height);
+      
+      // Convert to binary mask (use alpha channel)
+      const imageData = ctx.getImageData(0, 0, clipMaskCanvas.width, clipMaskCanvas.height);
+      const data = imageData.data;
+      
+      for (let i = 0; i < data.length; i += 4) {
+        const alpha = data[i + 3];
+        const value = alpha > 128 ? 255 : 0;
+        
+        data[i] = value;     // R
+        data[i + 1] = value; // G
+        data[i + 2] = value; // B
+        data[i + 3] = 255;   // A
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      
+      const bounds = {
+        x: 0,
+        y: 0,
+        width: clipMaskCanvas.width,
+        height: clipMaskCanvas.height
+      };
+      
+      const clipMask: ClipMask = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'image',
+        data: { image: clipMaskCanvas.toDataURL() },
+        enabled: true,
+        inverted: false,
+        canvas: clipMaskCanvas,
+        bounds,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0 }
+      };
+      
+      get().addClipMask(targetLayerId, clipMask);
     },
     
     // Auto-grouping
@@ -2434,17 +3220,13 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
   composeLayers: () => {
     const state = get();
     
-    // PERFORMANCE: Throttle composition to prevent excessive calls
+    // PERFORMANCE: Throttle composition to prevent excessive calls (~60fps max)
     const now = Date.now();
-    if (state.lastCompositionTime && now - state.lastCompositionTime < 16) { // ~60fps max
-      return state.composedCanvas;
-    }
+    const THROTTLE_MS = 16; // ~60fps (1000ms / 60fps ≈ 16ms)
     
-    const composeThrottle = 16; // 60fps max
-    if ((state as any).lastComposeTime && (now - (state as any).lastComposeTime) < composeThrottle) {
+    if (state.lastCompositionTime && now - state.lastCompositionTime < THROTTLE_MS) {
       return state.composedCanvas;
     }
-    (state as any).lastComposeTime = now;
     
     // Update the lastCompositionTime
     set(state => ({ ...state, lastCompositionTime: now }));
@@ -2473,7 +3255,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     // But preserve base texture from existing canvas if baseTexture is missing/invalid
     const existingComposedCanvas = state.composedCanvas;
     const composedCanvas = createComposedCanvas();
-    const ctx = composedCanvas.getContext('2d');
+    const ctx = composedCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     
     // Always clear the new canvas
@@ -2539,91 +3321,31 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
         ctx.globalCompositeOperation = compositeOp;
         console.log(`🎨 Layer ${layer.name} blend mode: ${layer.blendMode} -> ${compositeOp}`);
         
-        // CRITICAL FIX: Draw layer canvas with proper dimensions to prevent UV mismatch
-        // Ensure layer canvas matches composed canvas dimensions
-        if (layer.content.canvas) {
-          const layerCanvas = layer.content.canvas;
-          
-          // DEBUG: Check if canvas has content before drawing
-          const canvasCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
-          if (canvasCtx) {
-            const sampleImageData = canvasCtx.getImageData(0, 0, Math.min(100, layerCanvas.width), Math.min(100, layerCanvas.height));
-            const hasNonTransparentPixels = Array.from(sampleImageData.data).some((val, idx) => idx % 4 === 3 && val > 0);
-            console.log(`🎨 Layer ${layer.name} (${layer.id}): Drawing canvas`, {
-              dimensions: `${layerCanvas.width}x${layerCanvas.height}`,
-              hasContent: hasNonTransparentPixels,
-              composedDimensions: `${composedCanvas.width}x${composedCanvas.height}`
-            });
+        // PHOTOSHOP-STYLE CLIP MASK: If this layer is clipped by another layer, apply the clipping
+        if (layer.clippedByLayerId) {
+          const clippingLayer = state.layers.find(l => l.id === layer.clippedByLayerId);
+          if (clippingLayer && clippingLayer.visible) {
+            const wasApplied = applyLayerBasedClipMask(layer, clippingLayer, ctx, composedCanvas);
+            if (wasApplied) {
+              ctx.restore();
+              continue; // Skip normal layer drawing
+            }
           }
-          
-          // CRITICAL FIX: Check if dimensions match - if not, scale to match
-          if (layerCanvas.width !== composedCanvas.width || layerCanvas.height !== composedCanvas.height) {
-            console.warn(`⚠️ Layer canvas dimensions (${layerCanvas.width}x${layerCanvas.height}) don't match composed canvas (${composedCanvas.width}x${composedCanvas.height}) - scaling to match`);
-            // Scale layer canvas to match composed canvas dimensions
-            ctx.drawImage(layerCanvas, 0, 0, composedCanvas.width, composedCanvas.height);
-          } else {
-            // Dimensions match - draw directly
-            ctx.drawImage(layerCanvas, 0, 0);
-          }
-        } else {
-          console.warn(`⚠️ Layer ${layer.name} (${layer.id}): No canvas found in layer.content`);
         }
         
-        // Apply layer effects
-        if (layer.effects && layer.effects.length > 0) {
-          console.log(`🎨 Applying ${layer.effects.length} effects to layer ${layer.name}`);
-          for (const effect of layer.effects) {
-            if (!effect.enabled) continue;
-            
-            console.log(`🎨 Applying effect: ${effect.type}`, effect.properties);
-            ctx.save();
-            
-            // CRITICAL FIX: Reset blend mode to source-over for effects
-            // Effects should not inherit the layer's blend mode to avoid double rendering
-            ctx.globalCompositeOperation = 'source-over';
-            
-            switch (effect.type) {
-              case 'drop-shadow':
-                const shadowProps = effect.properties;
-                ctx.shadowColor = shadowProps.color || '#000000';
-                ctx.shadowBlur = shadowProps.blur || 5;
-                ctx.shadowOffsetX = shadowProps.offsetX || 2;
-                ctx.shadowOffsetY = shadowProps.offsetY || 2;
-                console.log(`🎨 Drop shadow: color=${ctx.shadowColor}, blur=${ctx.shadowBlur}, offset=(${ctx.shadowOffsetX}, ${ctx.shadowOffsetY})`);
-                // Re-draw the layer content with shadow
-                if (layer.content.canvas) {
-                  ctx.drawImage(layer.content.canvas, 0, 0);
-                }
-                break;
-                
-              case 'outer-glow':
-                const glowProps = effect.properties;
-                ctx.shadowColor = glowProps.color || '#FFFFFF';
-                ctx.shadowBlur = glowProps.radius || 10;
-                ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = 0;
-                console.log(`🎨 Outer glow: color=${ctx.shadowColor}, radius=${ctx.shadowBlur}`);
-                // Re-draw the layer content with glow
-                if (layer.content.canvas) {
-                  ctx.drawImage(layer.content.canvas, 0, 0);
-                }
-                break;
-                
-              case 'brightness':
-                const brightnessProps = effect.properties;
-                const brightness = brightnessProps.amount || 0;
-                console.log(`🎨 Brightness: amount=${brightness}`);
-                // Apply brightness filter
-                ctx.filter = `brightness(${1 + brightness / 100})`;
-                if (layer.content.canvas) {
-                  ctx.drawImage(layer.content.canvas, 0, 0);
-                }
-                break;
-            }
-            
-            ctx.restore();
-          }
+        // CLIP MASK: Apply shape-based clip mask before drawing layer content
+        applyShapeBasedClipMask(layer, ctx, composedCanvas);
+        
+        // Draw layer content (extracted to helper function)
+        drawLayerContent(layer, ctx, composedCanvas);
+        
+        // Restore clip mask state (if clip mask was applied)
+        if (layer.clipMask && layer.clipMask.enabled) {
+          ctx.restore();
         }
+        
+        // Apply layer effects (extracted to helper function)
+        applyLayerEffects(layer, ctx);
         
         // CRITICAL: Removed brushStrokes rendering - using layer.canvas as single source of truth
         // All strokes are rendered directly to layer.canvas during painting/application
@@ -3239,6 +3961,151 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }
         }
         
+        // Draw shape elements
+        const appStateForShapes = useApp.getState();
+        const shapeElements = appStateForShapes.shapeElements || [];
+        
+        for (const shapeEl of shapeElements) {
+          if (shapeEl.visible === false) continue;
+          
+          ctx.save();
+          
+          // CRITICAL FIX: Shapes use stored pixel coordinates directly (no flip)
+          // Positions are stored as: positionX = uv.x * width, positionY = uv.y * height
+          // Render directly at stored coordinates (standard canvas: y=0 at top)
+          const shapeX = Math.round(shapeEl.positionX);
+          const shapeY = Math.round(shapeEl.positionY);
+          const shapeSize = shapeEl.size || 50;
+          const shapeRadius = shapeSize / 2;
+          
+          // Apply opacity
+          ctx.globalAlpha = (shapeEl.opacity || 1) * (layer.opacity || 1);
+          
+          // Set fill color
+          ctx.fillStyle = shapeEl.color || '#ff69b4';
+          ctx.strokeStyle = shapeEl.stroke || shapeEl.color || '#000000';
+          ctx.lineWidth = shapeEl.strokeWidth || 0;
+          
+          // Apply rotation
+          if (shapeEl.rotation && shapeEl.rotation !== 0) {
+            ctx.translate(shapeX, shapeY);
+            ctx.rotate((shapeEl.rotation * Math.PI) / 180);
+            ctx.translate(-shapeX, -shapeY);
+          }
+          
+          // Draw shape based on type
+          ctx.beginPath();
+          const shapeType = String(shapeEl.type || 'circle').toLowerCase();
+          
+          switch (shapeType) {
+            case 'rectangle':
+            case 'rect':
+              ctx.rect(shapeX - shapeRadius, shapeY - shapeRadius, shapeSize, shapeSize);
+              break;
+            case 'circle':
+              ctx.arc(shapeX, shapeY, shapeRadius, 0, Math.PI * 2);
+              break;
+            case 'triangle':
+              ctx.moveTo(shapeX, shapeY - shapeRadius);
+              ctx.lineTo(shapeX - shapeRadius, shapeY + shapeRadius);
+              ctx.lineTo(shapeX + shapeRadius, shapeY + shapeRadius);
+              ctx.closePath();
+              break;
+            case 'star':
+              const spikes = 5;
+              const outerRadius = shapeRadius;
+              const innerRadius = shapeRadius * 0.4;
+              for (let i = 0; i < spikes * 2; i++) {
+                const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                const angle = (i * Math.PI) / spikes - Math.PI / 2;
+                const x = shapeX + radius * Math.cos(angle);
+                const y = shapeY + radius * Math.sin(angle);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+              }
+              ctx.closePath();
+              break;
+            case 'polygon':
+              const sides = 6;
+              for (let i = 0; i < sides; i++) {
+                const angle = (i * 2 * Math.PI) / sides - Math.PI / 2;
+                const x = shapeX + shapeRadius * Math.cos(angle);
+                const y = shapeY + shapeRadius * Math.sin(angle);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+              }
+              ctx.closePath();
+              break;
+            case 'heart':
+              const heartSize = shapeRadius;
+              ctx.moveTo(shapeX, shapeY + heartSize * 0.3);
+              ctx.bezierCurveTo(shapeX, shapeY, shapeX - heartSize * 0.5, shapeY - heartSize * 0.5, shapeX - heartSize * 0.5, shapeY - heartSize * 0.2);
+              ctx.bezierCurveTo(shapeX - heartSize * 0.5, shapeY + heartSize * 0.1, shapeX, shapeY + heartSize * 0.6, shapeX, shapeY + heartSize * 0.9);
+              ctx.bezierCurveTo(shapeX, shapeY + heartSize * 0.6, shapeX + heartSize * 0.5, shapeY + heartSize * 0.1, shapeX + heartSize * 0.5, shapeY - heartSize * 0.2);
+              ctx.bezierCurveTo(shapeX + heartSize * 0.5, shapeY - heartSize * 0.5, shapeX, shapeY, shapeX, shapeY + heartSize * 0.3);
+              break;
+            case 'diamond':
+              ctx.moveTo(shapeX, shapeY - shapeRadius);
+              ctx.lineTo(shapeX + shapeRadius, shapeY);
+              ctx.lineTo(shapeX, shapeY + shapeRadius);
+              ctx.lineTo(shapeX - shapeRadius, shapeY);
+              ctx.closePath();
+              break;
+            default:
+              ctx.arc(shapeX, shapeY, shapeRadius, 0, Math.PI * 2);
+          }
+          
+          ctx.fill();
+          if (ctx.lineWidth > 0) ctx.stroke();
+          
+          ctx.restore();
+        }
+        
+        // Draw selection border for selected shape
+        if (appStateForShapes.activeShapeId && shapeElements.length > 0) {
+          const selectedShape = shapeElements.find(s => s.id === appStateForShapes.activeShapeId);
+          if (selectedShape && selectedShape.visible) {
+            ctx.save();
+            
+            // CRITICAL FIX: Use stored pixel coordinates directly (like shape rendering, no canvas flip)
+            const shapeX = Math.round(selectedShape.positionX);
+            const shapeY = Math.round(selectedShape.positionY);
+            const shapeSize = selectedShape.size || 50;
+            const shapeRadius = shapeSize / 2;
+            
+            if (selectedShape.rotation && selectedShape.rotation !== 0) {
+              ctx.translate(shapeX, shapeY);
+              ctx.rotate((selectedShape.rotation * Math.PI) / 180);
+              ctx.translate(-shapeX, -shapeY);
+            }
+            
+            ctx.strokeStyle = '#007acc';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.globalAlpha = 1.0;
+            ctx.beginPath();
+            ctx.rect(shapeX - shapeRadius - 5, shapeY - shapeRadius - 5, shapeSize + 10, shapeSize + 10);
+            ctx.stroke();
+            
+            // Draw resize handles (4 corner handles)
+            const handleSize = 8;
+            const handles = [
+              { x: shapeX - shapeRadius - 5, y: shapeY - shapeRadius - 5 },
+              { x: shapeX + shapeRadius + 5, y: shapeY - shapeRadius - 5 },
+              { x: shapeX - shapeRadius - 5, y: shapeY + shapeRadius + 5 },
+              { x: shapeX + shapeRadius + 5, y: shapeY + shapeRadius + 5 }
+            ];
+            
+            ctx.fillStyle = '#007acc';
+            ctx.setLineDash([]);
+            for (const handle of handles) {
+              ctx.fillRect(handle.x - handleSize/2, handle.y - handleSize/2, handleSize, handleSize);
+            }
+            
+            ctx.restore();
+          }
+        }
+        
         // Draw puff elements
         const puffElements = layer.content.puffElements || [];
         for (const puffEl of puffElements) {
@@ -3289,17 +4156,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       
       console.log('🎨 Composed layers using V2 system');
       
-      // Apply layer masks to the final composition
+      // Apply layer masks to the final composition (extracted to helper function)
       for (const layer of sortedLayers) {
-        if (!layer.visible || !layer.mask || !layer.mask.enabled) continue;
-        
-        console.log(`🎨 Applying mask to layer ${layer.name}`, layer.mask);
-        ctx.save();
-        ctx.globalCompositeOperation = layer.mask.inverted ? 'destination-out' : 'destination-in';
-        if (layer.mask.canvas) {
-          ctx.drawImage(layer.mask.canvas, 0, 0);
+        if (layer.visible) {
+          applyFinalLayerMask(layer, ctx);
         }
-        ctx.restore();
       }
       
       // Update the composed canvas in state
@@ -3311,26 +4172,69 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     // History management
     saveHistorySnapshot: (action: string) => {
       const state = get();
-      const snapshot: LayerHistorySnapshot = {
-        id: `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        timestamp: Date.now(),
-        action,
-        layers: JSON.parse(JSON.stringify(state.layers)), // Deep clone
-        activeLayerId: state.activeLayerId
-      };
+      
+      // OPTIMIZATION: Use delta-based snapshots for better memory efficiency
+      // Only store changed layers instead of full state
+      const previousSnapshot = state.history.snapshots[state.history.currentIndex];
+      let snapshot: LayerHistorySnapshot;
+      
+      if (previousSnapshot && state.layers.length > 10) {
+        // Delta mode: Only store changed layers for large layer counts
+        const changedLayerIds: string[] = [];
+        const changes: Record<string, Partial<AdvancedLayer>> = {};
+        
+        // Find changed layers by comparing timestamps
+        state.layers.forEach(layer => {
+          const prevLayer = previousSnapshot.layers.find(l => l.id === layer.id);
+          if (!prevLayer || layer.updatedAt > prevLayer.updatedAt) {
+            changedLayerIds.push(layer.id);
+            changes[layer.id] = JSON.parse(JSON.stringify(layer)); // Deep clone changed layer only
+          }
+        });
+        
+        // Also track deleted layers (existed in prev but not in current)
+        previousSnapshot.layers.forEach(prevLayer => {
+          if (!state.layers.find(l => l.id === prevLayer.id)) {
+            changedLayerIds.push(prevLayer.id);
+          }
+        });
+        
+        snapshot = {
+          id: `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: Date.now(),
+          action,
+          layers: JSON.parse(JSON.stringify(state.layers)), // Still store full state for safety
+          activeLayerId: state.activeLayerId,
+          deltaMode: true,
+          changedLayerIds,
+          changes
+        };
+        
+        console.log(`📸 Delta snapshot: ${changedLayerIds.length}/${state.layers.length} layers changed`);
+      } else {
+        // Full snapshot mode for small layer counts or first snapshot
+        snapshot = {
+          id: `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: Date.now(),
+          action,
+          layers: JSON.parse(JSON.stringify(state.layers)), // Deep clone
+          activeLayerId: state.activeLayerId,
+          deltaMode: false
+        };
+      }
       
       // Remove any snapshots after current index
       const newSnapshots = state.history.snapshots.slice(0, state.history.currentIndex + 1);
       newSnapshots.push(snapshot);
       
-      // Limit snapshots to maxSnapshots
-      const trimmedSnapshots = newSnapshots.slice(-state.history.maxSnapshots);
+      // Limit snapshots to configurable maxHistorySnapshots
+      const trimmedSnapshots = newSnapshots.slice(-state.maxHistorySnapshots);
       
       set({
         history: {
           snapshots: trimmedSnapshots,
           currentIndex: trimmedSnapshots.length - 1,
-          maxSnapshots: state.history.maxSnapshots
+          maxSnapshots: state.maxHistorySnapshots // Use configurable value
         }
       });
       
@@ -3357,6 +4261,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }
         });
         
+        // Trigger composition and texture update after undo
+        get().composeLayers();
+        setTimeout(() => {
+          const appState = useApp.getState();
+          if (appState.updateModelTexture) {
+            appState.updateModelTexture(true);
+          }
+          window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'undo', action: snapshot.action } }));
+        }, 50);
+        
         console.log(`↩️ Undo: ${snapshot.action}`);
       }
     },
@@ -3381,6 +4295,16 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
           }
         });
         
+        // Trigger composition and texture update after redo
+        get().composeLayers();
+        setTimeout(() => {
+          const appState = useApp.getState();
+          if (appState.updateModelTexture) {
+            appState.updateModelTexture(true);
+          }
+          window.dispatchEvent(new CustomEvent('forceTextureUpdate', { detail: { source: 'redo', action: snapshot.action } }));
+        }, 50);
+        
         console.log(`↪️ Redo: ${snapshot.action}`);
       }
     },
@@ -3396,14 +4320,36 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
     },
     
     clearHistory: () => {
+      const state = get();
       set({
         history: {
           snapshots: [],
           currentIndex: -1,
-          maxSnapshots: 50
+          maxSnapshots: state.maxHistorySnapshots // Use configurable value
         }
       });
       console.log('🧹 Cleared history');
+    },
+    
+    setMaxHistorySnapshots: (max: number) => {
+      const state = get();
+      const validMax = Math.max(1, Math.min(max, 500)); // Clamp between 1-500
+      
+      set({ maxHistorySnapshots: validMax });
+      
+      // Trim existing snapshots if new limit is lower
+      if (state.history.snapshots.length > validMax) {
+        const trimmedSnapshots = state.history.snapshots.slice(-validMax);
+        set({
+          history: {
+            snapshots: trimmedSnapshots,
+            currentIndex: Math.min(state.history.currentIndex, trimmedSnapshots.length - 1),
+            maxSnapshots: validMax
+          }
+        });
+      }
+      
+      console.log(`📊 Set max history snapshots to: ${validMax}`);
     },
     
     // Layer operations
@@ -3434,7 +4380,11 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       set(state => ({
         layers: state.layers.map(layer => 
           layer.id === layerId 
-            ? { ...layer, locked: !layer.locked, updatedAt: new Date() }
+            ? { 
+                ...layer, 
+                locking: { ...layer.locking, all: !layer.locking.all },
+                updatedAt: new Date() 
+              }
             : layer
         )
       }));
@@ -4033,7 +4983,7 @@ export const useAdvancedLayerStoreV2 = create<AdvancedLayerStoreV2>()(
       };
       
       // Check if layer is locked and force delete is not enabled
-      if (!opts.forceDelete && (layer.locked || layer.locking.all)) {
+      if (!opts.forceDelete && layer.locking.all) {
         console.warn(`🔒 Cannot delete locked layer: ${layer.name}`);
         return false;
       }

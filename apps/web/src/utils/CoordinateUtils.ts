@@ -23,8 +23,8 @@ export const convertUVToPixel = (uv: UVCoordinates, canvas: HTMLCanvasElement | 
   const width = canvas.width;
   const height = canvas.height;
   
-  const x = Math.floor(uv.u * width);
-  const y = Math.floor((1 - uv.v) * height); // Flip V-axis for canvas space
+  const x = Math.round(uv.u * width);
+  const y = Math.round((1 - uv.v) * height); // Flip V-axis for canvas space
   
   return { x, y };
 };
